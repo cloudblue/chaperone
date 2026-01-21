@@ -1,0 +1,116 @@
+# golangci-lint configuration
+# https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    # Default linters
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    # Additional recommended linters
+    - bodyclose      # Check HTTP response body is closed
+    - contextcheck   # Check context usage
+    - durationcheck  # Check duration multiplication
+    - errname        # Check error naming conventions
+    - errorlint      # Find error wrapping issues
+    - exhaustive     # Check switch exhaustiveness
+    - exportloopref  # Check loop variable capture
+    - gochecknoinits # No init functions
+    - goconst        # Find repeated strings
+    - gocritic       # Opinionated linter
+    - gofmt          # Check formatting
+    - goimports      # Check imports
+    - gosec          # Security checker
+    - misspell       # Find misspellings
+    - nilerr         # Check nil error returns
+    - noctx          # Check HTTP requests use context
+    - prealloc       # Suggest preallocations
+    - revive         # Replacement for golint
+    - unconvert      # Remove unnecessary conversions
+    - unparam        # Find unused parameters
+    - whitespace     # Check whitespace
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  
+  govet:
+    enable-all: true
+  
+  gocyclo:
+    min-complexity: 15
+  
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - hugeParam # Allow large structs as params
+  
+  gofmt:
+    simplify: true
+  
+  goimports:
+    local-prefixes: github.com/cloudblue/chaperone
+  
+  gosec:
+    excludes:
+      - G104 # Unhandled errors (covered by errcheck)
+  
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: increment-decrement
+      - name: var-naming
+      - name: var-declaration
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unreachable-code
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on test files
+    - path: _test\.go
+      linters:
+        - gosec
+        - goconst
+        - gocritic
+    
+    # Allow init functions in main and cmd packages
+    - path: cmd/
+      linters:
+        - gochecknoinits
+    
+    # Allow init functions in main package
+    - path: main\.go
+      linters:
+        - gochecknoinits
+
+  max-issues-per-linter: 50
+  max-same-issues: 10
