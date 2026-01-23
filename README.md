@@ -1,7 +1,14 @@
-# Chaperone
+<div align="center">
+  <img width="1920" height="647" alt="chaperone_banner" src="https://github.com/user-attachments/assets/1481d42f-b761-4506-adef-ebe7b89dab3f" />
+  <p align="center">
+    <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go"></a>
+    <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg">
+  </div>
+  <br/>
+</div>
 
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
+# Chaperone
 
 **Chaperone** is a high-performance, sidecar-style egress proxy designed to securely inject credentials into outgoing API requests. It runs within your infrastructure to manage sensitive authentication data (tokens, API keys, OAuth2 credentials) without exposing them to upstream platforms.
 
