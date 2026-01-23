@@ -39,16 +39,29 @@ make run
 
 ## Project Structure
 
+This is a **multi-module monorepo** with independent versioning for Core and SDK:
+
 ```
 chaperone/
-├── cmd/
-│   └── chaperone/      # Main application entry point
-├── internal/           # Private application code
-│   ├── config/         # Configuration handling
-│   ├── proxy/          # Core proxy logic
-│   └── server/         # HTTP server setup
-├── pkg/                # Public libraries (SDK)
-└── docs/               # Documentation
+├── cmd/chaperone/          # Main application entry point
+├── sdk/                    # Plugin SDK (separate Go module)
+│   ├── go.mod              # Versioned independently (sdk/v1.x.x)
+│   ├── plugin.go           # Plugin interfaces
+│   └── compliance/         # Test kit for Distributors
+├── internal/               # Private application code
+│   ├── config/             # Configuration handling
+│   ├── proxy/              # Core proxy logic
+│   ├── cache/              # Credential cache (memguard)
+│   └── observability/      # Logging, metrics, tracing
+├── plugins/reference/      # Default file-based plugin
+└── configs/                # Example configuration files
+```
+
+### For Plugin Developers
+
+```bash
+# Import just the SDK in your project
+go get github.com/cloudblue/chaperone/sdk
 ```
 
 ## Configuration
