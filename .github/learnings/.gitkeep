@@ -1,0 +1,30 @@
+# Learnings Directory
+
+This directory captures observations, preferences, and insights discovered during development.
+
+## How to Use
+
+1. Create a file: `YYYY-MM-DD-topic.md` (e.g., `2026-01-23-error-handling.md`)
+2. Jot down your observation quickly (low friction)
+3. Run `@workspace /prompt process-learnings` to convert into workflow updates
+
+## Format
+
+```markdown
+# Learning: [Brief Title]
+
+## Observation
+What did you notice?
+
+## Context  
+Where did this come up? (file, task, situation)
+
+## Preference/Decision
+What should we do differently?
+
+## Affects
+- [ ] copilot-instructions.md
+- [ ] Specific prompt file
+- [ ] New/existing skill
+- [ ] ADR needed
+```

@@ -2,6 +2,8 @@
 
 This document provides context and coding guidelines for GitHub Copilot when working on the Chaperone project.
 
+> **Quick Start:** For new sessions, read `AGENTS.md` at project root first.
+
 ## Project Overview
 
 **Chaperone** is a high-performance, sidecar-style egress proxy designed to inject sensitive credentials into outgoing API requests. It runs within a Distributor's infrastructure and ensures credentials never leak to upstream platforms or logs.
@@ -282,7 +284,7 @@ Examples:
 
 ## Architecture Decision Records
 
-Reference these ADRs from `DESIGN SPECIFICATION.md` when making architectural choices:
+Reference these ADRs from `docs/DESIGN-SPECIFICATION.md` when making architectural choices:
 
 | ADR | Decision | Rationale |
 |-----|----------|-----------|
@@ -316,7 +318,7 @@ Before adding a dependency:
 
 When generating code for Chaperone:
 
-1. **Check the Design Spec first** - `DESIGN SPECIFICATION.md` is the source of truth
+1. **Check the Design Spec first** - `docs/DESIGN-SPECIFICATION.md` is the source of truth
 2. **Follow the Plugin interface** - Changes to `pkg/sdk/` affect all Distributors
 3. **Include tests** - Every new function needs corresponding test
 4. **Add doc comments** - Exported functions need godoc comments
@@ -327,6 +329,6 @@ When generating code for Chaperone:
 All Go files should include:
 
 ```go
-// Copyright 2024-2026 CloudBlue
+// Copyright 2026 CloudBlue LLC
 // SPDX-License-Identifier: Apache-2.0
 ```
