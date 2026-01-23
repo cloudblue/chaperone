@@ -1,7 +1,7 @@
 ---
-mode: agent
+agent: "agent"
 description: Process captured learnings and convert them into workflow updates
-tools: ['read_file', 'create_file', 'replace_string_in_file', 'semantic_search', 'file_search']
+tools: ['read/readFile', 'edit/createFile', 'edit/editFiles', 'search']
 ---
 
 # Process Learnings

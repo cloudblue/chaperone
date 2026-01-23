@@ -8,7 +8,7 @@ This document describes how the Chaperone project's AI-assisted workflow operate
 
 When starting a fresh chat session:
 ```
-@workspace /prompt bootstrap
+/bootstrap
 ```
 
 This loads project context, checks current phase, and reports ready status.
@@ -47,90 +47,135 @@ This loads project context, checks current phase, and reports ready status.
 
 ## Quick Reference
 
+All prompts are in `.github/prompts/` and invoked with `/prompt-name` in Copilot Chat.
+
 ### Bootstrap (New Session)
 ```
-@workspace /prompt bootstrap
+/bootstrap
 ```
 Loads context, checks phase, reports ready status.
 
 ### Check Phase Scope (Before Starting Work)
 ```
-@workspace /prompt check-phase-scope
+/check-phase-scope
 ```
-Variables: `task` - Verifies work fits current development phase.
+Verifies work fits current development phase.
 
 ### Capture a Learning (Fast)
 ```
-@workspace /prompt capture-learning
+/capture-learning
 ```
-Variables: `topic`, `observation`, `preference`
+Quick capture an observation about code style, patterns, or conventions.
 
 ### Process Learnings (Batch)
 ```
-@workspace /prompt process-learnings
+/process-learnings
 ```
 Converts captured learnings into instruction/prompt updates.
 
-### Update Go Instructions (Specific)
+### Update Go Instructions
 ```
-@workspace /prompt update-go-instructions
+/update-go-instructions
 ```
-Variables: `category` (errors, testing, security), `pattern`, `example_good`, `example_bad`
+Update Go coding conventions (errors, testing, security).
 
 ### Refine a Prompt
 ```
-@workspace /prompt refine-prompt
+/refine-prompt
 ```
-Variables: `prompt_file`, `problem`, `desired`
+Improve a prompt that's not working well.
 
 ### Create a New Skill
 ```
-@workspace /prompt create-skill
+/create-skill
 ```
-Variables: `skill_name`, `description`, `trigger`, `steps`
+Create a multi-step workflow skill.
+
+---
+
+## Implementation Workflow (Building Chaperone)
+
+### Generate Implementation Plan
+```
+/planner
+```
+Creates tasks in `.github/plans/phase-N-name/` from ROADMAP + Design Spec.
+
+### Execute a Task
+```
+/implement-task .github/plans/phase-1-poc/05-context-parsing.task.md
+```
+Implements a specific task following TDD.
+
+### View Phase Status
+Read `.github/plans/phase-1-poc/_index.md` for current progress.
+
+---
 
 ## File Structure
 
 ```
 .github/
 ├── copilot-instructions.md      # Main project context
-├── instructions/                 # Modular, topic-specific
+├── META-WORKFLOW.md             # This file
+│
+├── instructions/                 # Modular coding rules (auto-applied)
 │   ├── go-errors.instructions.md
 │   ├── go-testing.instructions.md
 │   └── go-security.instructions.md
-├── prompts/                      # Reproducible tasks
-│   ├── bootstrap.prompt.md           # Session initialization
-│   ├── check-phase-scope.prompt.md   # Verify work fits phase
+│
+├── prompts/                      # All prompts (invoked with /name)
+│   ├── bootstrap.prompt.md       # Session initialization
 │   ├── capture-learning.prompt.md
-│   ├── process-learnings.prompt.md
-│   ├── update-go-instructions.prompt.md
-│   ├── refine-prompt.prompt.md
-│   └── create-skill.prompt.md
+│   ├── planner.prompt.md         # Generate phase tasks
+│   ├── implement-task.prompt.md  # Execute a task
+│   └── ...
+│
+├── plans/                        # Task data (NOT prompts)
+│   └── phase-1-poc/              # Phase 1 tasks
+│       ├── _index.md             # Progress tracker
+│       └── NN-name.task.md       # Individual task files
+│
 ├── learnings/                    # Captured observations
-│   ├── README.md
-│   └── archived/                 # Processed learnings
-└── skills/                       # Complex workflows
-    └── [future skills]
+│   └── archived/
+│
+└── skills/                       # Complex multi-step workflows
 ```
+
+## Prompts vs Plans
+
+| Type | Location | Purpose |
+|------|----------|---------|
+| **Prompts** | `.github/prompts/*.prompt.md` | Invocable with `/name` in chat |
+| **Plans** | `.github/plans/phase-N-*/` | Task data files read by prompts |
+
+**Prompts** are executable - they contain instructions for Copilot.  
+**Plans** are data - they describe what to build, read by `/implement-task`.
 
 ## Workflow Patterns
 
 ### Pattern 0: Starting Fresh Session
 1. Open new Copilot chat
-2. Run `@workspace /prompt bootstrap`
+2. Run `/bootstrap`
 3. Get context loaded, phase status, ready to work
 
-### Pattern 1: Quick Style Fix
+### Pattern 1: Implement a Feature
+1. Check `plans/phase-1-poc/_index.md` for next task
+2. Read the task file (e.g., `05-context-parsing.task.md`)
+3. Implement following TDD
+4. Update task status in `_index.md`
+
+### Pattern 2: Quick Style Fix
 1. You notice: "I prefer X over Y in Go"
 2. Quick capture: Run `capture-learning` with the observation
 3. Later: Run `process-learnings` to update instructions
 
-### Pattern 2: Prompt Not Working Well
+### Pattern 3: Prompt Not Working Well
 1. You notice: "This prompt produces too verbose output"
 2. Run `refine-prompt` with the problem and desired behavior
 3. Prompt is updated with refinement
 
-### Pattern 3: New Complex Workflow Needed
+### Pattern 4: New Complex Workflow Needed
 1. You realize: "Implementing SDK interfaces always follows these 5 steps"
 2. Run `create-skill` to package the workflow
 3. Future work uses the skill

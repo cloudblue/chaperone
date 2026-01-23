@@ -1,7 +1,7 @@
 ---
-mode: agent
+agent: "agent"
 description: Verify if proposed work fits within the current development phase
-tools: ['read_file']
+tools: ['read/readFile']
 ---
 
 # Check Phase Scope

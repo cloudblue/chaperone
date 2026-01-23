@@ -53,15 +53,19 @@ Work should fit within the current phase. Use `check-phase-scope` prompt if unsu
 
 ## Available Prompts
 
+All prompts are invoked with `/prompt-name` in Copilot Chat.
+
 | Prompt | Purpose |
 |--------|---------|
-| `bootstrap` | Initialize session with full context |
-| `check-phase-scope` | Verify work fits current phase |
-| `capture-learning` | Quick capture an observation |
-| `process-learnings` | Convert learnings to workflow updates |
-| `update-go-instructions` | Update Go coding conventions |
-| `refine-prompt` | Improve a prompt that's not working well |
-| `create-skill` | Create a new multi-step workflow skill |
+| `/bootstrap` | Initialize session with full context |
+| `/check-phase-scope` | Verify work fits current phase |
+| `/planner` | Generate tasks for a phase from ROADMAP |
+| `/implement-task` | Implement a specific task file |
+| `/capture-learning` | Quick capture an observation |
+| `/process-learnings` | Convert learnings to workflow updates |
+| `/update-go-instructions` | Update Go coding conventions |
+| `/refine-prompt` | Improve a prompt that's not working well |
+| `/create-skill` | Create a new multi-step workflow skill |
 
 ## Key Conventions
 
@@ -85,7 +89,7 @@ When starting a new chat session:
 
 Or simply run:
 ```
-@workspace /prompt bootstrap
+/bootstrap
 ```
 
 ## Architecture Decisions (ADRs)

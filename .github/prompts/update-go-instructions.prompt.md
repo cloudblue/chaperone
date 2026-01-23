@@ -1,7 +1,7 @@
 ---
-mode: agent
+agent: "agent"
 description: Update Go-specific coding instructions based on a preference or pattern
-tools: ['read_file', 'create_file', 'replace_string_in_file', 'file_search']
+tools: ['read/readFile', 'edit/createFile', 'edit/editFiles', 'search']
 ---
 
 # Update Go Instructions
@@ -33,7 +33,7 @@ Chaperone is a Go project following strict conventions. Go-specific instructions
    - Don't duplicate existing content
 
 3. **If doesn't exist**: Create the modular file with structure:
-   ```markdown
+   ````markdown
    ---
    applyTo: "**/*.go"
    ---
@@ -52,7 +52,7 @@ Chaperone is a Go project following strict conventions. Go-specific instructions
    // ❌ Avoid
    {{example_bad}}
    ```
-   ```
+   ````
 
 4. **Verify consistency** with main `copilot-instructions.md` - no contradictions
 

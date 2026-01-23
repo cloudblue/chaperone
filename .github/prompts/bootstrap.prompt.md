@@ -1,7 +1,7 @@
 ---
-mode: agent
+agent: "agent"
 description: Bootstrap a new session with full project context
-tools: ['read_file', 'list_dir', 'file_search', 'runSubagent', 'run_in_terminal']
+tools: ['execute/runInTerminal', 'read/readFile', 'search', 'search', 'agent']
 ---
 
 # Bootstrap Session

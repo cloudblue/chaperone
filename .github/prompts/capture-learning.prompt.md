@@ -1,7 +1,7 @@
 ---
-mode: agent
+agent: "agent"
 description: Quickly capture a learning without leaving your current task
-tools: ['create_file']
+tools: ['edit/createFile']
 ---
 
 # Capture Learning

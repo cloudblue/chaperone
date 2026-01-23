@@ -1,7 +1,7 @@
 ---
-mode: agent
+agent: "agent"
 description: Create a new Agent Skill for the Chaperone project
-tools: ['read_file', 'create_file', 'file_search']
+tools: ['read/readFile', 'edit/createFile', 'search']
 ---
 
 # Create Chaperone Skill

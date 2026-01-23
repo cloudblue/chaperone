@@ -1,7 +1,7 @@
 ---
-mode: agent
+agent: "agent"
 description: Improve an existing prompt based on observed results
-tools: ['read_file', 'replace_string_in_file', 'semantic_search']
+tools: ['read/readFile', 'edit/editFiles', 'search']
 ---
 
 # Refine Prompt

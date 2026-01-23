@@ -6,7 +6,7 @@ This directory captures observations, preferences, and insights discovered durin
 
 1. Create a file: `YYYY-MM-DD-topic.md` (e.g., `2026-01-23-error-handling.md`)
 2. Jot down your observation quickly (low friction)
-3. Run `@workspace /prompt process-learnings` to convert into workflow updates
+3. Run `/process-learnings` to convert into workflow updates
 
 ## Format
 
