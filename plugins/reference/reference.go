@@ -39,12 +39,13 @@ import (
 //	  }
 //	}
 type Plugin struct {
+	cache map[string]*vendorCredentials
+
 	// CredentialsFile is the path to the JSON credentials file.
 	CredentialsFile string
 
 	// mu protects the credentials cache.
-	mu    sync.RWMutex
-	cache map[string]*vendorCredentials
+	mu sync.RWMutex
 }
 
 type vendorCredentials struct {
