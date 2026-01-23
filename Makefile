@@ -52,16 +52,19 @@ clean: ## Remove build artifacts
 # ============================================================================
 
 .PHONY: test
-test: ## Run tests
+test: ## Run tests (both modules)
 	go test -v ./...
+	cd sdk && go test -v ./...
 
 .PHONY: test-race
 test-race: ## Run tests with race detector
 	go test -race -v ./...
+	cd sdk && go test -race -v ./...
 
 .PHONY: test-cover
 test-cover: ## Run tests with coverage
 	go test -coverprofile=coverage.out ./...
+	cd sdk && go test -coverprofile=coverage-sdk.out ./...
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
@@ -74,31 +77,37 @@ test-short: ## Run short tests only
 # ============================================================================
 
 .PHONY: lint
-lint: ## Run linters
+lint: ## Run linters (both modules)
 	@if command -v golangci-lint >/dev/null 2>&1; then \
 		golangci-lint run; \
+		cd sdk && golangci-lint run; \
 	else \
-		echo "golangci-lint not installed. Run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
+		echo "golangci-lint not installed. Run: make tools"; \
 		exit 1; \
 	fi
 
 .PHONY: lint-fix
 lint-fix: ## Run linters and fix issues
 	golangci-lint run --fix
+	cd sdk && golangci-lint run --fix
 
 .PHONY: fmt
-fmt: ## Format code
+fmt: ## Format code (both modules)
 	go fmt ./...
 	gofmt -s -w .
+	cd sdk && go fmt ./...
+	cd sdk && gofmt -s -w .
 
 .PHONY: vet
 vet: ## Run go vet
 	go vet ./...
+	cd sdk && go vet ./...
 
 .PHONY: tidy
-tidy: ## Tidy and verify go.mod
+tidy: ## Tidy and verify go.mod (both modules)
 	go mod tidy
 	go mod verify
+	cd sdk && go mod tidy
 
 # ============================================================================
 # Development Tools
