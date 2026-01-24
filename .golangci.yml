@@ -101,6 +101,11 @@ issues:
         - goconst
         - gocritic
 
+    # Allow ignored errors in compliance test kit (tests panic behavior, not error handling)
+    - path: compliance/
+      linters:
+        - errcheck
+
     # Allow init functions in main and cmd packages
     - path: cmd/
       linters:
