@@ -53,6 +53,8 @@ Work should fit within the current phase. Use `check-phase-scope` prompt if unsu
 
 ## Available Prompts
 
+**Prompts are the primary workflow entry points.** When asked to perform an action, always check if a dedicated prompt exists first.
+
 All prompts are invoked with `/prompt-name` in Copilot Chat.
 
 | Prompt | Purpose |
@@ -91,6 +93,15 @@ Or simply run:
 ```
 /bootstrap
 ```
+
+### Common Actions → Prompts
+
+| When asked to... | Use this prompt |
+|------------------|----------------|
+| Implement a task | `/implement-task` |
+| Plan work for a phase | `/planner` |
+| Capture an observation | `/capture-learning` |
+| Check if work fits phase | `/check-phase-scope` |
 
 ## Architecture Decisions (ADRs)
 

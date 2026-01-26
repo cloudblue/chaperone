@@ -74,3 +74,14 @@ Provide a summary:
 After bootstrapping, ask the user what they'd like to work on, suggesting:
 - The next incomplete task from the plan (if plans exist)
 - Running `/planner` to generate tasks (if no plans exist)
+
+## Important: Use Prompts for Actions
+
+**Prompts are the primary workflow entry points, not suggestions.**
+
+When the user wants to:
+- **Implement a task** → Use `/implement-task`
+- **Plan a phase** → Use `/planner`
+- **Capture a learning** → Use `/capture-learning`
+
+Do NOT improvise implementation plans by reading task files directly. Always use the dedicated prompt.
