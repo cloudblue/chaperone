@@ -63,7 +63,7 @@ func testCredentialProvider(t *testing.T, p sdk.CredentialProvider) {
 
 		ctx := context.Background()
 		tx := sdk.TransactionContext{}
-		req, _ := http.NewRequest(http.MethodGet, "https://example.com", nil)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com", http.NoBody)
 
 		// Should not panic - may return error, that's OK
 		_, _ = p.GetCredentials(ctx, tx, req)
@@ -80,7 +80,7 @@ func testCredentialProvider(t *testing.T, p sdk.CredentialProvider) {
 		cancel() // Cancel immediately
 
 		tx := sdk.TransactionContext{VendorID: "test-vendor"}
-		req, _ := http.NewRequest(http.MethodGet, "https://example.com", nil)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com", http.NoBody)
 
 		// Should not panic - expected to return error or handle gracefully
 		_, _ = p.GetCredentials(ctx, tx, req)
@@ -92,7 +92,7 @@ func testCredentialProvider(t *testing.T, p sdk.CredentialProvider) {
 			VendorID:  "test-vendor",
 			ProductID: "test-product",
 		}
-		req, _ := http.NewRequest(http.MethodGet, "https://example.com", nil)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com", http.NoBody)
 
 		cred, err := p.GetCredentials(ctx, tx, req)
 
