@@ -76,11 +76,14 @@ test-short: ## Run short tests only
 # Code Quality
 # ============================================================================
 
+# golangci-lint binary location (installed via go install)
+GOLANGCI_LINT := $(shell go env GOPATH)/bin/golangci-lint
+
 .PHONY: lint
 lint: ## Run linters (both modules)
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
-		cd sdk && golangci-lint run; \
+	@if [ -x "$(GOLANGCI_LINT)" ]; then \
+		$(GOLANGCI_LINT) run; \
+		cd sdk && $(GOLANGCI_LINT) run; \
 	else \
 		echo "golangci-lint not installed. Run: make tools"; \
 		exit 1; \
@@ -88,8 +91,8 @@ lint: ## Run linters (both modules)
 
 .PHONY: lint-fix
 lint-fix: ## Run linters and fix issues
-	golangci-lint run --fix
-	cd sdk && golangci-lint run --fix
+	$(GOLANGCI_LINT) run --fix
+	cd sdk && $(GOLANGCI_LINT) run --fix
 
 .PHONY: fmt
 fmt: ## Format code (both modules)
@@ -113,10 +116,13 @@ tidy: ## Tidy and verify go.mod (both modules)
 # Development Tools
 # ============================================================================
 
+# golangci-lint version to install
+GOLANGCI_LINT_VERSION := v2.8.0
+
 .PHONY: tools
 tools: ## Install development tools
-	@echo "Installing development tools..."
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(shell go env GOPATH)/bin $(GOLANGCI_LINT_VERSION)
 
 # ============================================================================
 # Help

@@ -17,6 +17,7 @@ permissions:
 
 env:
   GO_VERSION: '1.25.5'
+  GOLANGCI_LINT_VERSION: 'v2.8.0'
 
 jobs:
   lint:
@@ -31,15 +32,16 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      # Install from source to support Go 1.25.5
-      - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-
       - name: Run golangci-lint (root module)
-        run: golangci-lint run
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
 
       - name: Run golangci-lint (SDK module)
-        run: cd sdk && golangci-lint run
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          working-directory: sdk
 
   test:
     name: Test
@@ -70,7 +72,6 @@ jobs:
 
       - name: Run tests (SDK module)
         run: cd sdk && go test -race ./...
-
   # TODO: Enable when cmd/chaperone is created
   # build:
   #   name: Build
