@@ -72,24 +72,24 @@ jobs:
 
       - name: Run tests (SDK module)
         run: cd sdk && go test -race ./...
-  # TODO: Enable when cmd/chaperone is created
-  # build:
-  #   name: Build
-  #   runs-on: ubuntu-latest
-  #   needs: [lint, test]
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
 
-  #     - name: Set up Go
-  #       uses: actions/setup-go@v5
-  #       with:
-  #         go-version: ${{ env.GO_VERSION }}
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-  #     - name: Build binary
-  #       run: make build
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
-  #     - name: Verify binary exists
-  #       run: |
-  #         test -f bin/chaperone
-  #         ./bin/chaperone --version || true
+      - name: Build binary
+        run: make build
+
+      - name: Verify binary exists
+        run: |
+          test -f bin/chaperone
+          ./bin/chaperone --version || true
