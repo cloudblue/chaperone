@@ -63,6 +63,8 @@ All prompts are invoked with `/prompt-name` in Copilot Chat.
 | `/check-phase-scope` | Verify work fits current phase |
 | `/planner` | Generate tasks for a phase from ROADMAP |
 | `/implement-task` | Implement a specific task file |
+| `/code-quality-review` | Independent review of staged changes before merge |
+| `/fix-review-issues` | Fix issues identified by code-quality-review |
 | `/capture-learning` | Quick capture an observation |
 | `/process-learnings` | Convert learnings to workflow updates |
 | `/update-go-instructions` | Update Go coding conventions |

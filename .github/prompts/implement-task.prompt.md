@@ -73,19 +73,26 @@ go test ./path/to/package/... -v
 2. Run linter: `make lint` (requires `golangci-lint` - run `make tools` to install if missing)
 3. Check for errors: use get_errors tool
 
-### Step 7: Update Task Status
+### Step 7: Mark Pending Review
 
 1. Update the task file:
-   - Change status from `[ ] Not Started` to `[x] Completed`
-   - Mark ALL acceptance criteria checkboxes as `[x]` (including tests/lint items)
-2. Update `.github/plans/phase-N-name/_index.md` progress table
+   - Change status from `[ ] Not Started` to `[~] Pending Review`
+   - Mark implementation acceptance criteria as `[x]` (but NOT the "task completed" box)
+2. Update `.github/plans/phase-N-name/_index.md` progress table to `[~]`
+3. Write task path to `.github/reviews/current-task.txt` for review tracking:
+   ```bash
+   echo ".github/plans/phase-1-poc/NN-task-name.task.md" > .github/reviews/current-task.txt
+   ```
+
+**Note:** Task will be marked `[x] Completed` by `/code-quality-review` when it passes.
 
 ## Output Format
 
 ```markdown
-## Task Completed ✓
+## Implementation Ready for Review
 
 **Task:** [task file path]
+**Status:** Pending Review
 **Objective:** [one-line summary]
 
 ### Files Created/Modified
@@ -96,9 +103,17 @@ go test ./path/to/package/... -v
 - X tests passing
 - All acceptance criteria met
 
-### Next Suggested Task
-Based on the dependency graph, the next task to work on is:
-`NN-next-task.task.md` - [brief description]
+### Next Step: Code Review
+Stage your changes and run the independent review:
+```bash
+git add -A
+```
+Then run: `/code-quality-review`
+
+The review will:
+- Validate code quality
+- Mark task as `[x] Completed` if PASS
+- Or identify issues to fix with `/fix-review-issues`
 ```
 
 ## If Blocked

@@ -105,7 +105,65 @@ Creates tasks in `.github/plans/phase-N-name/` from ROADMAP + Design Spec.
 ```
 /implement-task .github/plans/phase-1-poc/05-context-parsing.task.md
 ```
-Implements a specific task following TDD.
+Implements a specific task following TDD. Marks task as `[~] Pending Review`.
+
+### Review Before Merge
+```
+/code-quality-review
+```
+Independent review of staged changes. On `PASS`, marks task as `[x] Completed`.
+
+### Fix Review Issues
+```
+/fix-review-issues
+```
+Address issues identified by code-quality-review. Run after `NEEDS_FIXES` verdict.
+
+### Complete Implementation Flow
+
+```
+┌─────────────────┐
+│ /implement-task │ ─── Marks [~] Pending Review
+└────────┬────────┘     Writes current-task.txt
+         │
+         ▼
+┌─────────────────┐
+│   git add -A    │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────────┐
+│ /code-quality-review│ ─── Reads current-task.txt
+└────────┬────────────┘     Writes latest-review.md
+         │
+    ┌────┴────┬──────────────┐
+    ▼         ▼              ▼
+  PASS    NEEDS_FIXES    NEEDS_REDESIGN
+    │         │              │
+    │         ▼              ▼
+    │  ┌──────────────┐  Discuss with
+    │  │/fix-review-  │    user
+    │  │   issues     │
+    │  └──────┬───────┘
+    │         │
+    │         └──── (loop back to git add + review)
+    │
+    ▼
+Marks [x] Completed
+Deletes current-task.txt
+    │
+    ▼
+git commit + merge
+```
+
+### Task Status Meanings
+
+| Status | Meaning |
+|--------|---------|
+| `[ ]` | Not started |
+| `[~]` | In progress OR Pending Review |
+| `[x]` | Completed (passed review) |
+| `[!]` | Blocked |
 
 ### View Phase Status
 Read `.github/plans/phase-1-poc/_index.md` for current progress.
@@ -129,7 +187,13 @@ Read `.github/plans/phase-1-poc/_index.md` for current progress.
 │   ├── capture-learning.prompt.md
 │   ├── planner.prompt.md         # Generate phase tasks
 │   ├── implement-task.prompt.md  # Execute a task
+│   ├── code-quality-review.prompt.md  # Review before merge
+│   ├── fix-review-issues.prompt.md    # Fix review findings
 │   └── ...
+│
+├── reviews/                      # Review outputs (gitignored)
+│   ├── README.md
+│   └── latest-review.md          # Most recent review
 │
 ├── plans/                        # Task data (NOT prompts)
 │   └── phase-1-poc/              # Phase 1 tasks

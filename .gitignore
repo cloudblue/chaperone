@@ -47,3 +47,7 @@ __debug_bin*
 
 # Air live reload
 tmp/
+
+# Code review outputs (ephemeral)
+.github/reviews/latest-review.md
+.github/reviews/current-task.txt
