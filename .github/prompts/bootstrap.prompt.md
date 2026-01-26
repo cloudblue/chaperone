@@ -1,7 +1,7 @@
 ---
 agent: "agent"
 description: Bootstrap a new session with full project context
-tools: ['execute/runInTerminal', 'read/readFile', 'search', 'search', 'agent']
+tools: ['execute', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/readFile', 'search', 'web', 'agent']
 ---
 
 # Bootstrap Session
@@ -16,33 +16,39 @@ Perform these steps to load project context:
 
 Read `AGENTS.md` - This gives you the project overview and pointers to all key files.
 
-### Step 2: Use Subagent for Design Spec Summary
+### Step 2: Identify Current Phase
 
-Spawn a subagent to read and summarize the Design Spec:
-
-```
-Subagent task: Read docs/DESIGN-SPECIFICATION.md and docs/ROADMAP.md.
-Return:
+Read `docs/ROADMAP.md` to identify:
 1. Current phase name and number
-2. List of tasks in current phase with completion status
-3. Key ADRs that affect implementation
-4. Any blocking dependencies between tasks
-```
+2. Key ADRs that affect implementation
 
-This keeps the main context clean while getting necessary information.
+### Step 3: Get Task Progress from Plans
 
-### Step 3: Check for Unprocessed Learnings
+**Important:** Task progress is tracked in plan files, NOT in ROADMAP.md.
+
+The workflow hierarchy is: `ROADMAP.md` (milestones) → `Plans` (tasks) → `Implementation`
+
+1. List `.github/plans/` directory
+2. If plan files exist for current phase (e.g., `phase-1-*.md`):
+   - Read the plan files
+   - Count completed tasks (`[x]`) vs total tasks (`[ ]`)
+   - Note any blocked or in-progress tasks
+3. If NO plans exist for current phase:
+   - Report "No plan generated yet"
+   - Suggest running `planner` prompt first
+
+### Step 4: Check for Unprocessed Learnings
 
 List `.github/learnings/` directory. If there are unprocessed learnings (not in `archived/`):
 - Note them for the user
 - Suggest running `process-learnings` prompt
 
-### Step 4: Quick Codebase State
+### Step 5: Quick Codebase State
 
 Run `git log --oneline -5` to see recent activity.
 Check what exists in `internal/` and `sdk/`.
 
-### Step 5: Report Ready Status
+### Step 6: Report Ready Status
 
 Provide a summary:
 
@@ -50,7 +56,8 @@ Provide a summary:
 ## Session Bootstrapped ✓
 
 **Current Phase:** Phase 1 (PoC)
-**Phase Progress:** X/Y tasks complete
+**Phase Progress:** X/Y tasks complete (from .github/plans/)
+  - [If no plans]: "No plan generated - run /planner first"
 
 **Unprocessed Learnings:** [none | X learnings pending]
 
@@ -59,9 +66,11 @@ Provide a summary:
 - Internal: [status]
 - Reference Plugin: [status]
 
-**Ready for:** [suggested next task based on phase]
+**Next Task:** [first incomplete task from plan, or suggest /planner]
 ```
 
 ## Output
 
-After bootstrapping, ask the user what they'd like to work on, offering suggestions based on the current phase's incomplete tasks.
+After bootstrapping, ask the user what they'd like to work on, suggesting:
+- The next incomplete task from the plan (if plans exist)
+- Running `/planner` to generate tasks (if no plans exist)

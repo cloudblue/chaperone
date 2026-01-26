@@ -1,7 +1,7 @@
 ---
 agent: "agent"
 description: Process captured learnings and convert them into workflow updates
-tools: ['read/readFile', 'edit/createFile', 'edit/editFiles', 'search']
+tools: ['execute', 'read/readFile', 'edit/createFile', 'edit/editFiles', 'search', 'agent']
 ---
 
 # Process Learnings
