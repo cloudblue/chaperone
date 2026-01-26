@@ -21,7 +21,6 @@ linters:
     - errname        # Check error naming conventions
     - errorlint      # Find error wrapping issues
     - exhaustive     # Check switch exhaustiveness
-    - exportloopref  # Check loop variable capture
     - gochecknoinits # No init functions
     - goconst        # Find repeated strings
     - gocritic       # Opinionated linter
@@ -41,17 +40,17 @@ linters-settings:
   errcheck:
     check-type-assertions: true
     check-blank: true
-  
+
   govet:
     enable-all: true
-  
+
   gocyclo:
     min-complexity: 15
-  
+
   goconst:
     min-len: 3
     min-occurrences: 3
-  
+
   gocritic:
     enabled-tags:
       - diagnostic
@@ -59,17 +58,17 @@ linters-settings:
       - performance
     disabled-checks:
       - hugeParam # Allow large structs as params
-  
+
   gofmt:
     simplify: true
-  
+
   goimports:
     local-prefixes: github.com/cloudblue/chaperone
-  
+
   gosec:
     excludes:
       - G104 # Unhandled errors (covered by errcheck)
-  
+
   revive:
     rules:
       - name: blank-imports
@@ -101,12 +100,17 @@ issues:
         - gosec
         - goconst
         - gocritic
-    
+
+    # Allow ignored errors in compliance test kit (tests panic behavior, not error handling)
+    - path: compliance/
+      linters:
+        - errcheck
+
     # Allow init functions in main and cmd packages
     - path: cmd/
       linters:
         - gochecknoinits
-    
+
     # Allow init functions in main package
     - path: main\.go
       linters:
