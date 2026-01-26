@@ -1,120 +1,145 @@
 # golangci-lint configuration
 # https://golangci-lint.run/usage/configuration/
-
+version: "2"
 run:
   timeout: 5m
   modules-download-mode: readonly
 
 linters:
   enable:
-    # Default linters
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    # Additional recommended linters
-    - bodyclose      # Check HTTP response body is closed
-    - contextcheck   # Check context usage
-    - durationcheck  # Check duration multiplication
-    - errname        # Check error naming conventions
-    - errorlint      # Find error wrapping issues
-    - exhaustive     # Check switch exhaustiveness
+    - bodyclose # Check HTTP response body is closed
+    - contextcheck # Check context usage
+    - copyloopvar # Detect copied loop variables
+    - durationcheck # Check duration multiplication
+    - errname # Check error naming conventions
+    - errorlint # Find error wrapping issues
+    - exhaustive # Check switch exhaustiveness
     - gochecknoinits # No init functions
-    - goconst        # Find repeated strings
-    - gocritic       # Opinionated linter
-    - gofmt          # Check formatting
-    - goimports      # Check imports
-    - gosec          # Security checker
-    - misspell       # Find misspellings
-    - nilerr         # Check nil error returns
-    - noctx          # Check HTTP requests use context
-    - prealloc       # Suggest preallocations
-    - revive         # Replacement for golint
-    - unconvert      # Remove unnecessary conversions
-    - unparam        # Find unused parameters
-    - whitespace     # Check whitespace
+    - goconst # Find repeated strings
+    - gocritic # Opinionated linter
+    - gosec # Security checker
+    - misspell # Find misspellings
+    - nilerr # Check nil error returns
+    - noctx # Check HTTP requests use context
+    - prealloc # Suggest preallocations
+    - revive # Replacement for golint
+    - unconvert # Remove unnecessary conversions
+    - unparam # Find unused parameters
+    - whitespace # Check whitespace
 
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
 
-  govet:
-    enable-all: true
+    govet:
+      enable-all: true
 
-  gocyclo:
-    min-complexity: 15
+    gocyclo:
+      min-complexity: 15
 
-  goconst:
-    min-len: 3
-    min-occurrences: 3
+    goconst:
+      min-len: 3
+      min-occurrences: 3
 
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-    disabled-checks:
-      - hugeParam # Allow large structs as params
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        - hugeParam # Allow large structs as params
 
-  gofmt:
-    simplify: true
+    gosec:
+      excludes:
+        - G104 # Unhandled errors (covered by errcheck)
 
-  goimports:
-    local-prefixes: github.com/cloudblue/chaperone
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unreachable-code
 
-  gosec:
-    excludes:
-      - G104 # Unhandled errors (covered by errcheck)
+  exclusions:
+    generated: lax
 
-  revive:
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+
     rules:
-      - name: blank-imports
-      - name: context-as-argument
-      - name: context-keys-type
-      - name: dot-imports
-      - name: error-return
-      - name: error-strings
-      - name: error-naming
-      - name: exported
-      - name: increment-decrement
-      - name: var-naming
-      - name: var-declaration
-      - name: package-comments
-      - name: range
-      - name: receiver-naming
-      - name: time-naming
-      - name: indent-error-flow
-      - name: errorf
-      - name: empty-block
-      - name: superfluous-else
-      - name: unreachable-code
+      # Exclude some linters from running on test files
+      - linters:
+          - goconst
+          - gocritic
+          - gosec
+        path: _test\.go
+
+      # Allow ignored errors in compliance test kit (tests panic behavior, not error handling)
+      - linters:
+          - errcheck
+        path: compliance/
+
+      # Allow init functions in main and cmd packages
+      - linters:
+          - gochecknoinits
+        path: cmd/
+
+      # Allow init functions in main package
+      - linters:
+          - gochecknoinits
+        path: main\.go
+
+      - linters:
+          - revive
+        path: internal/context/
+        text: "var-naming: avoid package names"
+
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 
 issues:
-  exclude-rules:
-    # Exclude some linters from running on test files
-    - path: _test\.go
-      linters:
-        - gosec
-        - goconst
-        - gocritic
-
-    # Allow ignored errors in compliance test kit (tests panic behavior, not error handling)
-    - path: compliance/
-      linters:
-        - errcheck
-
-    # Allow init functions in main and cmd packages
-    - path: cmd/
-      linters:
-        - gochecknoinits
-
-    # Allow init functions in main package
-    - path: main\.go
-      linters:
-        - gochecknoinits
-
   max-issues-per-linter: 50
   max-same-issues: 10
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+  settings:
+    gofmt:
+      simplify: true
+
+    goimports:
+      local-prefixes:
+        - github.com/cloudblue/chaperone
+
+  exclusions:
+    generated: lax
+
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
