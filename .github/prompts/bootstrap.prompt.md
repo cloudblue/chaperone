@@ -43,12 +43,19 @@ List `.github/learnings/` directory. If there are unprocessed learnings (not in 
 - Note them for the user
 - Suggest running `process-learnings` prompt
 
-### Step 5: Quick Codebase State
+### Step 5: Check for Pending Review
+
+Check if `.github/reviews/latest-review.md` exists:
+- If yes, read it and check the **Verdict**
+- If verdict is `NEEDS_FIXES`: flag this for the user
+- User should run `/fix-review-issues` before starting new work
+
+### Step 6: Quick Codebase State
 
 Run `git log --oneline -5` to see recent activity.
 Check what exists in `internal/` and `sdk/`.
 
-### Step 6: Report Ready Status
+### Step 7: Report Ready Status
 
 Provide a summary:
 
@@ -66,12 +73,14 @@ Provide a summary:
 - Internal: [status]
 - Reference Plugin: [status]
 
+**Pending Review:** [none | latest-review.md exists with NEEDS_FIXES]
 **Next Task:** [first incomplete task from plan, or suggest /planner]
 ```
 
 ## Output
 
 After bootstrapping, ask the user what they'd like to work on, suggesting:
+- If `latest-review.md` exists with `NEEDS_FIXES`: Run `/fix-review-issues` first
 - The next incomplete task from the plan (if plans exist)
 - Running `/planner` to generate tasks (if no plans exist)
 
@@ -81,6 +90,8 @@ After bootstrapping, ask the user what they'd like to work on, suggesting:
 
 When the user wants to:
 - **Implement a task** → Use `/implement-task`
+- **Review changes** → Use `/code-quality-review`
+- **Fix review issues** → Use `/fix-review-issues`
 - **Plan a phase** → Use `/planner`
 - **Capture a learning** → Use `/capture-learning`
 

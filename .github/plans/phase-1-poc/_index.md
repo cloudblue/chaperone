@@ -20,7 +20,7 @@
 | 10 | mTLS Verification | [ ] | P0 | 08 | L |
 | 11 | Docker Validation | [ ] | P0 | All | M |
 
-**Legend:** `[ ]` Not started | `[~]` In progress | `[x]` Completed | `[!]` Blocked
+**Legend:** `[ ]` Not started | `[~]` In progress / Pending Review | `[x]` Completed | `[!]` Blocked
 
 ## Dependency Graph
 
