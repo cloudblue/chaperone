@@ -108,7 +108,7 @@ Stage your changes and run the independent review:
 ```bash
 git add -A
 ```
-Then run: `/code-quality-review`
+Then run: `/code-quality-review` ideally in another chat session.
 
 The review will:
 - Validate code quality

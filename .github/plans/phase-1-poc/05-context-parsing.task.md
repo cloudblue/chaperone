@@ -1,6 +1,6 @@
 # Task: Context Parsing
 
-**Status:** [ ] Not Started  
+**Status:** [x] Completed  
 **Priority:** P0  
 **Estimated Effort:** M (Medium)
 
@@ -20,16 +20,16 @@ Implement extraction of `X-Connect-*` headers from incoming requests into a `Tra
 
 ## Acceptance Criteria
 
-- [ ] Function `ParseContext(req *http.Request, prefix string) (*sdk.TransactionContext, error)` exists
-- [ ] Extracts all standard headers: `Target-URL`, `Marketplace-ID`, `Vendor-ID`, `Product-ID`, `Subscription-ID`
-- [ ] Decodes `Context-Data` from Base64 JSON into `Data` map
-- [ ] Returns appropriate errors for:
+- [x] Function `ParseContext(req *http.Request, prefix string) (*sdk.TransactionContext, error)` exists
+- [x] Extracts all standard headers: `Target-URL`, `Marketplace-ID`, `Vendor-ID`, `Product-ID`, `Subscription-ID`
+- [x] Decodes `Context-Data` from Base64 JSON into `Data` map
+- [x] Returns appropriate errors for:
   - Missing required headers (Target-URL is required)
   - Malformed Base64 in Context-Data
   - Invalid JSON in Context-Data
-- [ ] Configurable header prefix (default: `X-Connect`)
-- [ ] Tests pass: `go test ./internal/context/...`
-- [ ] Lint passes: `make lint`
+- [x] Configurable header prefix (default: `X-Connect`)
+- [x] Tests pass: `go test ./internal/context/...`
+- [x] Lint passes: `make lint`
 
 ## Implementation Hints
 
@@ -73,9 +73,9 @@ internal/
 
 ## Files to Create/Modify
 
-- [ ] `internal/context/parser.go` - Main parsing logic
-- [ ] `internal/context/parser_test.go` - Table-driven tests
-- [ ] `internal/context/errors.go` - Sentinel errors (optional, can inline)
+- [x] `internal/context/parser.go` - Main parsing logic
+- [x] `internal/context/parser_test.go` - Table-driven tests
+- [x] `internal/context/errors.go` - Sentinel errors (inlined in parser.go)
 
 ## Testing Strategy
 
