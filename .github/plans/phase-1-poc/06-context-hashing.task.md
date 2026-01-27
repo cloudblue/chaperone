@@ -1,6 +1,6 @@
 # Task: Context Hashing
 
-**Status:** [ ] Not Started  
+**Status:** [x] Completed  
 **Priority:** P1  
 **Estimated Effort:** M (Medium)
 
@@ -20,13 +20,13 @@ Implement deterministic hashing of `TransactionContext` to generate cache keys f
 
 ## Acceptance Criteria
 
-- [ ] Function `HashContext(ctx *sdk.TransactionContext) string` exists
-- [ ] Hash is deterministic: same input → same output across restarts
-- [ ] Hash is unique: different inputs → different outputs (collision-resistant)
-- [ ] Field order doesn't affect hash (canonicalization)
-- [ ] Handles nil/empty fields gracefully
-- [ ] Tests pass: `go test ./internal/cache/...`
-- [ ] Lint passes: `make lint`
+- [x] Function `HashContext(ctx *sdk.TransactionContext) string` exists
+- [x] Hash is deterministic: same input → same output across restarts
+- [x] Hash is unique: different inputs → different outputs (collision-resistant)
+- [x] Field order doesn't affect hash (canonicalization)
+- [x] Handles nil/empty fields gracefully
+- [x] Tests pass: `go test ./internal/cache/...`
+- [x] Lint passes: `make lint`
 
 ## Implementation Hints
 
@@ -96,8 +96,8 @@ func HashContext(ctx *sdk.TransactionContext) string {
 
 ## Files to Create/Modify
 
-- [ ] `internal/cache/hash.go` - Hashing logic
-- [ ] `internal/cache/hash_test.go` - Tests
+- [x] `internal/cache/hash.go` - Hashing logic
+- [x] `internal/cache/hash_test.go` - Tests
 
 ## Testing Strategy
 
