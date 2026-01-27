@@ -1,6 +1,6 @@
 # Task: Reference Plugin (Complete Implementation)
 
-**Status:** [~] In Progress  
+**Status:** [x] Completed  
 **Priority:** P0  
 **Estimated Effort:** M (Medium)
 
@@ -26,14 +26,14 @@ A partial implementation exists in `plugins/reference/reference.go`:
 
 ## Acceptance Criteria
 
-- [ ] Implements `sdk.Plugin` interface completely
-- [ ] Implements `sdk.CredentialProvider.GetCredentials` (already partial)
-- [ ] Implements `sdk.CertificateSigner.SignCSR` (stub returning error for PoC)
-- [ ] Implements `sdk.ResponseModifier.ModifyResponse` (no-op for PoC)
-- [ ] Loads credentials from JSON file on initialization
-- [ ] Returns `*sdk.Credential` for Fast Path (cacheable)
-- [ ] Passes compliance suite: `sdk/compliance/verify.go`
-- [ ] Tests pass: `go test ./plugins/reference/...`
+- [x] Implements `sdk.Plugin` interface completely
+- [x] Implements `sdk.CredentialProvider.GetCredentials` (already partial)
+- [x] Implements `sdk.CertificateSigner.SignCSR` (stub returning error for PoC)
+- [x] Implements `sdk.ResponseModifier.ModifyResponse` (no-op for PoC)
+- [x] Loads credentials from JSON file on initialization
+- [x] Returns `*sdk.Credential` for Fast Path (cacheable)
+- [x] Passes compliance suite: `sdk/compliance/verify.go`
+- [x] Tests pass: `go test ./plugins/reference/...`
 
 ## Implementation Hints
 
@@ -78,9 +78,9 @@ var _ sdk.Plugin = (*ReferencePlugin)(nil)
 
 ## Files to Create/Modify
 
-- [ ] `plugins/reference/reference.go` - Add missing interface methods
-- [ ] `plugins/reference/reference_test.go` - Update tests for full compliance
-- [ ] `plugins/reference/testdata/credentials.json` - Ensure test data covers all types
+- [x] `plugins/reference/reference.go` - Add missing interface methods
+- [x] `plugins/reference/reference_test.go` - Update tests for full compliance
+- [x] `plugins/reference/testdata/credentials.json` - Ensure test data covers all types
 
 ## Testing Strategy
 
