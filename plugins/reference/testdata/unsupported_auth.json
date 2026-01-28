@@ -1,0 +1,9 @@
+{
+  "vendors": {
+    "bad-vendor": {
+      "auth_type": "oauth2_refresh",
+      "token": "some-token",
+      "ttl_minutes": 60
+    }
+  }
+}

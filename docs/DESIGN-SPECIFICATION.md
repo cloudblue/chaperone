@@ -301,6 +301,7 @@ sequenceDiagram
 3.  **Plugin Execution (Slow Path):** The plugin receives the Context and a **pointer** to the Request (`req *http.Request`). It decides:
     * *Standard Credential:* Returns a `*Credential` object (headers + TTL). Core injects the headers and stores the object in the cache.
     * *Complex Mutation:* Returns `nil, nil`. This signals that the Plugin has mutated the request pointer directly (e.g., signing the body, adding query params). The Core **does not cache** this result, and the plugin will run on every subsequent request.
+    * *Context Propagation:* The Core passes a `context.Context` with a timeout bound to the plugin. This context is cancelled if the upstream client disconnects or if the request timeout is exceeded. Plugins performing network I/O (Vault, OAuth, HTTP) **should** respect this context to avoid resource leaks.
 4.  **Forwarding:** The Proxy Core (not the plugin) opens the socket and forwards the mutated request to the ISV, enforcing global timeouts.
 5.  **Response Handling & Sanitization:**
     * **Plugin Hook:** Upon receiving the response, the Core calls `ModifyResponse`. The distributor can normalize errors or strip PII here.

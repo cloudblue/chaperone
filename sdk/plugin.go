@@ -38,6 +38,28 @@ type Plugin interface {
 // Slow Path (Direct Mutation): Mutate the request directly and return (nil, nil).
 // Use this for complex auth schemes like HMAC body signing where the
 // credential depends on request content. The plugin runs on every request.
+//
+// # Context Usage
+//
+// The ctx parameter is bounded by the Core with a request timeout and is
+// cancelled if the upstream client disconnects. Implementations that make
+// network calls (HTTP, database, Vault) SHOULD respect this context to
+// allow prompt cancellation and avoid resource leaks.
+//
+// For simple implementations (like file-based credential lookup), context
+// checking is optional since operations complete in microseconds.
+//
+// Example (network call respecting context):
+//
+//	func (p *MyPlugin) GetCredentials(ctx context.Context, tx TransactionContext, req *http.Request) (*Credential, error) {
+//	    // Create HTTP request with context - cancellation handled automatically
+//	    vaultReq, _ := http.NewRequestWithContext(ctx, "GET", p.vaultURL, nil)
+//	    resp, err := p.httpClient.Do(vaultReq)
+//	    if err != nil {
+//	        return nil, fmt.Errorf("vault request failed: %w", err) // includes context.Canceled/DeadlineExceeded
+//	    }
+//	    // ... process response
+//	}
 type CredentialProvider interface {
 	// GetCredentials retrieves or generates credentials for the given transaction.
 	//
