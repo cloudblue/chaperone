@@ -16,16 +16,16 @@
 | 06 | Context Hashing | [x] | P1 | 02 | M |
 | 07 | Reference Plugin | [x] | P0 | 04 | M |
 | 08 | Core Skeleton | [x] | P0 | 05, 07 | L |
-| 09 | Plugin Mechanism Verification | [ ] | P0 | 07, 08 | S |
-| 10 | mTLS Verification | [ ] | P0 | 08 | L |
-| 11 | Docker Validation | [ ] | P0 | All | M |
+| 09 | mTLS Server (Mode A) | [x] | P0 | 08 | L |
+| 10 | Plugin Mechanism Verification | [ ] | P0 | 07, 08 | S |
+| 11 | Docker Validation | [ ] | P0 | 09, 10 | M |
 
 **Legend:** `[ ]` Not started | `[~]` In progress / Pending Review | `[x]` Completed | `[!]` Blocked
 
 ## Dependency Graph
 
 ```
-Tier 0 (Foundations) - Already Done ✓
+Tier 0 (Foundations) - Done ✓
 ┌─────────────────────────────────────────────────────────────────┐
 │  01-sdk-module [x]                                              │
 │  02-transaction-context [x]                                     │
@@ -34,31 +34,32 @@ Tier 0 (Foundations) - Already Done ✓
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
-Tier 1 (Core Logic)
+Tier 1 (Core Logic) - Done ✓
 ┌─────────────────────────────────────────────────────────────────┐
-│  05-context-parsing ──┐                                         │
-│  06-context-hashing   │                                         │
-│  07-reference-plugin ─┴──────────────────────┐                  │
-└──────────────────────────────────────────────│──────────────────┘
-                                               │
-                              ┌────────────────┘
-                              ▼
-Tier 2 (HTTP Layer)
-┌─────────────────────────────────────────────────────────────────┐
-│  08-core-skeleton                                               │
-│       └── 09-plugin-mechanism                                   │
+│  05-context-parsing [x]                                         │
+│  06-context-hashing [x]                                         │
+│  07-reference-plugin [x]                                        │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
-Tier 3 (Security)
+Tier 2 (HTTP Layer) - Done ✓
 ┌─────────────────────────────────────────────────────────────────┐
-│  10-mtls-verification                                           │
+│  08-core-skeleton [x]                                           │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+Tier 3 (Verification) - PARALLEL ← Current Focus
+┌─────────────────────────────────────────────────────────────────┐
+│  09-mtls-verification [ ]   10-plugin-mechanism [ ]             │
+│         │                            │                          │
+│         └────────────┬───────────────┘                          │
+│                      ▼                                          │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 Tier 4 (Deployment)
 ┌─────────────────────────────────────────────────────────────────┐
-│  11-docker-validation                                           │
+│  11-docker-validation [ ]                                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -66,13 +67,16 @@ Tier 4 (Deployment)
 
 ### Completed
 
-- **01-04:** SDK module structure exists with interfaces and structs defined in `sdk/`.
-- Reference plugin partially exists in `plugins/reference/`.
+- **01-08:** All foundation, core logic, and HTTP layer tasks complete.
+- SDK module with interfaces and structs in `sdk/`.
+- Reference plugin complete in `plugins/reference/`.
+- Core proxy skeleton in `internal/proxy/`.
 
 ### Current Focus
 
-- **05-context-parsing:** Implement header parsing into TransactionContext
-- **07-reference-plugin:** Complete implementation with all interfaces
+**Tasks 09 and 10 can be done in parallel or in either order:**
+- **09-mtls-verification:** Verify mTLS handshake (security layer)
+- **10-plugin-mechanism:** Verify static recompilation (build architecture)
 
 ### Blockers
 

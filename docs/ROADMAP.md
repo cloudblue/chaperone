@@ -10,7 +10,7 @@ We define three key milestones to validate the architecture and reach production
 * [ ] **Context Parsing:** Implement the `TransactionContext` extractor for `X-Connect-*` headers.
 * [ ] **Context Hashing:** Implement the deterministic hashing logic (canonicalization) of the Context to validate the caching strategy inputs (even if storage is deferred).
 * [ ] **Plugin Mechanism:** Create a dummy `proxy-sdk` and a hardcoded plugin to verify the compiler can build a single binary from two sources.
-* [ ] **mTLS Verification:** Create a Go test using `httptest` to simulate a Connect handshake with client certificates.
+* [ ] **mTLS Server (Mode A):** Integrate mTLS into the HTTP server with TLS 1.3 minimum. Server supports Mode A (mTLS enabled, default) and basic Mode B (plain HTTP for testing). Verify via `httptest` with client certificates.
 * [ ] **Docker Validation:** Verify the PoC compiles and runs successfully inside the standard `Dockerfile` container.
 
 ## Phase 2: Minimum Viable Product (MVP)

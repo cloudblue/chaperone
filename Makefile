@@ -48,6 +48,14 @@ clean: ## Remove build artifacts
 	@rm -f coverage.out coverage.html
 
 # ============================================================================
+# Development Certificates
+# ============================================================================
+
+.PHONY: gencerts
+gencerts: ## Generate test certificates for mTLS development (use DOMAINS="host1,ip1" for custom SANs)
+	@go run ./cmd/gencerts $(if $(DOMAINS),-domains "$(DOMAINS)")
+
+# ============================================================================
 # Testing
 # ============================================================================
 
