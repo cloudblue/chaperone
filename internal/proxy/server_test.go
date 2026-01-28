@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -573,3 +574,302 @@ func TestMiddlewareStack_LogsLatency(t *testing.T) {
 		t.Errorf("log should contain latency_ms, got: %s", logOutput)
 	}
 }
+
+// =============================================================================
+// TLS Configuration Tests
+// =============================================================================
+
+func TestNewServer_DefaultTLSConfig(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - no TLS config provided
+	cfg := proxy.Config{
+		Addr:         ":8443",
+		HeaderPrefix: "X-Connect",
+	}
+
+	// Act
+	server := proxy.NewServer(cfg)
+
+	// Assert - TLS should be enabled with defaults
+	if server.Config().TLS == nil {
+		t.Fatal("TLS config should not be nil")
+	}
+	if !server.Config().TLS.Enabled {
+		t.Error("TLS.Enabled should be true by default")
+	}
+	if server.Config().TLS.CertFile != proxy.DefaultCertFile {
+		t.Errorf("TLS.CertFile = %q, want %q", server.Config().TLS.CertFile, proxy.DefaultCertFile)
+	}
+	if server.Config().TLS.KeyFile != proxy.DefaultKeyFile {
+		t.Errorf("TLS.KeyFile = %q, want %q", server.Config().TLS.KeyFile, proxy.DefaultKeyFile)
+	}
+	if server.Config().TLS.CAFile != proxy.DefaultCAFile {
+		t.Errorf("TLS.CAFile = %q, want %q", server.Config().TLS.CAFile, proxy.DefaultCAFile)
+	}
+}
+
+func TestNewServer_CustomTLSConfig(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - custom TLS config
+	cfg := proxy.Config{
+		Addr:         ":8443",
+		HeaderPrefix: "X-Connect",
+		TLS: &proxy.TLSConfig{
+			Enabled:  false,
+			CertFile: "/custom/cert.pem",
+			KeyFile:  "/custom/key.pem",
+			CAFile:   "/custom/ca.pem",
+		},
+	}
+
+	// Act
+	server := proxy.NewServer(cfg)
+
+	// Assert - custom values should be preserved
+	if server.Config().TLS.Enabled {
+		t.Error("TLS.Enabled should be false as configured")
+	}
+	if server.Config().TLS.CertFile != "/custom/cert.pem" {
+		t.Errorf("TLS.CertFile = %q, want %q", server.Config().TLS.CertFile, "/custom/cert.pem")
+	}
+	if server.Config().TLS.KeyFile != "/custom/key.pem" {
+		t.Errorf("TLS.KeyFile = %q, want %q", server.Config().TLS.KeyFile, "/custom/key.pem")
+	}
+	if server.Config().TLS.CAFile != "/custom/ca.pem" {
+		t.Errorf("TLS.CAFile = %q, want %q", server.Config().TLS.CAFile, "/custom/ca.pem")
+	}
+}
+
+func TestNewServer_PartialTLSConfig(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - partial TLS config (only Enabled set, paths empty)
+	cfg := proxy.Config{
+		Addr:         ":8443",
+		HeaderPrefix: "X-Connect",
+		TLS: &proxy.TLSConfig{
+			Enabled: true,
+			// Other fields empty - should be filled with defaults
+		},
+	}
+
+	// Act
+	server := proxy.NewServer(cfg)
+
+	// Assert - empty strings should be filled with defaults
+	if server.Config().TLS.CertFile != proxy.DefaultCertFile {
+		t.Errorf("TLS.CertFile = %q, want default %q", server.Config().TLS.CertFile, proxy.DefaultCertFile)
+	}
+	if server.Config().TLS.KeyFile != proxy.DefaultKeyFile {
+		t.Errorf("TLS.KeyFile = %q, want default %q", server.Config().TLS.KeyFile, proxy.DefaultKeyFile)
+	}
+	if server.Config().TLS.CAFile != proxy.DefaultCAFile {
+		t.Errorf("TLS.CAFile = %q, want default %q", server.Config().TLS.CAFile, proxy.DefaultCAFile)
+	}
+}
+
+// =============================================================================
+// Server Start Tests
+// =============================================================================
+
+func TestServer_StartTLS_MissingCAFile_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - TLS enabled but CA file doesn't exist
+	cfg := proxy.Config{
+		Addr: ":0",
+		TLS: &proxy.TLSConfig{
+			Enabled:  true,
+			CertFile: "/nonexistent/server.crt",
+			KeyFile:  "/nonexistent/server.key",
+			CAFile:   "/nonexistent/ca.crt",
+		},
+	}
+	server := proxy.NewServer(cfg)
+
+	// Act
+	err := server.Start()
+
+	// Assert - should fail with file not found error
+	if err == nil {
+		t.Fatal("expected error for missing CA file, got nil")
+	}
+	if !strings.Contains(err.Error(), "reading CA certificate") {
+		t.Errorf("error = %q, want to contain 'reading CA certificate'", err.Error())
+	}
+}
+
+func TestServer_StartTLS_MissingCertFile_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - create temp CA file but no cert file
+	tmpDir := t.TempDir()
+	caFile := tmpDir + "/ca.crt"
+	if err := createDummyFile(caFile); err != nil {
+		t.Fatalf("failed to create temp CA file: %v", err)
+	}
+
+	cfg := proxy.Config{
+		Addr: ":0",
+		TLS: &proxy.TLSConfig{
+			Enabled:  true,
+			CertFile: "/nonexistent/server.crt",
+			KeyFile:  "/nonexistent/server.key",
+			CAFile:   caFile,
+		},
+	}
+	server := proxy.NewServer(cfg)
+
+	// Act
+	err := server.Start()
+
+	// Assert - should fail with file not found error for cert
+	if err == nil {
+		t.Fatal("expected error for missing cert file, got nil")
+	}
+	if !strings.Contains(err.Error(), "reading server certificate") {
+		t.Errorf("error = %q, want to contain 'reading server certificate'", err.Error())
+	}
+}
+
+func TestServer_StartTLS_MissingKeyFile_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - create temp CA and cert files but no key file
+	tmpDir := t.TempDir()
+	caFile := tmpDir + "/ca.crt"
+	certFile := tmpDir + "/server.crt"
+	if err := createDummyFile(caFile); err != nil {
+		t.Fatalf("failed to create temp CA file: %v", err)
+	}
+	if err := createDummyFile(certFile); err != nil {
+		t.Fatalf("failed to create temp cert file: %v", err)
+	}
+
+	cfg := proxy.Config{
+		Addr: ":0",
+		TLS: &proxy.TLSConfig{
+			Enabled:  true,
+			CertFile: certFile,
+			KeyFile:  "/nonexistent/server.key",
+			CAFile:   caFile,
+		},
+	}
+	server := proxy.NewServer(cfg)
+
+	// Act
+	err := server.Start()
+
+	// Assert - should fail with file not found error for key
+	if err == nil {
+		t.Fatal("expected error for missing key file, got nil")
+	}
+	if !strings.Contains(err.Error(), "reading server key") {
+		t.Errorf("error = %q, want to contain 'reading server key'", err.Error())
+	}
+}
+
+func TestServer_StartTLS_InvalidCerts_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - create files with invalid cert content
+	tmpDir := t.TempDir()
+	caFile := tmpDir + "/ca.crt"
+	certFile := tmpDir + "/server.crt"
+	keyFile := tmpDir + "/server.key"
+
+	// Write invalid PEM data
+	if err := createFileWithContent(caFile, "invalid ca cert"); err != nil {
+		t.Fatalf("failed to create temp CA file: %v", err)
+	}
+	if err := createFileWithContent(certFile, "invalid server cert"); err != nil {
+		t.Fatalf("failed to create temp cert file: %v", err)
+	}
+	if err := createFileWithContent(keyFile, "invalid server key"); err != nil {
+		t.Fatalf("failed to create temp key file: %v", err)
+	}
+
+	cfg := proxy.Config{
+		Addr: ":0",
+		TLS: &proxy.TLSConfig{
+			Enabled:  true,
+			CertFile: certFile,
+			KeyFile:  keyFile,
+			CAFile:   caFile,
+		},
+	}
+	server := proxy.NewServer(cfg)
+
+	// Act
+	err := server.Start()
+
+	// Assert - should fail with TLS config error
+	if err == nil {
+		t.Fatal("expected error for invalid certs, got nil")
+	}
+	if !strings.Contains(err.Error(), "creating TLS config") {
+		t.Errorf("error = %q, want to contain 'creating TLS config'", err.Error())
+	}
+}
+
+// =============================================================================
+// Proxy Invalid URL Tests
+// =============================================================================
+
+func TestProxy_InvalidTargetURL_Returns400(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	srv := proxy.NewServer(proxy.Config{
+		Addr:         ":0",
+		HeaderPrefix: "X-Connect",
+	})
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	// Set a malformed URL that will fail url.Parse
+	req.Header.Set("X-Connect-Target-URL", "://invalid-url")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(rec.Body.String(), "Bad Request") {
+		t.Errorf("body = %q, want to contain 'Bad Request'", rec.Body.String())
+	}
+}
+
+// Helper functions for creating test files
+
+func createDummyFile(path string) error {
+	return createFileWithContent(path, "dummy content")
+}
+
+func createFileWithContent(path, content string) error {
+	return writeFile(path, []byte(content))
+}
+
+func writeFile(path string, data []byte) error {
+	f, err := createFile(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(data)
+	return err
+}
+
+func createFile(path string) (*file, error) {
+	return osCreate(path)
+}
+
+// file wraps os.File for testing
+type file = os.File
+
+var osCreate = os.Create
