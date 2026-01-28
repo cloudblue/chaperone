@@ -304,6 +304,7 @@ sequenceDiagram
     * *Context Propagation:* The Core passes a `context.Context` with a timeout bound to the plugin. This context is cancelled if the upstream client disconnects or if the request timeout is exceeded. Plugins performing network I/O (Vault, OAuth, HTTP) **should** respect this context to avoid resource leaks.
 4.  **Forwarding:** The Proxy Core (not the plugin) opens the socket and forwards the mutated request to the ISV, enforcing global timeouts.
 5.  **Response Handling & Sanitization:**
+    * **Streaming Support:** The Proxy supports streaming responses (via `http.Flusher`) for vendors that return data incrementally (e.g., LLM/AI services). Response data is forwarded to the client as it arrives without full buffering.
     * **Plugin Hook:** Upon receiving the response, the Core calls `ModifyResponse`. The distributor can normalize errors or strip PII here.
     * **Core Safety Net:** Finally, the Core runs the **Response Sanitizer**, which unconditionally strips dangerous headers (e.g., `Authorization`) before the response is returned to Connect or logged. This ensures that a misconfigured plugin cannot accidentally leak credentials back upstream.
 
