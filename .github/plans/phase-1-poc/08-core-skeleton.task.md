@@ -35,6 +35,10 @@ Implement the basic HTTP server with `httputil.ReverseProxy` that handles incomi
   - [ ] Forward to target URL via ReverseProxy
   - [ ] Return response to caller
 - [ ] Panic recovery middleware (server doesn't crash on panics)
+- [ ] Context propagation:
+  - [ ] Plugin receives context with request timeout applied
+  - [ ] Client disconnect cancels context (via `r.Context()`)
+  - [ ] Context cancellation returns appropriate error (504 Gateway Timeout or early termination)
 - [ ] Configurable timeouts (hardcoded safe defaults for PoC)
 - [ ] Structured logging with trace ID
 - [ ] Tests pass: `go test ./internal/proxy/...`
@@ -96,8 +100,8 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
         traceID = uuid.New().String()
     }
     
-    // 2. Parse context
-    ctx, err := context.ParseContext(r, "X-Connect")
+    // 2. Parse transaction context (note: this is TransactionContext, not context.Context)
+    txCtx, err := context.ParseContext(r, "X-Connect")
     if err != nil {
         http.Error(w, "Bad Request", 400)
         return
@@ -106,21 +110,35 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
     // 3. Validate target URL (stub for PoC)
     // TODO: implement allow-list in Phase 2
     
-    // 4. Get credentials from plugin
-    cred, err := s.plugin.GetCredentials(r.Context(), *ctx, r)
+    // 4. Create bounded context for plugin execution
+    // - r.Context() cancels on client disconnect (net/http behavior)
+    // - WithTimeout adds upper bound to prevent hung plugins
+    ctx, cancel := context.WithTimeout(r.Context(), s.pluginTimeout) // e.g., 10s
+    defer cancel()
+    
+    // 5. Get credentials from plugin
+    cred, err := s.plugin.GetCredentials(ctx, *txCtx, r)
     if err != nil {
+        if errors.Is(err, context.DeadlineExceeded) {
+            http.Error(w, "Gateway Timeout", 504)
+            return
+        }
+        if errors.Is(err, context.Canceled) {
+            // Client disconnected, don't write response
+            return
+        }
         http.Error(w, "Internal Server Error", 500)
         return
     }
     
-    // 5. Inject headers if returned
+    // 6. Inject headers if returned
     if cred != nil {
         for k, v := range cred.Headers {
             r.Header.Set(k, v)
         }
     }
     
-    // 6. Forward via ReverseProxy
+    // 7. Forward via ReverseProxy
     s.reverseProxy.ServeHTTP(w, r)
 }
 ```
@@ -166,6 +184,8 @@ func (s *Server) withPanicRecovery(next http.Handler) http.Handler {
 - Version endpoint returns version info
 - Panic recovery catches panics and returns 500
 - Invalid requests return 400
+- Context timeout returns 504 Gateway Timeout
+- Context cancellation handled gracefully (no response written)
 
 ### Integration Tests
 

@@ -1,0 +1,9 @@
+{
+  "vendors": {
+    "default-header-vendor": {
+      "auth_type": "api_key",
+      "token": "default-key-value",
+      "ttl_minutes": 30
+    }
+  }
+}
