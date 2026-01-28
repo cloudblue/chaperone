@@ -26,6 +26,8 @@ Verify that the static recompilation architecture works: a single binary can be 
 - [ ] Binary can be executed and responds to health check
 - [ ] `go build` works from fresh clone (no local replace directives in final)
 - [ ] Tests verify plugin methods are callable
+- [ ] `cmd/chaperone/main_test.go` exists with version flag test
+- [ ] SDK struct methods (`Credential.IsExpired()`, `Credential.TTL()`) have unit tests
 
 ## Implementation Hints
 

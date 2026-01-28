@@ -1,6 +1,6 @@
 # Task: Core Skeleton
 
-**Status:** [ ] Not Started  
+**Status:** [x] Completed  
 **Priority:** P0  
 **Estimated Effort:** L (Large)
 
@@ -23,26 +23,27 @@ Implement the basic HTTP server with `httputil.ReverseProxy` that handles incomi
 
 ## Acceptance Criteria
 
-- [ ] HTTP server starts and listens on configurable port
-- [ ] Endpoints implemented:
-  - [ ] `POST /proxy` - Main provisioning endpoint
-  - [ ] `GET /_ops/health` - Returns `{"status": "alive"}`
-  - [ ] `GET /_ops/version` - Returns version info
-- [ ] Request lifecycle:
-  - [ ] Parse `X-Connect-*` headers into TransactionContext
-  - [ ] Call plugin `GetCredentials`
-  - [ ] Inject returned headers into outgoing request
-  - [ ] Forward to target URL via ReverseProxy
-  - [ ] Return response to caller
-- [ ] Panic recovery middleware (server doesn't crash on panics)
-- [ ] Context propagation:
-  - [ ] Plugin receives context with request timeout applied
-  - [ ] Client disconnect cancels context (via `r.Context()`)
-  - [ ] Context cancellation returns appropriate error (504 Gateway Timeout or early termination)
-- [ ] Configurable timeouts (hardcoded safe defaults for PoC)
-- [ ] Structured logging with trace ID
-- [ ] Tests pass: `go test ./internal/proxy/...`
-- [ ] Integration test: request → proxy → mock backend → response
+- [x] HTTP server starts and listens on configurable port
+- [x] Endpoints implemented:
+  - [x] `POST /proxy` - Main provisioning endpoint
+  - [x] `GET /_ops/health` - Returns `{"status": "alive"}`
+  - [x] `GET /_ops/version` - Returns version info
+- [x] Request lifecycle:
+  - [x] Parse `X-Connect-*` headers into TransactionContext
+  - [x] Call plugin `GetCredentials`
+  - [x] Inject returned headers into outgoing request
+  - [x] Forward to target URL via ReverseProxy
+  - [x] Return response to caller
+- [x] Panic recovery middleware (server doesn't crash on panics)
+- [x] Request logging middleware (per Design Spec 8.3.5: trace_id, latency, status, path, client_ip)
+- [x] Context propagation:
+  - [x] Plugin receives context with request timeout applied
+  - [x] Client disconnect cancels context (via `r.Context()`)
+  - [x] Context cancellation returns appropriate error (504 Gateway Timeout or early termination)
+- [x] Configurable timeouts (hardcoded safe defaults for PoC)
+- [x] Structured logging with trace ID
+- [x] Tests pass: `go test ./internal/proxy/...`
+- [x] Integration test: request → proxy → mock backend → response
 
 ## Implementation Hints
 

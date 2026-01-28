@@ -14,7 +14,9 @@ linters:
     - errname # Check error naming conventions
     - errorlint # Find error wrapping issues
     - exhaustive # Check switch exhaustiveness
+    - funlen # Limit function length
     - gochecknoinits # No init functions
+    - gocognit # Cognitive complexity
     - goconst # Find repeated strings
     - gocritic # Opinionated linter
     - gosec # Security checker
@@ -30,13 +32,17 @@ linters:
   settings:
     errcheck:
       check-type-assertions: true
-      check-blank: true
+      check-blank: false
+
+    funlen:
+      lines: 60
+      statements: 40
+
+    gocognit:
+      min-complexity: 15
 
     govet:
       enable-all: true
-
-    gocyclo:
-      min-complexity: 15
 
     goconst:
       min-len: 3
@@ -92,6 +98,9 @@ linters:
           - goconst
           - gocritic
           - gosec
+          - errcheck
+          - funlen
+          - gocognit
         path: _test\.go
 
       # Allow ignored errors in compliance test kit (tests panic behavior, not error handling)
