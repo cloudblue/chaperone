@@ -13,7 +13,7 @@
 | 03 | Credential Struct | [x] | P0 | - | S |
 | 04 | Plugin Interfaces | [x] | P0 | 02, 03 | S |
 | 05 | Context Parsing | [x] | P0 | 02 | M |
-| 06 | Context Hashing | [ ] | P1 | 02 | M |
+| 06 | Context Hashing | [x] | P1 | 02 | M |
 | 07 | Reference Plugin | [~] | P0 | 04 | M |
 | 08 | Core Skeleton | [ ] | P0 | 05, 07 | L |
 | 09 | Plugin Mechanism Verification | [ ] | P0 | 07, 08 | S |
