@@ -15,7 +15,7 @@
 | 05 | Context Parsing | [x] | P0 | 02 | M |
 | 06 | Context Hashing | [x] | P1 | 02 | M |
 | 07 | Reference Plugin | [x] | P0 | 04 | M |
-| 08 | Core Skeleton | [ ] | P0 | 05, 07 | L |
+| 08 | Core Skeleton | [x] | P0 | 05, 07 | L |
 | 09 | Plugin Mechanism Verification | [ ] | P0 | 07, 08 | S |
 | 10 | mTLS Verification | [ ] | P0 | 08 | L |
 | 11 | Docker Validation | [ ] | P0 | All | M |
