@@ -1,6 +1,6 @@
 module github.com/cloudblue/chaperone
 
-go 1.25.5
+go 1.25.6
 
 // Local development: reference the SDK from this repo
 // Remove this replace directive when SDK is published

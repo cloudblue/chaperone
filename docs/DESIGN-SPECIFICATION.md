@@ -187,8 +187,9 @@ The Proxy exposes specific endpoints for traffic provisioning and operational ma
 
 #### A. Provisioning Endpoint
 
-* **Path:** `POST /proxy`
+* **Path:** `* /proxy` (All HTTP Methods)
 * **Purpose:** The sole entry point for subscription provisioning traffic.
+* **Method Passthrough:** The HTTP method used to call the proxy is forwarded to the target URL. For example, `GET /proxy` forwards as `GET` to the vendor, `DELETE /proxy` forwards as `DELETE`, etc.
 * **Behavior:**
     * Accepts the inbound mTLS connection.
     * Validates the `X-Connect-Target-URL` headers.
@@ -244,7 +245,7 @@ sequenceDiagram
 
     Note over C, PC: Phase 1: Inbound & Validation
 
-    C->>PC: POST /proxy (mTLS, X-Connect-Target-URL, Context)
+    C->>PC: /proxy (mTLS, X-Connect-Target-URL, Context)
     PC->>PC: Validate Client Cert (mTLS)
     PC->>PC: Validate Allow-List (Host/Path)
     

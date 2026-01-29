@@ -19,7 +19,7 @@ permissions:
   security-events: write
 
 env:
-  GO_VERSION: '1.25.5'
+  GO_VERSION: '1.25.6'
 
 jobs:
   govulncheck:
@@ -63,7 +63,6 @@ jobs:
 
       - name: Run gosec (SDK module)
         run: cd sdk && gosec ./...
-
   # TODO: Enable when repo is public (requires GitHub Advanced Security)
   # dependency-review:
   #   name: Dependency Review
