@@ -91,6 +91,62 @@ Environment variables follow the pattern `CHAPERONE_<SECTION>_<KEY>`:
 export CHAPERONE_SERVER_ADDR=":8443"
 ```
 
+## Certificate Management
+
+Chaperone provides two tools for certificate management depending on your use case:
+
+### Development (Self-Signed Certificates)
+
+Use `make gencerts` for local development and testing:
+
+```bash
+# Generate self-signed test certificates (ECDSA P-256)
+make gencerts
+
+# With custom domains/IPs for the server certificate:
+make gencerts DOMAINS="myserver.local,192.168.1.100"
+```
+
+This creates a `certs/` directory with:
+- `ca.crt` - Test CA certificate (for client verification)
+- `server.crt` - Server certificate (self-signed by test CA)
+- `server.key` - Server private key
+- `client.crt` - Client certificate (for curl testing)
+- `client.key` - Client private key
+
+**Test with curl:**
+```bash
+curl --cacert certs/ca.crt \
+     --cert certs/client.crt \
+     --key certs/client.key \
+     https://localhost:8443/_ops/health
+```
+
+### Production (CA Enrollment)
+
+Use `chaperone enroll` for production deployments:
+
+```bash
+# Generate key pair and CSR for your domain
+./chaperone enroll --domains proxy.example.com
+
+# Multiple domains/IPs
+./chaperone enroll --domains proxy.example.com,10.0.0.1 --cn my-proxy
+
+# Custom output directory
+./chaperone enroll --domains proxy.example.com --out /etc/chaperone/certs
+```
+
+This generates:
+- `server.key` - Private key (keep secure, never share)
+- `server.csr` - Certificate Signing Request (submit to CA)
+
+**Enrollment workflow:**
+1. Run `chaperone enroll --domains your.domain.com`
+2. Submit `server.csr` to your CA (Connect Portal, Vault, etc.)
+3. Place the signed `server.crt` in the certs directory
+4. Start Chaperone: `./chaperone`
+
 ## Development
 
 ```bash
