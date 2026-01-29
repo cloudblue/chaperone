@@ -154,7 +154,7 @@ func (s *Server) Handler() http.Handler {
 	// Register routes
 	mux.HandleFunc("GET /_ops/health", s.handleHealth)
 	mux.HandleFunc("GET /_ops/version", s.handleVersion)
-	mux.HandleFunc("POST /proxy", s.handleProxy)
+	mux.HandleFunc("/proxy", s.handleProxy)
 
 	// Apply middleware stack
 	handler := s.withMiddleware(mux)
@@ -274,7 +274,8 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, `{"version": "%s"}`, s.config.Version)
 }
 
-// handleProxy handles POST /proxy requests.
+// handleProxy handles /proxy requests for all HTTP methods.
+// The HTTP method is passed through to the target URL (method passthrough).
 // It coordinates parsing, credential injection, and forwarding.
 func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	traceID := s.extractTraceID(r)

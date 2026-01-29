@@ -6,14 +6,14 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'           # Core releases: v1.0.0, v1.2.3
-      - 'sdk/v*'       # SDK releases: sdk/v1.0.0
+      - 'v*' # Core releases: v1.0.0, v1.2.3
+      - 'sdk/v*' # SDK releases: sdk/v1.0.0
 
 permissions:
   contents: write
 
 env:
-  GO_VERSION: '1.25.5'
+  GO_VERSION: '1.25.6'
 
 jobs:
   release:
@@ -40,13 +40,13 @@ jobs:
       - name: Build binaries for multiple platforms
         run: |
           mkdir -p dist
-          
+
           # Linux AMD64
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
             -ldflags "-s -w -X main.Version=${{ github.ref_name }} -X main.GitCommit=${{ github.sha }}" \
             -o dist/chaperone-linux-amd64 \
             ./cmd/chaperone
-          
+
           # Linux ARM64
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
             -ldflags "-s -w -X main.Version=${{ github.ref_name }} -X main.GitCommit=${{ github.sha }}" \
@@ -93,9 +93,9 @@ jobs:
           generate_release_notes: true
           body: |
             ## SDK Release ${{ github.ref_name }}
-            
+
             This is a release of the Chaperone SDK module.
-            
+
             ### Installation
             ```bash
             go get github.com/cloudblue/chaperone/sdk@${{ github.ref_name }}
