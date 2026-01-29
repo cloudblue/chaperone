@@ -1,12 +1,12 @@
-# Task: mTLS Verification
+# Task: mTLS Server (Mode A)
 
-**Status:** [ ] Not Started  
+**Status:** [x] Completed  
 **Priority:** P0  
 **Estimated Effort:** L (Large)
 
 ## Objective
 
-Verify that mutual TLS (mTLS) handshake works correctly using Go's `httptest` package with client certificates.
+Integrate mTLS into the HTTP server supporting Mode A (mTLS, default) and basic Mode B (plain HTTP for testing). Verify mTLS handshake via `httptest` with client certificates.
 
 ## Design Spec Reference
 
@@ -22,16 +22,28 @@ Verify that mutual TLS (mTLS) handshake works correctly using Go's `httptest` pa
 
 ## Acceptance Criteria
 
-- [ ] Server configured with TLS 1.3 minimum
-- [ ] Server requires client certificate
-- [ ] Server validates client certificate against CA
-- [ ] Test scenarios pass:
-  - [ ] Valid client cert → 200 OK
-  - [ ] No client cert → Connection rejected
-  - [ ] Invalid client cert (wrong CA) → Connection rejected
-  - [ ] Expired client cert → Connection rejected
-- [ ] Tests use in-memory certs (no files for tests)
-- [ ] Tests pass: `go test ./internal/proxy/... -run TestMTLS`
+### Server Integration
+- [x] `TLSConfig` struct added to `Config` with `Enabled`, `CertFile`, `KeyFile`, `CAFile`
+- [x] `DefaultMTLSEnabled = true` constant for easy toggle
+- [x] Default cert paths: `/certs/server.crt`, `/certs/server.key`, `/certs/ca.crt`
+- [x] `Server.Start()` uses `ListenAndServeTLS` when mTLS enabled
+- [x] Server fails fast if mTLS enabled but cert files missing
+- [x] Plain HTTP mode works when `TLS.Enabled = false` (basic Mode B)
+
+### TLS Configuration
+- [x] TLS 1.3 minimum enforced
+- [x] Client certificate required and validated against CA
+- [x] `NewTLSConfig()` function creates proper `*tls.Config`
+
+### Test Scenarios
+- [x] Valid client cert → 200 OK
+- [x] No client cert → Connection rejected
+- [x] Invalid client cert (wrong CA) → Connection rejected
+- [x] Expired client cert → Connection rejected
+- [x] TLS 1.2 client → Connection rejected
+- [x] Tests use in-memory certs (no files)
+- [x] Server TLS config defaults tests
+- [x] Tests pass: `go test ./internal/proxy/... -run TestMTLS`
 
 ## Implementation Hints
 
@@ -143,9 +155,44 @@ func TestMTLS_ExpiredCert_Rejected(t *testing.T) {
 
 ## Files to Create/Modify
 
-- [ ] `internal/proxy/tls.go` - TLS configuration
-- [ ] `internal/proxy/mtls_test.go` - mTLS tests
-- [ ] `internal/testutil/certs.go` - Test certificate generation helpers
+- [x] `internal/proxy/tls.go` - TLS configuration (`NewTLSConfig()`)
+- [x] `internal/proxy/server.go` - `TLSConfig` struct, `Start()` with mTLS/HTTP modes
+- [x] `internal/proxy/mtls_test.go` - mTLS integration tests (11 tests)
+- [x] `internal/proxy/server_test.go` - TLS config defaults tests
+- [x] `internal/testutil/certs.go` - Test certificate generation helpers
+- [x] `internal/testutil/certs_test.go` - Tests for cert generation helpers
+
+## Implementation Summary
+
+### Server Integration
+
+The server now supports two modes controlled by `TLSConfig.Enabled`:
+
+- **Mode A (mTLS, default):** `startTLS()` loads certs from disk and calls `ListenAndServeTLS`
+- **Mode B (Plain HTTP):** `startHTTP()` calls `ListenAndServe`
+
+Key constants:
+- `DefaultMTLSEnabled = true` - Toggle for mode selection
+- `DefaultCertFile = "/certs/server.crt"`
+- `DefaultKeyFile = "/certs/server.key"`
+- `DefaultCAFile = "/certs/ca.crt"`
+
+### TLS Configuration
+
+`NewTLSConfig()` creates a `*tls.Config` with:
+- `MinVersion: tls.VersionTLS13` - Enforces TLS 1.3 minimum
+- `ClientAuth: tls.RequireAndVerifyClientCert` - Requires valid client cert
+- `ClientCAs` populated from provided CA certificate
+
+### Test Certificates
+
+`internal/testutil/certs.go` provides:
+- `GenerateCA()` - Creates CA cert/key pair
+- `GenerateCertBundle()` - Creates CA + server + client certs
+- `GenerateClientCert()` - Creates client cert signed by provided CA
+- `GenerateExpiredClientCert()` - Creates expired cert for negative testing
+
+All certs are generated in-memory using ECDSA P-256.
 
 ## Testing Strategy
 
@@ -176,4 +223,4 @@ func TestMTLS_ExpiredCert_Rejected(t *testing.T) {
 ## Notes
 
 This task validates Mode A deployment where the proxy terminates mTLS directly.
-Mode B (behind reverse proxy) is Phase 4 scope.
+Mode B (behind reverse proxy with `X-Forwarded-Client-Cert` validation) is Phase 4 scope.

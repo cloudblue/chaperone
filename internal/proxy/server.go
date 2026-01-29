@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"time"
 
 	chaperoneCtx "github.com/cloudblue/chaperone/internal/context"
@@ -27,6 +28,37 @@ const (
 	DefaultIdleTimeout   = 120 * time.Second
 	DefaultPluginTimeout = 10 * time.Second
 )
+
+// DefaultMTLSEnabled controls whether mTLS is enabled by default.
+// Set to false for development/testing (basic Mode B).
+// In production (Mode A), this should always be true.
+const DefaultMTLSEnabled = true
+
+// Default certificate file paths (per Design Spec Section 5.5).
+const (
+	DefaultCertFile = "/certs/server.crt"
+	DefaultKeyFile  = "/certs/server.key"
+	DefaultCAFile   = "/certs/ca.crt"
+)
+
+// TLSConfig holds the TLS/mTLS configuration for the server.
+// When Enabled is true, the server enforces mTLS (Mode A) with TLS 1.3 minimum.
+// When Enabled is false, the server runs plain HTTP (basic Mode B for testing).
+//
+//nolint:govet // fieldalignment: optimizing for readability over memory layout
+type TLSConfig struct {
+	// Enabled controls whether mTLS is active. Defaults to DefaultMTLSEnabled.
+	Enabled bool
+
+	// CertFile is the path to the server certificate PEM file.
+	CertFile string
+
+	// KeyFile is the path to the server private key PEM file.
+	KeyFile string
+
+	// CAFile is the path to the CA certificate PEM file for client verification.
+	CAFile string
+}
 
 // Config holds the configuration for the proxy server.
 //
@@ -45,6 +77,9 @@ type Config struct {
 	// forwarded without credential injection.
 	Plugin sdk.Plugin
 
+	// TLS holds the mTLS configuration. If nil, defaults are applied.
+	TLS *TLSConfig
+
 	// Timeouts
 	ReadTimeout   time.Duration
 	WriteTimeout  time.Duration
@@ -60,7 +95,7 @@ type Server struct {
 // NewServer creates a new proxy server with the given configuration.
 // Default values are applied for any unset configuration options.
 func NewServer(cfg Config) *Server {
-	// Apply defaults
+	// Apply defaults for timeouts
 	if cfg.ReadTimeout == 0 {
 		cfg.ReadTimeout = DefaultReadTimeout
 	}
@@ -78,6 +113,27 @@ func NewServer(cfg Config) *Server {
 	}
 	if cfg.Version == "" {
 		cfg.Version = "dev"
+	}
+
+	// Apply TLS defaults
+	if cfg.TLS == nil {
+		cfg.TLS = &TLSConfig{
+			Enabled:  DefaultMTLSEnabled,
+			CertFile: DefaultCertFile,
+			KeyFile:  DefaultKeyFile,
+			CAFile:   DefaultCAFile,
+		}
+	} else {
+		// Apply defaults for any unset TLS fields
+		if cfg.TLS.CertFile == "" {
+			cfg.TLS.CertFile = DefaultCertFile
+		}
+		if cfg.TLS.KeyFile == "" {
+			cfg.TLS.KeyFile = DefaultKeyFile
+		}
+		if cfg.TLS.CAFile == "" {
+			cfg.TLS.CAFile = DefaultCAFile
+		}
 	}
 
 	return &Server{
@@ -107,6 +163,8 @@ func (s *Server) Handler() http.Handler {
 }
 
 // Start starts the HTTP server and blocks until it's shut down.
+// If TLS is enabled (Mode A), the server starts with mTLS requiring client certificates.
+// If TLS is disabled (basic Mode B), the server starts as plain HTTP.
 func (s *Server) Start() error {
 	srv := &http.Server{
 		Addr:         s.config.Addr,
@@ -116,8 +174,21 @@ func (s *Server) Start() error {
 		IdleTimeout:  s.config.IdleTimeout,
 	}
 
-	slog.Info("starting proxy server",
+	if s.config.TLS.Enabled {
+		return s.startTLS(srv)
+	}
+
+	return s.startHTTP(srv)
+}
+
+// startHTTP starts the server in plain HTTP mode (basic Mode B).
+func (s *Server) startHTTP(srv *http.Server) error {
+	slog.Warn("starting proxy server in HTTP mode (no mTLS) - FOR DEVELOPMENT ONLY",
 		"addr", s.config.Addr,
+		"mode", "B (basic)",
+	)
+
+	slog.Info("server configuration",
 		"read_timeout", s.config.ReadTimeout,
 		"write_timeout", s.config.WriteTimeout,
 		"idle_timeout", s.config.IdleTimeout,
@@ -125,6 +196,54 @@ func (s *Server) Start() error {
 	)
 
 	return srv.ListenAndServe()
+}
+
+// startTLS starts the server with mTLS enabled (Mode A).
+func (s *Server) startTLS(srv *http.Server) error {
+	tlsCfg := s.config.TLS
+
+	// Load certificates from files
+	caCert, err := os.ReadFile(tlsCfg.CAFile)
+	if err != nil {
+		return fmt.Errorf("reading CA certificate %s: %w", tlsCfg.CAFile, err)
+	}
+
+	serverCert, err := os.ReadFile(tlsCfg.CertFile)
+	if err != nil {
+		return fmt.Errorf("reading server certificate %s: %w", tlsCfg.CertFile, err)
+	}
+
+	serverKey, err := os.ReadFile(tlsCfg.KeyFile)
+	if err != nil {
+		return fmt.Errorf("reading server key %s: %w", tlsCfg.KeyFile, err)
+	}
+
+	// Create TLS config with mTLS
+	tlsConfig, err := NewTLSConfig(caCert, serverCert, serverKey)
+	if err != nil {
+		return fmt.Errorf("creating TLS config: %w", err)
+	}
+
+	srv.TLSConfig = tlsConfig
+
+	slog.Info("starting proxy server with mTLS (Mode A)",
+		"addr", s.config.Addr,
+		"mode", "A (mTLS)",
+		"tls_min_version", "1.3",
+		"client_auth", "RequireAndVerifyClientCert",
+	)
+
+	slog.Info("server configuration",
+		"read_timeout", s.config.ReadTimeout,
+		"write_timeout", s.config.WriteTimeout,
+		"idle_timeout", s.config.IdleTimeout,
+		"plugin_timeout", s.config.PluginTimeout,
+		"cert_file", tlsCfg.CertFile,
+		"ca_file", tlsCfg.CAFile,
+	)
+
+	// Use empty strings for cert/key files since they're already loaded into TLSConfig
+	return srv.ListenAndServeTLS("", "")
 }
 
 // withMiddleware wraps the handler with the middleware stack.

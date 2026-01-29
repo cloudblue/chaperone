@@ -39,6 +39,9 @@ vendor/
 *.crt
 *.csr
 
+# Generated test certificates
+certs/
+
 # Local configuration overrides
 config.local.yaml
 
