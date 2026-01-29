@@ -25,7 +25,7 @@ Implement the basic HTTP server with `httputil.ReverseProxy` that handles incomi
 
 - [x] HTTP server starts and listens on configurable port
 - [x] Endpoints implemented:
-  - [x] `POST /proxy` - Main provisioning endpoint
+  - [x] `* /proxy` - Main provisioning endpoint (all HTTP methods)
   - [x] `GET /_ops/health` - Returns `{"status": "alive"}`
   - [x] `GET /_ops/version` - Returns version info
 - [x] Request lifecycle:
@@ -74,7 +74,7 @@ type Server struct {
 
 func (s *Server) Start() error {
     mux := http.NewServeMux()
-    mux.HandleFunc("POST /proxy", s.handleProxy)
+    mux.HandleFunc("/proxy", s.handleProxy)
     mux.HandleFunc("GET /_ops/health", s.handleHealth)
     mux.HandleFunc("GET /_ops/version", s.handleVersion)
     

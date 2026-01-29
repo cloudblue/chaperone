@@ -95,25 +95,6 @@ func TestProxy_MissingTargetURL_Returns400(t *testing.T) {
 	}
 }
 
-func TestProxy_WrongMethod_Returns405(t *testing.T) {
-	// Arrange
-	srv := proxy.NewServer(proxy.Config{
-		Addr: ":0",
-	})
-	handler := srv.Handler()
-
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
-	rec := httptest.NewRecorder()
-
-	// Act
-	handler.ServeHTTP(rec, req)
-
-	// Assert
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
-	}
-}
-
 func TestPanicRecovery_CatchesPanic_Returns500(t *testing.T) {
 	// Arrange
 	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -370,6 +351,53 @@ func TestProxy_TargetURLWithPath_PreservesPath(t *testing.T) {
 	}
 	if receivedPath != "/api/v1/resource" {
 		t.Errorf("path = %q, want %q", receivedPath, "/api/v1/resource")
+	}
+}
+
+func TestProxy_MethodPassthrough_ForwardsOriginalMethod(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+	}{
+		{"GET", http.MethodGet},
+		{"POST", http.MethodPost},
+		{"PUT", http.MethodPut},
+		{"PATCH", http.MethodPatch},
+		{"DELETE", http.MethodDelete},
+		{"HEAD", http.MethodHead},
+		{"OPTIONS", http.MethodOptions},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange - backend that captures the received method
+			var receivedMethod string
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedMethod = r.Method
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer backend.Close()
+
+			srv := proxy.NewServer(proxy.Config{Addr: ":0"})
+			handler := srv.Handler()
+
+			req := httptest.NewRequest(tt.method, "/proxy", nil)
+			req.Header.Set("X-Connect-Target-URL", backend.URL)
+			req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+			rec := httptest.NewRecorder()
+
+			// Act
+			handler.ServeHTTP(rec, req)
+
+			// Assert - method should be forwarded to backend
+			if receivedMethod != tt.method {
+				t.Errorf("backend received method = %q, want %q", receivedMethod, tt.method)
+			}
+		})
 	}
 }
 
