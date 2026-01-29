@@ -24,8 +24,12 @@ var (
 
 func main() {
 	// Parse command line flags
-	addr := flag.String("addr", ":8080", "Address to listen on")
+	addr := flag.String("addr", ":8443", "Address to listen on")
 	credFile := flag.String("credentials", "", "Path to credentials JSON file (optional)")
+	tlsEnabled := flag.Bool("tls", true, "Enable mTLS (Mode A)")
+	certFile := flag.String("cert", "certs/server.crt", "Path to server certificate")
+	keyFile := flag.String("key", "certs/server.key", "Path to server private key")
+	caFile := flag.String("ca", "certs/ca.crt", "Path to CA certificate for client verification")
 	showVersion := flag.Bool("version", false, "Show version and exit")
 	flag.Parse()
 
@@ -61,9 +65,19 @@ func main() {
 		Addr:    *addr,
 		Plugin:  plugin,
 		Version: Version,
+		TLS: &proxy.TLSConfig{
+			Enabled:  *tlsEnabled,
+			CertFile: *certFile,
+			KeyFile:  *keyFile,
+			CAFile:   *caFile,
+		},
 	})
 
-	slog.Info("server listening", "addr", *addr)
+	if *tlsEnabled {
+		slog.Info("server listening with mTLS (Mode A)", "addr", *addr)
+	} else {
+		slog.Info("server listening in HTTP mode (Mode B)", "addr", *addr)
+	}
 	if err := srv.Start(); err != nil {
 		slog.Error("server error", "error", err)
 		os.Exit(1)
