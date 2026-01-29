@@ -22,8 +22,24 @@ var (
 	BuildDate = "unknown"
 )
 
+//nolint:funlen // CLI entry points are acceptable to be longer
 func main() {
-	// Parse command line flags
+	// Check for subcommands first
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "enroll":
+			enrollCmd(os.Args[2:])
+			return
+		case "help", "-h", "--help":
+			if len(os.Args) > 2 && os.Args[2] == "enroll" {
+				enrollCmd([]string{"-h"})
+				return
+			}
+			// Fall through to normal flag parsing
+		}
+	}
+
+	// Parse command line flags for the main server
 	addr := flag.String("addr", ":8443", "Address to listen on")
 	credFile := flag.String("credentials", "", "Path to credentials JSON file (optional)")
 	tlsEnabled := flag.Bool("tls", true, "Enable mTLS (Mode A)")
@@ -31,6 +47,28 @@ func main() {
 	keyFile := flag.String("key", "certs/server.key", "Path to server private key")
 	caFile := flag.String("ca", "certs/ca.crt", "Path to CA certificate for client verification")
 	showVersion := flag.Bool("version", false, "Show version and exit")
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, `Chaperone - Secure Egress Proxy
+
+Usage: chaperone [command] [options]
+
+Commands:
+  enroll      Generate CSR for production CA enrollment
+  (default)   Start the proxy server
+
+Server Options:
+`)
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, `
+Examples:
+  chaperone                           # Start server with defaults
+  chaperone -addr :9443               # Start on different port
+  chaperone enroll --domains foo.com  # Generate production CSR
+  chaperone -version                  # Show version
+`)
+	}
+
 	flag.Parse()
 
 	// Show version and exit

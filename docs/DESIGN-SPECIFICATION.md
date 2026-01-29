@@ -13,12 +13,12 @@ To ensure a shared understanding across all stakeholders:
 * **Distributor:** The partner/account that provisions new subscriptions. They are responsible for hosting the Egress Proxy in their infrastructure.
 * **Vendor Account:** The account configuration within the Connect platform that publishes products.
 * **ISV (Independent Software Vendor):** The external vendor entity itself (e.g., Microsoft, Adobe). We use this term to differentiate the external company/API from the internal "Vendor Account".
-* **Egress Proxy:** The software component detailed in this document. It runs on the Distributor's infrastructure to inject credentials.
+* **Egress Proxy (Chaperone):** The software component detailed in this document, named **Chaperone**. It runs on the Distributor's infrastructure to inject credentials. Throughout this document, "the Proxy", "the Core", and "Chaperone" refer to this component.
 * **Credentials:** Sensitive authentication data (tokens, API keys, OAuth2 credentials) required to access the ISV's API. These are managed by the Distributor and injected by the Proxy.
 
 ## 2. Executive Summary
 
-The **Connect Egress Proxy** is a high-performance, sidecar-style reverse proxy designed to run within a Distributor's infrastructure. Its primary purpose is to **inject sensitive credentials** (authentication tokens, API keys, OAuth2 access tokens) into outgoing requests to Vendors (ISVs) without those credentials ever entering the Connect platform or leaking to the client.
+**Chaperone** (the Connect Egress Proxy) is a high-performance, sidecar-style reverse proxy designed to run within a Distributor's infrastructure. Its primary purpose is to **inject sensitive credentials** (authentication tokens, API keys, OAuth2 access tokens) into outgoing requests to Vendors (ISVs) without those credentials ever entering the Connect platform or leaking to the client.
 
 This design prioritizes **security**, **latency**, and **operational simplicity** for the Distributor.
 
@@ -471,20 +471,37 @@ Regardless of the platform, the Proxy sits at the Distributor's network edge.
 
 ## 7. Implementation Guide (The "Builder" Pattern)
 
-The Distributor does not edit the Proxy source code. They use a **Template Repository**. The Interface is defined in `proxy-sdk`.
+The Distributor does not edit the Proxy source code. They create a custom build that imports the Core and their own Plugin. The Plugin Interface is defined in the `sdk` module.
 
-**Example File Structure:**
+**Project Structure (Monorepo):**
+
+The Chaperone repository is organized as a multi-module monorepo:
+
+```text
+/chaperone
+  ├── go.mod                 <-- Core module: github.com/cloudblue/chaperone
+  ├── cmd/chaperone/         <-- Main entry point
+  ├── sdk/                   <-- SDK module: github.com/cloudblue/chaperone/sdk
+  │   ├── go.mod             <-- Versioned independently (sdk/v1.x.x)
+  │   └── plugin.go          <-- Plugin interface definitions
+  ├── plugins/
+  │   └── reference/         <-- Default file-based plugin
+  └── internal/              <-- Core implementation (private)
+```
+
+**Distributor Custom Build:**
+
+Distributors can create their own build by importing the SDK and implementing the Plugin interface:
 
 ```text
 /my-proxy-build
-  ├── go.mod             <-- Deps: proxy-sdk v1.0, proxy-core v1.2
-  ├── main.go            <-- Boilerplate (Imports Core + Plugin)
+  ├── go.mod             <-- Deps: chaperone/sdk v1.0
+  ├── main.go            <-- Imports Core + registers custom Plugin
   └── plugins/
-      ├── reference.go   <-- Default (Connect) Implementation
-      └── my_logic.go    <-- Distributor Custom Logic (Optional)
+      └── my_vault.go    <-- Distributor Custom Logic (Vault, OAuth2, etc.)
 ```
 
-*(Note: The Template Repository includes a default `ReferenceProvider` that reads credentials from a local JSON file and signs certificates via the standard Connect API. Distributors can use this out-of-the-box or replace it with their custom logic.)*
+*(Note: The repository includes a default **reference plugin** (`plugins/reference/`) that reads credentials from a local JSON file. This plugin is suitable for testing and simple deployments.)*
 
 **The Contract (Go Interface - Defined in `proxy-sdk`):**
 
@@ -615,11 +632,13 @@ The proxy is designed to prioritize availability and stability ("always up") eve
 
 *(Note: In Mode B, certificate management is offloaded to the Distributor's infrastructure tools.)*
 
-1.  **Bootstrap:** Distributor runs `./proxy generate-keys`.
-    * Generates Key Pair (RSA-4096).
+1.  **Bootstrap:** Distributor runs `./chaperone enroll --domains proxy.example.com`.
+    * Generates Key Pair (ECDSA P-256).
     * Generates CSR (Certificate Signing Request).
 2.  **Registration:** Distributor uploads CSR to Connect Portal (or their CA).
-3.  **Trust:** The CA signs CSR and returns `proxy.crt`.
+3.  **Trust:** The CA signs CSR and returns:
+    * `server.crt` - The signed server certificate.
+    * `ca.crt` - The CA certificate (for verifying client certificates).
 4.  **Run:** `docker run -v certs:/certs my-compiled-proxy`
 5.  **Rotation (Decoupled Logic):**
     * **Proxy Core:** Tracks certificate expiry. At `Expiry - 7 Days`, generates a new Key Pair and CSR.

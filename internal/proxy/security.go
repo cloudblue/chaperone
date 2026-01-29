@@ -18,11 +18,11 @@ import (
 var allowInsecureTargets = "false"
 
 // testOverrideInsecureTargets is used by tests to temporarily allow HTTP targets.
-// This is NOT settable via ldflags - only via SetAllowInsecureTargetsForTesting.
+// This variable exists in production but is always nil unless set by test code.
 var testOverrideInsecureTargets *bool
 
 // AllowInsecureTargets returns true if HTTP targets are permitted.
-// This should only be true in development builds.
+// This should only be true in development builds or during tests.
 func AllowInsecureTargets() bool {
 	// Test override takes precedence
 	if testOverrideInsecureTargets != nil {
@@ -33,7 +33,14 @@ func AllowInsecureTargets() bool {
 
 // SetAllowInsecureTargetsForTesting allows tests to temporarily enable HTTP targets.
 // Returns a cleanup function that restores the original value.
-// This function panics if called from non-test code (no _test.go in stack).
+//
+// SECURITY: This function exists in the production binary but is safe because:
+//  1. testOverrideInsecureTargets defaults to nil (no effect)
+//  2. Only test code should call this function
+//  3. Production code paths never call this function
+//
+// Alternative approaches were considered but add complexity without meaningful
+// security benefit since the default is secure.
 func SetAllowInsecureTargetsForTesting(allow bool) func() {
 	old := testOverrideInsecureTargets
 	testOverrideInsecureTargets = &allow

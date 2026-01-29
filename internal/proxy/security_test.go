@@ -4,6 +4,7 @@
 package proxy
 
 import (
+	"errors"
 	"net/url"
 	"testing"
 )
@@ -32,7 +33,7 @@ func TestValidateTargetScheme_HTTP_RejectedByDefault(t *testing.T) {
 	if err == nil {
 		t.Error("HTTP should be rejected in production mode")
 	}
-	if err != ErrInsecureTargetURL {
+	if !errors.Is(err, ErrInsecureTargetURL) {
 		t.Errorf("expected ErrInsecureTargetURL, got: %v", err)
 	}
 }

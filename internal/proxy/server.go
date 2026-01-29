@@ -294,7 +294,8 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// SECURITY: Validate target URL scheme (HTTPS required in production)
-	if err := ValidateTargetScheme(targetURL); err != nil {
+	err = ValidateTargetScheme(targetURL)
+	if err != nil {
 		slog.Warn("insecure target URL rejected",
 			"trace_id", traceID,
 			"target_scheme", targetURL.Scheme,
