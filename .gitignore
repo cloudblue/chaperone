@@ -38,6 +38,7 @@ vendor/
 *.key
 *.crt
 *.csr
+/credentials.json
 
 # Generated test certificates
 certs/

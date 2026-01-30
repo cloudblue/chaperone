@@ -287,15 +287,34 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = s.injectCredentials(r, txCtx)
-	if err != nil {
-		s.handlePluginError(w, traceID, err)
-		return
-	}
-
 	targetURL, err := url.Parse(txCtx.TargetURL)
 	if err != nil {
 		s.respondBadRequest(w, traceID, "invalid target URL", err)
+		return
+	}
+
+	// SECURITY: Validate target URL scheme (HTTPS required in production)
+	if err := ValidateTargetScheme(targetURL); err != nil {
+		slog.Warn("insecure target URL rejected",
+			"trace_id", traceID,
+			"target_scheme", targetURL.Scheme,
+			"target_host", targetURL.Host,
+		)
+		http.Error(w, "Bad Request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Warn if using HTTP in development mode
+	if targetURL.Scheme == "http" {
+		slog.Warn("forwarding to insecure HTTP target - DEVELOPMENT ONLY",
+			"trace_id", traceID,
+			"target_host", targetURL.Host,
+		)
+	}
+
+	err = s.injectCredentials(r, txCtx)
+	if err != nil {
+		s.handlePluginError(w, traceID, err)
 		return
 	}
 

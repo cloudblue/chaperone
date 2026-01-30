@@ -41,16 +41,38 @@ jobs:
         run: |
           mkdir -p dist
 
+          # Build flags matching Makefile production build
+          VERSION="${{ github.ref_name }}"
+          GIT_COMMIT="${{ github.sha }}"
+          BUILD_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          LDFLAGS="-s -w \
+            -X main.Version=${VERSION} \
+            -X main.GitCommit=${GIT_COMMIT} \
+            -X main.BuildDate=${BUILD_DATE} \
+            -X github.com/cloudblue/chaperone/internal/proxy.allowInsecureTargets=false"
+
           # Linux AMD64
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-            -ldflags "-s -w -X main.Version=${{ github.ref_name }} -X main.GitCommit=${{ github.sha }}" \
+            -ldflags "${LDFLAGS}" \
             -o dist/chaperone-linux-amd64 \
             ./cmd/chaperone
 
           # Linux ARM64
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
-            -ldflags "-s -w -X main.Version=${{ github.ref_name }} -X main.GitCommit=${{ github.sha }}" \
+            -ldflags "${LDFLAGS}" \
             -o dist/chaperone-linux-arm64 \
+            ./cmd/chaperone
+
+          # Darwin (macOS) AMD64
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build \
+            -ldflags "${LDFLAGS}" \
+            -o dist/chaperone-darwin-amd64 \
+            ./cmd/chaperone
+
+          # Darwin (macOS) ARM64 (Apple Silicon)
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+            -ldflags "${LDFLAGS}" \
+            -o dist/chaperone-darwin-arm64 \
             ./cmd/chaperone
 
       - name: Generate checksums
