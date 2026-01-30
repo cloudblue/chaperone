@@ -94,11 +94,22 @@ export CHAPERONE_SERVER_ADDR=":8443"
 ## Development
 
 ```bash
-# Build for development (fast, with debug symbols)
+# Install development tools (golangci-lint)
+make tools
+
+# Build for development (allows HTTP targets, debug symbols)
 make build-dev
 
-# Build for production (stripped, with version info)
+# Build for production (HTTPS targets only, stripped)
 make build
+
+# Build and run
+make run
+
+# Generate test certificates for mTLS development
+make gencerts
+# With custom domains/IPs:
+make gencerts DOMAINS="myserver.local,192.168.1.100"
 
 # Run tests
 make test
@@ -109,11 +120,26 @@ make test-race
 # Run tests with coverage report
 make test-cover
 
+# Run short tests only
+make test-short
+
 # Run linters
 make lint
 
+# Run linters and auto-fix issues
+make lint-fix
+
 # Format code
 make fmt
+
+# Run go vet
+make vet
+
+# Tidy and verify go.mod
+make tidy
+
+# Remove build artifacts
+make clean
 
 # Show all available commands
 make help
