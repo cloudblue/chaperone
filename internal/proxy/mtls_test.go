@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudblue/chaperone/internal/testutil"
+	"github.com/cloudblue/chaperone/pkg/crypto"
 )
 
 // TestMTLS_ValidClientCert_Success verifies that a client with a valid
 // certificate signed by the trusted CA can successfully connect.
 func TestMTLS_ValidClientCert_Success(t *testing.T) {
-	bundle, err := testutil.GenerateCertBundle()
+	bundle, err := crypto.GenerateCertBundle()
 	if err != nil {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestMTLS_ValidClientCert_Success(t *testing.T) {
 // TestMTLS_NoClientCert_Rejected verifies that a client without a
 // certificate is rejected during the TLS handshake.
 func TestMTLS_NoClientCert_Rejected(t *testing.T) {
-	bundle, err := testutil.GenerateCertBundle()
+	bundle, err := crypto.GenerateCertBundle()
 	if err != nil {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}
@@ -91,17 +91,17 @@ func TestMTLS_NoClientCert_Rejected(t *testing.T) {
 // by a different CA is rejected.
 func TestMTLS_WrongCA_Rejected(t *testing.T) {
 	// Generate two separate CAs
-	serverBundle, err := testutil.GenerateCertBundle()
+	serverBundle, err := crypto.GenerateCertBundle()
 	if err != nil {
 		t.Fatalf("failed to generate server cert bundle: %v", err)
 	}
 
 	// Generate a separate CA for the client (not trusted by server)
-	untrustedCA, err := testutil.GenerateCA(time.Hour)
+	untrustedCA, err := crypto.GenerateCA(time.Hour)
 	if err != nil {
 		t.Fatalf("failed to generate untrusted CA: %v", err)
 	}
-	untrustedClient, err := testutil.GenerateClientCert(untrustedCA, time.Hour)
+	untrustedClient, err := crypto.GenerateClientCert(untrustedCA, time.Hour)
 	if err != nil {
 		t.Fatalf("failed to generate untrusted client cert: %v", err)
 	}
@@ -123,13 +123,13 @@ func TestMTLS_WrongCA_Rejected(t *testing.T) {
 // TestMTLS_ExpiredCert_Rejected verifies that an expired client
 // certificate is rejected.
 func TestMTLS_ExpiredCert_Rejected(t *testing.T) {
-	bundle, err := testutil.GenerateCertBundle()
+	bundle, err := crypto.GenerateCertBundle()
 	if err != nil {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}
 
 	// Generate expired client cert
-	expiredClient, err := testutil.GenerateExpiredClientCert(&bundle.CA)
+	expiredClient, err := crypto.GenerateExpiredClientCert(&bundle.CA)
 	if err != nil {
 		t.Fatalf("failed to generate expired cert: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestMTLS_ExpiredCert_Rejected(t *testing.T) {
 // TestMTLS_TLS12Client_Rejected verifies that clients attempting to
 // connect with TLS 1.2 are rejected (TLS 1.3 minimum required).
 func TestMTLS_TLS12Client_Rejected(t *testing.T) {
-	bundle, err := testutil.GenerateCertBundle()
+	bundle, err := crypto.GenerateCertBundle()
 	if err != nil {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}
@@ -190,13 +190,13 @@ func TestMTLS_TLS12Client_Rejected(t *testing.T) {
 // TestMTLS_SelfSignedCert_Rejected verifies that a self-signed client
 // certificate (not signed by any trusted CA) is rejected.
 func TestMTLS_SelfSignedCert_Rejected(t *testing.T) {
-	bundle, err := testutil.GenerateCertBundle()
+	bundle, err := crypto.GenerateCertBundle()
 	if err != nil {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}
 
 	// Generate a self-signed cert (CA acting as client cert)
-	selfSignedCA, err := testutil.GenerateCA(time.Hour)
+	selfSignedCA, err := crypto.GenerateCA(time.Hour)
 	if err != nil {
 		t.Fatalf("failed to generate self-signed cert: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestMTLS_SelfSignedCert_Rejected(t *testing.T) {
 
 // TestTLSConfig_MinVersionTLS13 verifies that the TLS config enforces TLS 1.3 minimum.
 func TestTLSConfig_MinVersionTLS13(t *testing.T) {
-	bundle, err := testutil.GenerateCertBundle()
+	bundle, err := crypto.GenerateCertBundle()
 	if err != nil {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestTLSConfig_MinVersionTLS13(t *testing.T) {
 
 // TestTLSConfig_RequiresClientCert verifies that the TLS config requires client certificates.
 func TestTLSConfig_RequiresClientCert(t *testing.T) {
-	bundle, err := testutil.GenerateCertBundle()
+	bundle, err := crypto.GenerateCertBundle()
 	if err != nil {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestTLSConfig_RequiresClientCert(t *testing.T) {
 
 // TestTLSConfig_InvalidCACert_ReturnsError verifies error handling for invalid CA cert.
 func TestTLSConfig_InvalidCACert_ReturnsError(t *testing.T) {
-	bundle, err := testutil.GenerateCertBundle()
+	bundle, err := crypto.GenerateCertBundle()
 	if err != nil {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestTLSConfig_InvalidCACert_ReturnsError(t *testing.T) {
 
 // TestTLSConfig_InvalidServerCert_ReturnsError verifies error handling for invalid server cert.
 func TestTLSConfig_InvalidServerCert_ReturnsError(t *testing.T) {
-	bundle, err := testutil.GenerateCertBundle()
+	bundle, err := crypto.GenerateCertBundle()
 	if err != nil {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestTLSConfig_InvalidServerCert_ReturnsError(t *testing.T) {
 // Helper functions
 
 // createServerTLSConfig creates a TLS config for the test server.
-func createServerTLSConfig(t *testing.T, bundle *testutil.CertBundle) *tls.Config {
+func createServerTLSConfig(t *testing.T, bundle *crypto.CertBundle) *tls.Config {
 	t.Helper()
 
 	tlsConfig, err := NewTLSConfig(bundle.CA.CertPEM, bundle.Server.CertPEM, bundle.Server.KeyPEM)
@@ -341,7 +341,7 @@ func expectTLSRejection(t *testing.T, client *http.Client, url string) {
 // TestNewTLSConfig_ParsesCertificatesCorrectly verifies that NewTLSConfig
 // correctly parses and loads all certificates.
 func TestNewTLSConfig_ParsesCertificatesCorrectly(t *testing.T) {
-	bundle, err := testutil.GenerateCertBundle()
+	bundle, err := crypto.GenerateCertBundle()
 	if err != nil {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}

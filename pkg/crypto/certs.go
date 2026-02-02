@@ -1,9 +1,9 @@
 // Copyright 2026 CloudBlue LLC
 // SPDX-License-Identifier: Apache-2.0
 
-// Package testutil provides testing utilities for the Chaperone project.
-// This package should only be imported in test files.
-package testutil
+// Package crypto provides cryptographic utilities for certificate generation.
+// This package is used by both test utilities and production tooling.
+package crypto
 
 import (
 	"crypto/ecdsa"
@@ -18,23 +18,59 @@ import (
 	"time"
 )
 
+// Curve is the elliptic curve used for all generated keys.
+// ECDSA P-256 provides strong security with better performance than RSA.
+var Curve = elliptic.P256()
+
 // CertPair holds PEM-encoded certificate and key pair.
 type CertPair struct {
 	CertPEM []byte
 	KeyPEM  []byte
 }
 
-// CertBundle holds a CA and signed certificate pair.
+// CSRBundle holds a CSR and its corresponding private key.
+type CSRBundle struct {
+	CSRPEM []byte
+	KeyPEM []byte
+}
+
+// CertBundle holds a complete certificate bundle (CA, server, client).
+// Useful for setting up test mTLS scenarios.
 type CertBundle struct {
 	CA     CertPair
 	Server CertPair
 	Client CertPair
 }
 
-// GenerateCA generates a self-signed CA certificate for testing.
+// GenerateCertBundle generates a complete certificate bundle for testing.
+// Includes a CA, server cert, and client cert, all valid for 1 hour.
+func GenerateCertBundle() (*CertBundle, error) {
+	ca, err := GenerateCA(time.Hour)
+	if err != nil {
+		return nil, err
+	}
+
+	server, err := GenerateServerCert(ca, time.Hour)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := GenerateClientCert(ca, time.Hour)
+	if err != nil {
+		return nil, err
+	}
+
+	return &CertBundle{
+		CA:     *ca,
+		Server: *server,
+		Client: *client,
+	}, nil
+}
+
+// GenerateCA generates a self-signed CA certificate.
 // The CA is valid for the specified duration.
 func GenerateCA(validFor time.Duration) (*CertPair, error) {
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	priv, err := ecdsa.GenerateKey(Curve, rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("generating CA key: %w", err)
 	}
@@ -63,11 +99,12 @@ func GenerateCA(validFor time.Duration) (*CertPair, error) {
 		return nil, fmt.Errorf("creating CA certificate: %w", err)
 	}
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyDER, err := x509.MarshalECPrivateKey(priv)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling CA key: %w", err)
 	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
 	return &CertPair{CertPEM: certPEM, KeyPEM: keyPEM}, nil
@@ -80,11 +117,10 @@ func GenerateServerCert(caCert *CertPair, validFor time.Duration) (*CertPair, er
 }
 
 // GenerateServerCertWithSANs generates a server certificate with custom Subject Alternative Names.
-// If extraDNSNames is nil, defaults to ["localhost", "127.0.0.1"].
-// If extraIPs is nil, defaults to [127.0.0.1, ::1].
+// Default SANs (localhost, 127.0.0.1, ::1) are always included.
 // Any provided extraDNSNames and extraIPs are added to the defaults.
 func GenerateServerCertWithSANs(caCert *CertPair, validFor time.Duration, extraDNSNames []string, extraIPs []net.IP) (*CertPair, error) {
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	priv, err := ecdsa.GenerateKey(Curve, rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("generating key: %w", err)
 	}
@@ -94,7 +130,7 @@ func GenerateServerCertWithSANs(caCert *CertPair, validFor time.Duration, extraD
 		return nil, err
 	}
 
-	caCertParsed, caKey, err := parseCA(caCert)
+	caCertParsed, caKey, err := ParseCA(caCert)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +152,7 @@ func GenerateServerCertWithSANs(caCert *CertPair, validFor time.Duration, extraD
 		},
 		NotBefore:   time.Now(),
 		NotAfter:    time.Now().Add(validFor),
-		KeyUsage:    x509.KeyUsageDigitalSignature,
+		KeyUsage:    x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		DNSNames:    dnsNames,
 		IPAddresses: ips,
@@ -127,11 +163,12 @@ func GenerateServerCertWithSANs(caCert *CertPair, validFor time.Duration, extraD
 		return nil, fmt.Errorf("creating certificate: %w", err)
 	}
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyDER, err := x509.MarshalECPrivateKey(priv)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling key: %w", err)
 	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
 	return &CertPair{CertPEM: certPEM, KeyPEM: keyPEM}, nil
@@ -139,7 +176,7 @@ func GenerateServerCertWithSANs(caCert *CertPair, validFor time.Duration, extraD
 
 // GenerateClientCert generates a client certificate signed by the given CA.
 func GenerateClientCert(caCert *CertPair, validFor time.Duration) (*CertPair, error) {
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	priv, err := ecdsa.GenerateKey(Curve, rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("generating key: %w", err)
 	}
@@ -149,7 +186,7 @@ func GenerateClientCert(caCert *CertPair, validFor time.Duration) (*CertPair, er
 		return nil, err
 	}
 
-	caCertParsed, caKey, err := parseCA(caCert)
+	caCertParsed, caKey, err := ParseCA(caCert)
 	if err != nil {
 		return nil, err
 	}
@@ -170,19 +207,21 @@ func GenerateClientCert(caCert *CertPair, validFor time.Duration) (*CertPair, er
 		return nil, fmt.Errorf("creating certificate: %w", err)
 	}
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyDER, err := x509.MarshalECPrivateKey(priv)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling key: %w", err)
 	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
 	return &CertPair{CertPEM: certPEM, KeyPEM: keyPEM}, nil
 }
 
 // GenerateExpiredClientCert generates a client certificate that is already expired.
+// This is useful for testing certificate validation.
 func GenerateExpiredClientCert(caCert *CertPair) (*CertPair, error) {
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	priv, err := ecdsa.GenerateKey(Curve, rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("generating key: %w", err)
 	}
@@ -192,7 +231,7 @@ func GenerateExpiredClientCert(caCert *CertPair) (*CertPair, error) {
 		return nil, err
 	}
 
-	caCertParsed, caKey, err := parseCA(caCert)
+	caCertParsed, caKey, err := ParseCA(caCert)
 	if err != nil {
 		return nil, err
 	}
@@ -216,43 +255,64 @@ func GenerateExpiredClientCert(caCert *CertPair) (*CertPair, error) {
 		return nil, fmt.Errorf("creating certificate: %w", err)
 	}
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyDER, err := x509.MarshalECPrivateKey(priv)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling key: %w", err)
 	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
 	return &CertPair{CertPEM: certPEM, KeyPEM: keyPEM}, nil
 }
 
-// GenerateCertBundle generates a complete certificate bundle for testing.
-// This includes a CA, server cert, and client cert, all valid for 1 hour.
-func GenerateCertBundle() (*CertBundle, error) {
-	ca, err := GenerateCA(time.Hour)
-	if err != nil {
-		return nil, fmt.Errorf("generating CA: %w", err)
+// ErrEmptySANs is returned when a CSR is generated with no Subject Alternative Names.
+var ErrEmptySANs = fmt.Errorf("at least one DNS name or IP address is required")
+
+// GenerateServerCSR generates a Certificate Signing Request for a server certificate.
+// The CSR can be submitted to an external CA (e.g., Connect) for signing.
+// The dnsNames and ips are included as Subject Alternative Names in the CSR.
+//
+// Returns ErrEmptySANs if both dnsNames and ips are empty, as a certificate
+// without SANs would not be useful for TLS.
+//
+// This function is intended for PRODUCTION enrollment workflows.
+func GenerateServerCSR(commonName string, dnsNames []string, ips []net.IP) (*CSRBundle, error) {
+	if len(dnsNames) == 0 && len(ips) == 0 {
+		return nil, ErrEmptySANs
 	}
 
-	server, err := GenerateServerCert(ca, time.Hour)
+	priv, err := ecdsa.GenerateKey(Curve, rand.Reader)
 	if err != nil {
-		return nil, fmt.Errorf("generating server cert: %w", err)
+		return nil, fmt.Errorf("generating key: %w", err)
 	}
 
-	client, err := GenerateClientCert(ca, time.Hour)
-	if err != nil {
-		return nil, fmt.Errorf("generating client cert: %w", err)
+	template := &x509.CertificateRequest{
+		Subject: pkix.Name{
+			CommonName: commonName,
+		},
+		DNSNames:    dnsNames,
+		IPAddresses: ips,
 	}
 
-	return &CertBundle{
-		CA:     *ca,
-		Server: *server,
-		Client: *client,
-	}, nil
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, template, priv)
+	if err != nil {
+		return nil, fmt.Errorf("creating CSR: %w", err)
+	}
+
+	keyDER, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling key: %w", err)
+	}
+
+	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+
+	return &CSRBundle{CSRPEM: csrPEM, KeyPEM: keyPEM}, nil
 }
 
-// parseCA parses a CA certificate and key from PEM-encoded data.
-func parseCA(caCert *CertPair) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+// ParseCA parses a CA certificate and key from PEM-encoded data.
+func ParseCA(caCert *CertPair) (*x509.Certificate, *ecdsa.PrivateKey, error) {
 	caBlock, _ := pem.Decode(caCert.CertPEM)
 	if caBlock == nil {
 		return nil, nil, fmt.Errorf("parsing CA cert: no valid PEM block found")
