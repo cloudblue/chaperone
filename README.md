@@ -31,9 +31,51 @@
 ## Requirements
 
 - Go 1.21 or higher
-- Docker (optional, for containerized deployment)
+- Docker (for containerized deployment)
 
 ## Quick Start
+
+### Docker (Recommended)
+
+```bash
+# Build the image
+docker build -t chaperone:latest .
+
+# Run in HTTP mode (for testing)
+docker run -p 8443:8443 chaperone:latest
+
+# Health check
+curl http://localhost:8443/_ops/health
+# {"status": "alive"}
+```
+
+### With mTLS (Production)
+
+```bash
+# Generate test certificates first
+make gencerts
+
+# Run with certificates mounted
+docker run -p 8443:8443 \
+  -v $(pwd)/certs:/app/certs:ro \
+  chaperone:latest -tls=true
+
+# Test with client certificate
+curl --cacert certs/ca.crt \
+     --cert certs/client.crt \
+     --key certs/client.key \
+     https://localhost:8443/_ops/health
+```
+
+> **Note (macOS):** The built-in curl uses LibreSSL which may fail with ECDSA client certificates.
+> If you see `bad decrypt` errors, use the Docker-based curl instead:
+> ```bash
+> docker run --rm --network host -v $(pwd)/certs:/certs:ro curlimages/curl \
+>     --cacert /certs/ca.crt --cert /certs/client.crt --key /certs/client.key \
+>     https://localhost:8443/_ops/health
+> ```
+
+### From Source
 
 ```bash
 # Clone the repository
@@ -199,6 +241,25 @@ make clean
 
 # Show all available commands
 make help
+```
+
+### Docker Development
+
+```bash
+# Build Docker image
+make docker-build
+
+# Run Docker container (HTTP mode for testing)
+make docker-run
+
+# Build and test Docker image (validates health endpoint)
+make docker-test
+
+# Check Docker image size
+make docker-size
+
+# Clean up Docker image
+make docker-clean
 ```
 
 ## Architecture
