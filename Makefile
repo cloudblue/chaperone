@@ -11,11 +11,23 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+# Security: Allow insecure HTTP targets (ONLY for development builds)
+# Production builds MUST use ALLOW_INSECURE_TARGETS=false (default)
+ALLOW_INSECURE_TARGETS ?= false
+
 # Go build flags
 LDFLAGS := -ldflags "-s -w \
 	-X main.Version=$(VERSION) \
 	-X main.GitCommit=$(GIT_COMMIT) \
-	-X main.BuildDate=$(BUILD_DATE)"
+	-X main.BuildDate=$(BUILD_DATE) \
+	-X 'github.com/cloudblue/chaperone/internal/proxy.allowInsecureTargets=$(ALLOW_INSECURE_TARGETS)'"
+
+# Development build flags (allows insecure targets for testing)
+LDFLAGS_DEV := -ldflags "\
+	-X main.Version=$(VERSION)-dev \
+	-X main.GitCommit=$(GIT_COMMIT) \
+	-X main.BuildDate=$(BUILD_DATE) \
+	-X 'github.com/cloudblue/chaperone/internal/proxy.allowInsecureTargets=true'"
 
 # Default target
 .PHONY: all
@@ -26,16 +38,18 @@ all: lint test build
 # ============================================================================
 
 .PHONY: build
-build: ## Build the binary
-	@echo "Building $(BINARY_NAME)..."
+build: ## Build the production binary (HTTPS targets only)
+	@echo "Building $(BINARY_NAME) (production)..."
+	@echo "  ALLOW_INSECURE_TARGETS=$(ALLOW_INSECURE_TARGETS)"
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_PATH)
 
 .PHONY: build-dev
-build-dev: ## Build for development (faster, with debug symbols)
-	@echo "Building $(BINARY_NAME) (dev)..."
+build-dev: ## Build for development (allows HTTP targets, debug symbols)
+	@echo "Building $(BINARY_NAME) (development)..."
+	@echo "  ⚠️  WARNING: HTTP targets allowed - DO NOT USE IN PRODUCTION"
 	@mkdir -p $(BUILD_DIR)
-	go build -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_PATH)
+	go build $(LDFLAGS_DEV) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_PATH)
 
 .PHONY: run
 run: build-dev ## Build and run
