@@ -151,7 +151,7 @@ docker-test: docker-build ## Build and test Docker image (comprehensive validati
 			exit 1; \
 		fi
 	@echo "5. Verifying distroless base (no shell)..."
-	@if docker run --rm --entrypoint /bin/sh $(DOCKER_IMAGE):$(DOCKER_TAG) -c "exit 0" 2>&1 | grep -q "no such file"; then \
+	@if ! docker run --rm --entrypoint /bin/sh $(DOCKER_IMAGE):$(DOCKER_TAG) -c "exit 0" 2>/dev/null; then \
 		echo "   ✓ No shell available (distroless confirmed)"; \
 	else \
 		echo "   ❌ Image has shell - not distroless!"; \
