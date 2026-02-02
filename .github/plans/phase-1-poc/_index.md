@@ -17,7 +17,7 @@
 | 07 | Reference Plugin | [x] | P0 | 04 | M |
 | 08 | Core Skeleton | [x] | P0 | 05, 07 | L |
 | 09 | mTLS Server (Mode A) | [x] | P0 | 08 | L |
-| 10 | Plugin Mechanism Verification | [ ] | P0 | 07, 08 | S |
+| 10 | Plugin Mechanism Verification | [x] | P0 | 07, 08 | S |
 | 11 | Docker Validation | [ ] | P0 | 09, 10 | M |
 
 **Legend:** `[ ]` Not started | `[~]` In progress / Pending Review | `[x]` Completed | `[!]` Blocked
