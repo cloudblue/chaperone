@@ -1,0 +1,41 @@
+# Chaperone Docker Build Context Exclusions
+# Reduces build context size and prevents secrets from being copied
+
+# Version control
+.git
+.gitignore
+.github
+
+# Build artifacts (use fresh build in container)
+bin/
+*.test
+coverage.*
+coverage-sdk.out
+
+# Development files
+tmp/
+*.md
+!README.md
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Certificates (should be mounted at runtime, not baked in)
+certs/
+*.crt
+*.key
+*.pem
+*.csr
+
+# Credentials (NEVER include in image)
+credentials.json
+*.credentials
+secrets/
+
+# OS files
+.DS_Store
+Thumbs.db
