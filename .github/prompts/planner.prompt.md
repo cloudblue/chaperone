@@ -2,7 +2,7 @@
 agent: "agent"
 name: planner
 description: Generate implementation tasks for a phase by analyzing ROADMAP and Design Spec
-tools: ['read/readFile', 'edit/createFile', 'search', 'agent', 'edit/editFiles']
+tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 # Implementation Planner
