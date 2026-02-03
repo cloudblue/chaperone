@@ -95,6 +95,92 @@ test-short: ## Run short tests only
 	go test -short -v ./...
 
 # ============================================================================
+# Docker
+# ============================================================================
+
+# Docker image settings
+DOCKER_IMAGE := chaperone
+DOCKER_TAG ?= poc
+
+.PHONY: docker-build
+docker-build: ## Build Docker image
+	@echo "Building Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+
+.PHONY: docker-run
+docker-run: ## Run Docker container (HTTP mode for testing)
+	@echo "Running $(DOCKER_IMAGE):$(DOCKER_TAG)..."
+	docker run --rm -p 8443:8443 --name chaperone-test $(DOCKER_IMAGE):$(DOCKER_TAG)
+
+.PHONY: docker-test
+docker-test: docker-build ## Build and test Docker image (comprehensive validation)
+	@echo "=== Docker Validation Suite ==="
+	@echo ""
+	@# --- Functional Tests ---
+	@echo "1. Starting container..."
+	@docker run -d --rm -p 8443:8443 --name chaperone-docker-test $(DOCKER_IMAGE):$(DOCKER_TAG)
+	@sleep 2
+	@echo "2. Health check..."
+	@curl -sf http://localhost:8443/_ops/health > /dev/null || { \
+		echo "   ❌ Health check failed!"; \
+		docker logs chaperone-docker-test; \
+		docker stop chaperone-docker-test 2>/dev/null; \
+		exit 1; \
+	}
+	@echo "   ✓ Health endpoint returns 200"
+	@echo "3. Version check..."
+	@curl -sf http://localhost:8443/_ops/version > /dev/null || { \
+		echo "   ❌ Version check failed!"; \
+		docker stop chaperone-docker-test; \
+		exit 1; \
+	}
+	@echo "   ✓ Version endpoint returns 200"
+	@docker stop chaperone-docker-test > /dev/null
+	@echo ""
+	@# --- Security/Compliance Tests ---
+	@echo "4. Verifying non-root user..."
+	@USER=$$(docker inspect $(DOCKER_IMAGE):$(DOCKER_TAG) --format '{{.Config.User}}'); \
+		if [ "$$USER" = "nonroot:nonroot" ]; then \
+			echo "   ✓ Running as nonroot:nonroot"; \
+		else \
+			echo "   ❌ Not running as non-root (found: $$USER)"; \
+			exit 1; \
+		fi
+	@echo "5. Verifying distroless base (no shell)..."
+	@if ! docker run --rm --entrypoint /bin/sh $(DOCKER_IMAGE):$(DOCKER_TAG) -c "exit 0" 2>/dev/null; then \
+		echo "   ✓ No shell available (distroless confirmed)"; \
+	else \
+		echo "   ❌ Image has shell - not distroless!"; \
+		exit 1; \
+	fi
+	@echo "6. Verifying image size..."
+	@SIZE_RAW=$$(docker images $(DOCKER_IMAGE):$(DOCKER_TAG) --format '{{.Size}}'); \
+		SIZE_NUM=$$(echo "$$SIZE_RAW" | grep -oE '[0-9.]+'); \
+		SIZE_UNIT=$$(echo "$$SIZE_RAW" | grep -oE '[A-Za-z]+'); \
+		if [ "$$SIZE_UNIT" = "MB" ] && [ "$${SIZE_NUM%.*}" -lt 50 ]; then \
+			echo "   ✓ Image size: $$SIZE_RAW (< 50MB target)"; \
+		elif [ "$$SIZE_UNIT" = "KB" ] || [ "$$SIZE_UNIT" = "kB" ]; then \
+			echo "   ✓ Image size: $$SIZE_RAW (< 50MB target)"; \
+		else \
+			echo "   ❌ Image too large: $$SIZE_RAW (target: < 50MB)"; \
+			exit 1; \
+		fi
+	@echo ""
+	@echo "=== Docker Validation Passed! ✓ ==="
+
+.PHONY: docker-size
+docker-size: ## Show Docker image size
+	@docker images $(DOCKER_IMAGE):$(DOCKER_TAG) --format "{{.Repository}}:{{.Tag}}\t{{.Size}}"
+
+.PHONY: docker-clean
+docker-clean: ## Remove Docker image
+	docker rmi $(DOCKER_IMAGE):$(DOCKER_TAG) 2>/dev/null || true
+
+# ============================================================================
 # Code Quality
 # ============================================================================
 

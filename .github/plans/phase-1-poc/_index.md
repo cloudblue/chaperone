@@ -18,7 +18,7 @@
 | 08 | Core Skeleton | [x] | P0 | 05, 07 | L |
 | 09 | mTLS Server (Mode A) | [x] | P0 | 08 | L |
 | 10 | Plugin Mechanism Verification | [x] | P0 | 07, 08 | S |
-| 11 | Docker Validation | [ ] | P0 | 09, 10 | M |
+| 11 | Docker Validation | [x] | P0 | 09, 10 | M |
 
 **Legend:** `[ ]` Not started | `[~]` In progress / Pending Review | `[x]` Completed | `[!]` Blocked
 
@@ -48,18 +48,18 @@ Tier 2 (HTTP Layer) - Done ✓
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
-Tier 3 (Verification) - PARALLEL ← Current Focus
+Tier 3 (Verification) - Done ✓
 ┌─────────────────────────────────────────────────────────────────┐
-│  09-mtls-verification [ ]   10-plugin-mechanism [ ]             │
+│  09-mtls-verification [x]   10-plugin-mechanism [x]             │
 │         │                            │                          │
 │         └────────────┬───────────────┘                          │
 │                      ▼                                          │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
-Tier 4 (Deployment)
+Tier 4 (Deployment) ← Current Focus
 ┌─────────────────────────────────────────────────────────────────┐
-│  11-docker-validation [ ]                                       │
+│  11-docker-validation [~]                                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -67,16 +67,20 @@ Tier 4 (Deployment)
 
 ### Completed
 
-- **01-08:** All foundation, core logic, and HTTP layer tasks complete.
+- **01-10:** All foundation, core logic, HTTP layer, and verification tasks complete.
 - SDK module with interfaces and structs in `sdk/`.
 - Reference plugin complete in `plugins/reference/`.
 - Core proxy skeleton in `internal/proxy/`.
+- mTLS verification passing.
+- Plugin mechanism (static recompilation) verified per ADR-001.
 
 ### Current Focus
 
-**Tasks 09 and 10 can be done in parallel or in either order:**
-- **09-mtls-verification:** Verify mTLS handshake (security layer)
-- **10-plugin-mechanism:** Verify static recompilation (build architecture)
+**Task 11 - Docker Validation (Final PoC Task):**
+- Multi-stage Dockerfile for minimal image
+- Distroless base for security
+- Non-root user execution
+- Health check validation
 
 ### Blockers
 

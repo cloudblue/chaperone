@@ -1,4 +1,4 @@
-// Copyright 2024-2026 CloudBlue
+// Copyright 2026 CloudBlue LLC
 // SPDX-License-Identifier: Apache-2.0
 
 // Package sdk defines the public interfaces that Distributors implement

@@ -1,6 +1,6 @@
 # Task: Docker Validation
 
-**Status:** [ ] Not Started  
+**Status:** [x] Completed  
 **Priority:** P0  
 **Estimated Effort:** M (Medium)
 
@@ -20,14 +20,14 @@ Create a Dockerfile and verify the PoC compiles and runs successfully inside a c
 
 ## Acceptance Criteria
 
-- [ ] Multi-stage Dockerfile exists
-- [ ] `docker build -t chaperone:poc .` succeeds
-- [ ] `docker run` starts the container
-- [ ] Health check returns 200
-- [ ] Image uses minimal base (distroless or alpine)
-- [ ] Image runs as non-root user
-- [ ] No secrets baked into image
-- [ ] Image size is reasonable (< 50MB for distroless)
+- [x] Multi-stage Dockerfile exists
+- [x] `docker build -t chaperone:poc .` succeeds
+- [x] `docker run` starts the container
+- [x] Health check returns 200
+- [x] Image uses minimal base (distroless or alpine)
+- [x] Image runs as non-root user
+- [x] No secrets baked into image
+- [x] Image size is reasonable (< 50MB for distroless) - **14MB achieved**
 
 ## Implementation Hints
 
@@ -215,3 +215,52 @@ docker run --rm chaperone:poc whoami
 
 This task is the final validation for Phase 1 PoC.
 Success here means the architecture is proven and ready for Phase 2 features.
+
+## Implementation Notes
+
+**Decisions made during implementation (2026-02-02):**
+
+### 1. No go.sum File Handling
+
+The SDK has no external dependencies, so no `go.sum` file exists. The Dockerfile handles this by only copying `go.mod` files:
+```dockerfile
+COPY go.mod ./
+COPY sdk/go.mod ./sdk/
+```
+When external dependencies are added later, update to include `go.sum` files.
+
+### 2. Default CMD Uses HTTP Mode
+
+Container starts with `-tls=false` by default since certificates must be mounted at runtime (not baked into image). Users override for mTLS:
+```bash
+docker run -v /certs:/certs chaperone:poc -tls=true -ca=/certs/ca.crt
+```
+
+### 3. No HEALTHCHECK Directive in Dockerfile
+
+Distroless images have no shell or curl, so Docker's `HEALTHCHECK` instruction cannot be used. Health checking must be done externally:
+- **Kubernetes:** Use `livenessProbe` / `readinessProbe` with `httpGet`
+- **Docker Compose:** Use `healthcheck` with a sidecar or external curl
+- **Manual:** `curl http://localhost:8443/_ops/health`
+
+### 4. Build Args for Version Injection
+
+Version information is injected at build time via `--build-arg`:
+```bash
+docker build \
+  --build-arg VERSION=$(git describe --tags) \
+  --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) \
+  --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+  -t chaperone:latest .
+```
+The Makefile `docker-build` target does this automatically.
+
+### 5. Validation Suite
+
+All acceptance criteria are validated automatically via `make docker-test`:
+- Container starts and responds
+- Health endpoint returns 200
+- Version endpoint returns 200
+- User is `nonroot:nonroot`
+- No shell available (proves distroless base)
+- Image size < 50MB
