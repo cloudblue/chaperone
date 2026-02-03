@@ -15,3 +15,5 @@ go 1.25.6
 replace github.com/cloudblue/chaperone/sdk => ./sdk
 
 require github.com/cloudblue/chaperone/sdk v0.0.0
+
+require gopkg.in/yaml.v3 v3.0.1

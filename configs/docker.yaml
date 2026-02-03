@@ -1,0 +1,25 @@
+# Copyright 2026 CloudBlue LLC
+# SPDX-License-Identifier: Apache-2.0
+
+# Minimal configuration for Docker container testing
+# TLS disabled by default - mount certificates for production use
+
+server:
+  addr: ":8443"
+  admin_addr: ":9090"
+  tls:
+    # TLS disabled for testing - override via env or mount certs for production
+    enabled: false
+
+upstream:
+  header_prefix: "X-Connect"
+  # Minimal allow_list for health checks and basic testing
+  # Override this in production with actual vendor hosts
+  allow_list:
+    "example.com":
+      - "/**"
+    "httpbin.org":
+      - "/**"
+
+observability:
+  log_level: "info"

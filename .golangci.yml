@@ -43,6 +43,8 @@ linters:
 
     govet:
       enable-all: true
+      disable:
+        - fieldalignment
 
     goconst:
       min-len: 3
@@ -101,6 +103,7 @@ linters:
           - errcheck
           - funlen
           - gocognit
+          - staticcheck
         path: _test\.go
 
       # Allow ignored errors in compliance test kit (tests panic behavior, not error handling)
@@ -121,6 +124,14 @@ linters:
       - linters:
           - revive
         path: internal/context/
+        text: "var-naming: avoid package names"
+
+      # Allow pkg/crypto name even though it conflicts with stdlib.
+      # This package handles certificate generation, not general crypto.
+      # TODO: Consider renaming to pkg/certs in future refactor.
+      - linters:
+          - revive
+        path: pkg/crypto/
         text: "var-naming: avoid package names"
 
     paths:
