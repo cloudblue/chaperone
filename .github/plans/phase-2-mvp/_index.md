@@ -2,13 +2,13 @@
 
 **Goal:** A secure, distributable version that Early Adopter Distributors can deploy in "Mode A".
 
-**Status:** Not Started
+**Status:** In Progress
 
 ## Task Overview
 
 | # | Task | Status | Priority | Dependencies | Est. Effort |
 |---|------|--------|----------|--------------|-------------|
-| 01 | Configuration | [ ] | P0 | Phase 1 | M |
+| 01 | Configuration | [x] | P0 | Phase 1 | M |
 | 02 | Router (Allow-List) | [ ] | P0 | 01 | M |
 | 03 | Error Normalization | [ ] | P0 | 01 | M |
 | 04 | Security Layer | [ ] | P0 | 01 | M |

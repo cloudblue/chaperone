@@ -59,6 +59,10 @@ WORKDIR /app
 # Copy the statically-linked binary
 COPY --from=builder /build/chaperone /app/chaperone
 
+# Copy default config for Docker (TLS disabled, minimal allow_list)
+# Users should mount their own config for production
+COPY configs/docker.yaml /app/config.yaml
+
 # Distroless nonroot image runs as UID 65532 by default
 # This is a security best practice
 USER nonroot:nonroot
@@ -74,10 +78,8 @@ EXPOSE 8443 9090
 #   - Docker Compose: healthcheck with curl from host or sidecar container
 #   - Manual: curl http://localhost:8443/_ops/health (from host, not container)
 
-# Run the proxy
-# Default flags can be overridden via docker run args
+# Run the proxy with default config
+# Override config via: docker run -v /path/to/config.yaml:/app/config.yaml
+# Or use environment variables: docker run -e CHAPERONE_SERVER_ADDR=:9443
 ENTRYPOINT ["/app/chaperone"]
-
-# Default arguments (can be overridden)
-# Note: TLS disabled by default in container since certs must be mounted
-CMD ["-tls=false", "-addr=:8443"]
+CMD ["-config", "/app/config.yaml"]
