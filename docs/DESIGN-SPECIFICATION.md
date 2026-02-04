@@ -746,7 +746,50 @@ func TestMyPluginCompliance(t *testing.T) {
 * **Scope:** Input parsing functions.
 * **Mechanism:** We use Go 1.18+ native fuzzing to generate random, malformed inputs against the **Header Parser** and **Config Loader** to identify edge cases that cause crashes (panics) or memory leaks.
 
-### 9.3 Performance & Load (Future Scope)
+### 9.3 Performance Testing
 
-* **Benchmarks:** Go `testing.Benchmark` functions included in Core to track allocations per request.
-* **Load Testing:** A standard `k6` script provided in the repo to allow Distributors to stress-test their deployment (e.g., simulating 1,000 concurrent requests) before going live.
+#### A. Benchmark Testing (Go Native)
+
+* **Tooling:** Go `testing.Benchmark` with `benchstat` for regression detection.
+* **Scope:**
+    * **Micro-benchmarks:** Context parsing, hashing, glob matching, header manipulation.
+    * **Component benchmarks:** Middleware overhead, response sanitization, TLS handshake.
+    * **End-to-end benchmarks:** Full request cycle with mock upstream.
+* **Key Metrics:**
+    * Allocations per request (target: < 50 allocs/op)
+    * Bytes per request (target: < 4KB/op)
+    * Proxy overhead excluding upstream (target: < 100μs)
+    * TLS handshake time (target: < 5ms for mTLS)
+* **Regression Policy:** CI fails if any metric degrades > 10%.
+* **Execution:** Benchmarks run in CI (~30-60s) to catch performance regressions early.
+
+#### B. Load Testing (k6)
+
+* **Tooling:** Grafana k6 for HTTP load generation.
+* **Scenarios:**
+    * **Baseline:** Steady traffic (e.g., 100 VUs for 5 minutes) to establish performance baseline.
+    * **Spike:** Sudden traffic surge (10x normal) to test resilience and recovery.
+    * **Stress:** Gradually increasing load until failure to find system limits.
+    * **Soak:** Extended duration (4+ hours) at moderate load to detect memory leaks and connection exhaustion.
+* **mTLS Testing:** All scenarios include client certificate authentication to validate TLS performance under load.
+* **Success Criteria:**
+    * P99 latency < 50ms (excluding upstream)
+    * Error rate < 0.1%
+    * No memory leaks (heap stable over soak test)
+    * No goroutine leaks
+
+#### C. Profiling Integration
+
+* **CPU Profiling:** Identify hot functions under load via `/debug/pprof/profile`.
+* **Memory Profiling:** Detect allocation patterns and leaks via `/debug/pprof/heap`.
+* **Block Profiling:** Find contention points (mutexes, channels) via `/debug/pprof/block`.
+* **Goroutine Profiling:** Detect goroutine leaks via `/debug/pprof/goroutine`.
+
+#### D. Performance Attribution
+
+* **Mechanism:** The Proxy appends the standard `Server-Timing` header to responses.
+* **Format:** `Server-Timing: plugin;dur=150, upstream;dur=320, overhead;dur=2`
+* **Interpretation:**
+    * `plugin`: Time spent executing Distributor's custom logic.
+    * `upstream`: Time spent waiting for ISV to reply.
+    * `overhead`: Time spent in Proxy Core (mTLS, serialization).
