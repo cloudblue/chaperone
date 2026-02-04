@@ -1,0 +1,124 @@
+# Copyright 2026 CloudBlue LLC
+# SPDX-License-Identifier: Apache-2.0
+
+# Chaperone Configuration Example
+# ================================
+# This file demonstrates all available configuration options.
+# Copy to config.yaml and customize for your deployment.
+#
+# Environment variables override YAML values using the pattern:
+# CHAPERONE_<SECTION>_<KEY> (uppercase, underscore separator)
+# Example: CHAPERONE_SERVER_ADDR=":9443"
+
+server:
+  # Traffic port - main proxy endpoint
+  # Default: ":443"
+  # Env: CHAPERONE_SERVER_ADDR
+  addr: ":8443"
+
+  # Admin port - metrics and health endpoints
+  # Default: ":9090"
+  # Env: CHAPERONE_SERVER_ADMIN_ADDR
+  admin_addr: ":9090"
+
+  tls:
+    # Enable TLS/mTLS (mutual TLS)
+    # Default: true
+    # Env: CHAPERONE_SERVER_TLS_ENABLED
+    enabled: true
+
+    # Path to server certificate (PEM format)
+    # Default: "/certs/server.crt"
+    # Env: CHAPERONE_SERVER_TLS_CERT_FILE
+    cert_file: "certs/server.crt"
+
+    # Path to server private key (PEM format)
+    # Default: "/certs/server.key"
+    # Env: CHAPERONE_SERVER_TLS_KEY_FILE
+    key_file: "certs/server.key"
+
+    # Path to CA certificate for client verification (PEM format)
+    # Default: "/certs/ca.crt"
+    # Env: CHAPERONE_SERVER_TLS_CA_FILE
+    ca_file: "certs/ca.crt"
+
+    # Enable automatic certificate rotation
+    # Default: true
+    # Env: CHAPERONE_SERVER_TLS_AUTO_ROTATE
+    auto_rotate: true
+
+upstream:
+  # Header prefix for context headers (ADR-005)
+  # Affects: X-{prefix}-Target-URL, X-{prefix}-Marketplace-ID, etc.
+  # Default: "X-Connect"
+  # Env: CHAPERONE_UPSTREAM_HEADER_PREFIX
+  header_prefix: "X-Connect"
+
+  # Correlation ID header name (ADR-005)
+  # Default: "Connect-Request-ID"
+  # Env: CHAPERONE_UPSTREAM_TRACE_HEADER
+  trace_header: "Connect-Request-ID"
+
+  # Allow-list for target URLs (REQUIRED)
+  # Security: This is mandatory - empty means deny all requests.
+  # Format: hostname -> list of path patterns
+  # Patterns:
+  #   * = single-level wildcard (within segment)
+  #   ** = multi-level/recursive wildcard
+  allow_list:
+    # Example: Allow all paths under api.vendor.com
+    "api.vendor.com":
+      - "/v1/**"
+      - "/v2/**"
+    # Example: Allow specific paths only
+    "payments.example.com":
+      - "/api/charge"
+      - "/api/refund"
+
+  timeouts:
+    # Connection establishment timeout
+    # Default: 5s
+    # Env: CHAPERONE_UPSTREAM_TIMEOUTS_CONNECT
+    connect: 5s
+
+    # Maximum time waiting for response headers
+    # Default: 30s
+    # Env: CHAPERONE_UPSTREAM_TIMEOUTS_READ
+    read: 30s
+
+    # Maximum time for writing the response
+    # Default: 30s
+    # Env: CHAPERONE_UPSTREAM_TIMEOUTS_WRITE
+    write: 30s
+
+    # Keep-alive connection timeout
+    # Default: 120s
+    # Env: CHAPERONE_UPSTREAM_TIMEOUTS_IDLE
+    idle: 120s
+
+observability:
+  # Logging level
+  # Valid values: debug, info, warn, error
+  # Default: "info"
+  # Env: CHAPERONE_OBSERVABILITY_LOG_LEVEL
+  log_level: "info"
+
+  # Enable /debug/pprof endpoint on admin port
+  # Security: Should be false in production
+  # Default: false
+  # Env: CHAPERONE_OBSERVABILITY_ENABLE_PROFILING
+  enable_profiling: false
+
+  # Headers to redact from logs
+  # Default includes security-critical headers:
+  #   Authorization, Proxy-Authorization, Cookie, Set-Cookie, X-API-Key, X-Auth-Token
+  # Override to add custom sensitive headers
+  sensitive_headers:
+    - "Authorization"
+    - "Proxy-Authorization"
+    - "Cookie"
+    - "Set-Cookie"
+    - "X-API-Key"
+    - "X-Auth-Token"
+    # Add custom headers below:
+    # - "X-Custom-Secret"

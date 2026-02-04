@@ -44,8 +44,6 @@ const (
 // TLSConfig holds the TLS/mTLS configuration for the server.
 // When Enabled is true, the server enforces mTLS (Mode A) with TLS 1.3 minimum.
 // When Enabled is false, the server runs plain HTTP (basic Mode B for testing).
-//
-//nolint:govet // fieldalignment: optimizing for readability over memory layout
 type TLSConfig struct {
 	// Enabled controls whether mTLS is active. Defaults to DefaultMTLSEnabled.
 	Enabled bool
@@ -61,8 +59,6 @@ type TLSConfig struct {
 }
 
 // Config holds the configuration for the proxy server.
-//
-//nolint:govet // fieldalignment: optimizing for readability over memory layout
 type Config struct {
 	// Addr is the address to listen on (e.g., ":8080").
 	Addr string
