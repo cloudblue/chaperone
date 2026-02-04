@@ -21,7 +21,8 @@ import (
 func TestHealth_ReturnsAlive(t *testing.T) {
 	// Arrange
 	srv := proxy.NewServer(proxy.Config{
-		Addr: ":0",
+		Addr:      ":0",
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -49,8 +50,9 @@ func TestHealth_ReturnsAlive(t *testing.T) {
 func TestVersion_ReturnsVersionInfo(t *testing.T) {
 	// Arrange
 	srv := proxy.NewServer(proxy.Config{
-		Addr:    ":0",
-		Version: "1.0.0",
+		Addr:      ":0",
+		Version:   "1.0.0",
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -78,7 +80,8 @@ func TestVersion_ReturnsVersionInfo(t *testing.T) {
 func TestProxy_MissingTargetURL_Returns400(t *testing.T) {
 	// Arrange
 	srv := proxy.NewServer(proxy.Config{
-		Addr: ":0",
+		Addr:      ":0",
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -187,7 +190,7 @@ func TestHealth_ContentType_JSON(t *testing.T) {
 
 func TestUnknownRoute_Returns404(t *testing.T) {
 	// Arrange
-	srv := proxy.NewServer(proxy.Config{Addr: ":0"})
+	srv := proxy.NewServer(proxy.Config{Addr: ":0", AllowList: testAllowList()})
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/unknown/route", nil)
@@ -212,7 +215,8 @@ func TestProxy_TraceID_GeneratedWhenMissing(t *testing.T) {
 	defer backend.Close()
 
 	srv := proxy.NewServer(proxy.Config{
-		Addr: ":0",
+		Addr:      ":0",
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -239,7 +243,8 @@ func TestProxy_TraceID_PreservedFromRequest(t *testing.T) {
 	defer backend.Close()
 
 	srv := proxy.NewServer(proxy.Config{
-		Addr: ":0",
+		Addr:      ":0",
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -270,7 +275,8 @@ func TestProxy_ResponseSanitizer_StripsAuthHeaders(t *testing.T) {
 	defer backend.Close()
 
 	srv := proxy.NewServer(proxy.Config{
-		Addr: ":0",
+		Addr:      ":0",
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -305,7 +311,8 @@ func TestNewServer_NilPlugin_UsesNoopPlugin(t *testing.T) {
 	defer backend.Close()
 
 	srv := proxy.NewServer(proxy.Config{
-		Addr: ":0",
+		Addr:      ":0",
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -332,7 +339,7 @@ func TestProxy_TargetURLWithPath_PreservesPath(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := proxy.NewServer(proxy.Config{Addr: ":0"})
+	srv := proxy.NewServer(proxy.Config{Addr: ":0", AllowList: testAllowList()})
 	handler := srv.Handler()
 
 	// Target URL with a specific path
@@ -382,7 +389,7 @@ func TestProxy_MethodPassthrough_ForwardsOriginalMethod(t *testing.T) {
 			}))
 			defer backend.Close()
 
-			srv := proxy.NewServer(proxy.Config{Addr: ":0"})
+			srv := proxy.NewServer(proxy.Config{Addr: ":0", AllowList: testAllowList()})
 			handler := srv.Handler()
 
 			req := httptest.NewRequest(tt.method, "/proxy", nil)
@@ -853,6 +860,7 @@ func TestProxy_InvalidTargetURL_Returns400(t *testing.T) {
 	srv := proxy.NewServer(proxy.Config{
 		Addr:         ":0",
 		HeaderPrefix: "X-Connect",
+		AllowList:    testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -864,12 +872,12 @@ func TestProxy_InvalidTargetURL_Returns400(t *testing.T) {
 	// Act
 	handler.ServeHTTP(rec, req)
 
-	// Assert
+	// Assert - AllowListMiddleware catches this and returns 400 "invalid target URL"
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
-	if !strings.Contains(rec.Body.String(), "Bad Request") {
-		t.Errorf("body = %q, want to contain 'Bad Request'", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "invalid target URL") {
+		t.Errorf("body = %q, want to contain 'invalid target URL'", rec.Body.String())
 	}
 }
 
