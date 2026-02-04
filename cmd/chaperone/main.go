@@ -125,6 +125,7 @@ Examples:
 		Plugin:       plugin,
 		Version:      Version,
 		HeaderPrefix: cfg.Upstream.HeaderPrefix,
+		AllowList:    cfg.Upstream.AllowList,
 		TLS: &proxy.TLSConfig{
 			Enabled:  tlsEnabled,
 			CertFile: cfg.Server.TLS.CertFile,

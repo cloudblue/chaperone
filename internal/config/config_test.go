@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/cloudblue/chaperone/internal/router"
 )
 
 func TestLoad_ValidYAML_ParsesAllFields(t *testing.T) {
@@ -302,6 +304,125 @@ func TestValidate_EmptyAllowList_ReturnsError(t *testing.T) {
 	// Assert
 	if err == nil {
 		t.Fatal("expected error for empty allow_list, got nil")
+	}
+}
+
+func TestValidate_InvalidGlobPattern_ReturnsError(t *testing.T) {
+	tests := []struct {
+		name      string
+		allowList map[string][]string
+	}{
+		{
+			name: "invalid domain pattern - partial star",
+			allowList: map[string][]string{
+				"api*.google.com": {"/v1/**"},
+			},
+		},
+		{
+			name: "invalid path pattern - partial star",
+			allowList: map[string][]string{
+				"api.google.com": {"/v1/cust*/profiles"},
+			},
+		},
+		{
+			name: "invalid triple star in domain",
+			allowList: map[string][]string{
+				"***.google.com": {"/v1/**"},
+			},
+		},
+		{
+			name: "invalid triple star in path",
+			allowList: map[string][]string{
+				"api.google.com": {"/v1/***/profiles"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Upstream: UpstreamConfig{
+					AllowList: tt.allowList,
+				},
+			}
+			applyDefaults(cfg)
+
+			err := Validate(cfg)
+
+			if err == nil {
+				t.Fatal("expected error for invalid glob pattern, got nil")
+			}
+			if !errors.Is(err, router.ErrInvalidGlobPattern) {
+				t.Errorf("expected router.ErrInvalidGlobPattern, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidate_ValidGlobPatterns_NoError(t *testing.T) {
+	tests := []struct {
+		name      string
+		allowList map[string][]string
+	}{
+		{
+			name: "exact domain and path",
+			allowList: map[string][]string{
+				"api.google.com": {"/v1/customers"},
+			},
+		},
+		{
+			name: "single star domain pattern",
+			allowList: map[string][]string{
+				"*.google.com": {"/v1/**"},
+			},
+		},
+		{
+			name: "double star domain pattern",
+			allowList: map[string][]string{
+				"**.amazonaws.com": {"/bucket/**"},
+			},
+		},
+		{
+			name: "single star path pattern",
+			allowList: map[string][]string{
+				"api.google.com": {"/v1/customers/*/profiles"},
+			},
+		},
+		{
+			name: "double star path pattern",
+			allowList: map[string][]string{
+				"api.google.com": {"/v1/**"},
+			},
+		},
+		{
+			name: "catch-all path",
+			allowList: map[string][]string{
+				"api.google.com": {"/**"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tlsDisabled := false
+			cfg := &Config{
+				Server: ServerConfig{
+					TLS: TLSConfig{
+						Enabled: &tlsDisabled,
+					},
+				},
+				Upstream: UpstreamConfig{
+					AllowList: tt.allowList,
+				},
+			}
+			applyDefaults(cfg)
+
+			err := Validate(cfg)
+
+			if err != nil {
+				t.Errorf("unexpected error for valid glob pattern: %v", err)
+			}
+		})
 	}
 }
 
@@ -1045,5 +1166,285 @@ upstream:
 	}
 	if cfg.Server.TLS.Enabled == nil || *cfg.Server.TLS.Enabled != false {
 		t.Errorf("TLS.Enabled = %v, want false (env override)", cfg.Server.TLS.Enabled)
+	}
+}
+
+// TestValidate_EmptyAddress_UsesDefault verifies that empty addresses don't trigger errors
+// (they will use defaults).
+func TestValidate_EmptyAddress_UsesDefault(t *testing.T) {
+	tlsDisabled := false
+	cfg := &Config{
+		Server: ServerConfig{
+			Addr:      "", // Empty - will use default
+			AdminAddr: "", // Empty - will use default
+			TLS:       TLSConfig{Enabled: &tlsDisabled},
+		},
+		Upstream: UpstreamConfig{
+			AllowList: map[string][]string{"api.example.com": {"/**"}},
+		},
+	}
+	// Don't apply defaults to test the empty address validation path
+
+	err := Validate(cfg)
+
+	if err != nil {
+		t.Errorf("unexpected error for empty addresses: %v", err)
+	}
+}
+
+// TestValidate_MalformedAddress_ReturnsError tests addresses that fail SplitHostPort.
+func TestValidate_MalformedAddress_ReturnsError(t *testing.T) {
+	tests := []struct {
+		name string
+		addr string
+	}{
+		{"missing colon", "localhost8443"},
+		{"multiple colons without brackets", "::8443"},
+		{"incomplete IPv6", "[::1"},
+	}
+
+	tlsDisabled := false
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Server: ServerConfig{
+					Addr: tt.addr,
+					TLS:  TLSConfig{Enabled: &tlsDisabled},
+				},
+				Upstream: UpstreamConfig{
+					AllowList: map[string][]string{"api.example.com": {"/**"}},
+				},
+			}
+
+			err := Validate(cfg)
+
+			if err == nil {
+				t.Errorf("expected error for malformed addr %q, got nil", tt.addr)
+			}
+			if !errors.Is(err, ErrInvalidServerAddr) {
+				t.Errorf("expected ErrInvalidServerAddr, got %v", err)
+			}
+		})
+	}
+}
+
+// TestValidate_GlobPattern_EmptyPath_Valid tests that empty paths in allow list are valid.
+func TestValidate_GlobPattern_EmptyPath_Valid(t *testing.T) {
+	tlsDisabled := false
+	cfg := &Config{
+		Server: ServerConfig{
+			TLS: TLSConfig{Enabled: &tlsDisabled},
+		},
+		Upstream: UpstreamConfig{
+			AllowList: map[string][]string{
+				"api.example.com": {""}, // Empty path pattern is valid
+			},
+		},
+	}
+	applyDefaults(cfg)
+
+	err := Validate(cfg)
+
+	if err != nil {
+		t.Errorf("unexpected error for empty path pattern: %v", err)
+	}
+}
+
+// TestValidate_GlobPattern_MoreInvalidCases tests additional invalid glob patterns
+// for comprehensive security coverage.
+func TestValidate_GlobPattern_MoreInvalidCases(t *testing.T) {
+	tests := []struct {
+		name      string
+		allowList map[string][]string
+	}{
+		{
+			name: "star in middle of segment",
+			allowList: map[string][]string{
+				"api.google.com": {"/v1/cust*omers"},
+			},
+		},
+		{
+			name: "star at start of segment",
+			allowList: map[string][]string{
+				"api.google.com": {"/v1/*partial"},
+			},
+		},
+		{
+			name: "star at end of segment",
+			allowList: map[string][]string{
+				"api.google.com": {"/v1/partial*"},
+			},
+		},
+		{
+			name: "double star with suffix",
+			allowList: map[string][]string{
+				"api.google.com": {"/v1/**suffix"},
+			},
+		},
+		{
+			name: "quadruple star",
+			allowList: map[string][]string{
+				"api.google.com": {"/v1/****"},
+			},
+		},
+		{
+			name: "partial star in domain",
+			allowList: map[string][]string{
+				"*api.google.com": {"/v1/**"},
+			},
+		},
+		{
+			name: "star suffix in domain",
+			allowList: map[string][]string{
+				"api*.google.com": {"/v1/**"},
+			},
+		},
+		{
+			name: "mixed stars and text",
+			allowList: map[string][]string{
+				"api.google.com": {"/v1/*test*"},
+			},
+		},
+	}
+
+	tlsDisabled := false
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Server: ServerConfig{
+					TLS: TLSConfig{Enabled: &tlsDisabled},
+				},
+				Upstream: UpstreamConfig{
+					AllowList: tt.allowList,
+				},
+			}
+			applyDefaults(cfg)
+
+			err := Validate(cfg)
+
+			if err == nil {
+				t.Fatal("expected error for invalid glob pattern, got nil")
+			}
+			if !errors.Is(err, router.ErrInvalidGlobPattern) {
+				t.Errorf("expected router.ErrInvalidGlobPattern, got %v", err)
+			}
+		})
+	}
+}
+
+// TestValidate_GlobPattern_EdgeCases tests edge cases that should be valid.
+func TestValidate_GlobPattern_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name      string
+		allowList map[string][]string
+	}{
+		{
+			name: "root path only",
+			allowList: map[string][]string{
+				"api.example.com": {"/"},
+			},
+		},
+		{
+			name: "multiple paths for same host",
+			allowList: map[string][]string{
+				"api.example.com": {"/v1/**", "/v2/**", "/health"},
+			},
+		},
+		{
+			name: "multiple hosts",
+			allowList: map[string][]string{
+				"api.example.com":  {"/v1/**"},
+				"data.example.com": {"/query/**"},
+			},
+		},
+		{
+			name: "wildcard domain with wildcard path",
+			allowList: map[string][]string{
+				"*.example.com": {"/**"},
+			},
+		},
+		{
+			name: "double star domain with specific path",
+			allowList: map[string][]string{
+				"**.amazonaws.com": {"/bucket/specific/path"},
+			},
+		},
+		{
+			name: "path with many segments",
+			allowList: map[string][]string{
+				"api.example.com": {"/v1/users/*/profiles/*/settings"},
+			},
+		},
+		{
+			name: "double star in middle of path",
+			allowList: map[string][]string{
+				"api.example.com": {"/v1/**/settings"},
+			},
+		},
+		{
+			name: "consecutive single star segments",
+			allowList: map[string][]string{
+				"api.example.com": {"/v1/*/*/details"},
+			},
+		},
+	}
+
+	tlsDisabled := false
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Server: ServerConfig{
+					TLS: TLSConfig{Enabled: &tlsDisabled},
+				},
+				Upstream: UpstreamConfig{
+					AllowList: tt.allowList,
+				},
+			}
+			applyDefaults(cfg)
+
+			err := Validate(cfg)
+
+			if err != nil {
+				t.Errorf("unexpected error for valid glob pattern: %v", err)
+			}
+		})
+	}
+}
+
+// TestValidate_MultipleErrors_AllReported tests that multiple validation errors
+// are all reported, not just the first one.
+func TestValidate_MultipleErrors_AllReported(t *testing.T) {
+	cfg := &Config{
+		Server: ServerConfig{
+			Addr:      ":invalid",
+			AdminAddr: ":alsoinvalid",
+		},
+		Upstream: UpstreamConfig{
+			AllowList: nil, // Missing
+			Timeouts: TimeoutConfig{
+				Connect: -1 * time.Second,
+			},
+		},
+		Observability: ObservabilityConfig{
+			LogLevel: "notavalidlevel",
+		},
+	}
+
+	err := Validate(cfg)
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	// Check that multiple errors are reported
+	errStr := err.Error()
+	if !contains(errStr, "server.addr") {
+		t.Error("error should mention server.addr")
+	}
+	if !contains(errStr, "server.admin_addr") {
+		t.Error("error should mention server.admin_addr")
+	}
+	if !contains(errStr, "allow_list") {
+		t.Error("error should mention allow_list")
 	}
 }

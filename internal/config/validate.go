@@ -10,6 +10,8 @@ import (
 	"os"
 	"slices"
 	"strconv"
+
+	"github.com/cloudblue/chaperone/internal/router"
 )
 
 // Validation errors.
@@ -164,10 +166,16 @@ func validateUpstreamConfig(cfg *UpstreamConfig) error {
 	var errs []error
 
 	// Security: allow_list is required
-	if cfg.AllowList == nil {
+	switch {
+	case cfg.AllowList == nil:
 		errs = append(errs, ErrMissingAllowList)
-	} else if len(cfg.AllowList) == 0 {
+	case len(cfg.AllowList) == 0:
 		errs = append(errs, ErrEmptyAllowList)
+	default:
+		// Validate glob patterns at load time (fail fast)
+		if err := validateAllowListPatterns(cfg.AllowList); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	// Validate timeouts
@@ -212,5 +220,14 @@ func validateObservabilityConfig(cfg *ObservabilityConfig) error {
 		return fmt.Errorf("%w: got %q", ErrInvalidLogLevel, cfg.LogLevel)
 	}
 
+	return nil
+}
+
+// validateAllowListPatterns validates that all glob patterns in the allow list have valid syntax.
+// This delegates to router.ValidateAllowListConfig to avoid duplicating validation logic.
+func validateAllowListPatterns(allowList map[string][]string) error {
+	if err := router.ValidateAllowListConfig(allowList); err != nil {
+		return fmt.Errorf("upstream.allow_list: %w", err)
+	}
 	return nil
 }

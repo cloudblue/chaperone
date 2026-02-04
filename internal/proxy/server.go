@@ -18,6 +18,7 @@ import (
 	"time"
 
 	chaperoneCtx "github.com/cloudblue/chaperone/internal/context"
+	"github.com/cloudblue/chaperone/internal/router"
 	"github.com/cloudblue/chaperone/sdk"
 )
 
@@ -75,6 +76,11 @@ type Config struct {
 
 	// TLS holds the mTLS configuration. If nil, defaults are applied.
 	TLS *TLSConfig
+
+	// AllowList maps hosts to allowed path patterns for URL validation.
+	// Security: This enforces "Default Deny" - requests to hosts/paths not
+	// in this list are rejected with 403 Forbidden.
+	AllowList map[string][]string
 
 	// Timeouts
 	ReadTimeout   time.Duration
@@ -144,15 +150,34 @@ func (s *Server) Config() Config {
 
 // Handler returns the HTTP handler for the server.
 // This can be used for testing or with a custom http.Server.
+//
+// Middleware execution order (outermost to innermost):
+//  1. RequestLogging - wraps response, always logs via defer (even on panic)
+//  2. PanicRecovery - catches panics, writes 500 to wrapped response
+//  3. AllowList (on /proxy only) - validates target URL before credential injection
+//  4. handleProxy - actual request handling
+//
+// This order ensures:
+//   - All requests are logged (including rejections and panics)
+//   - Panics are caught and logged properly
+//   - URL validation happens before credential injection
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Register routes
+	// Register operational endpoints (no allow list validation needed)
 	mux.HandleFunc("GET /_ops/health", s.handleHealth)
 	mux.HandleFunc("GET /_ops/version", s.handleVersion)
-	mux.HandleFunc("/proxy", s.handleProxy)
 
-	// Apply middleware stack
+	// Register proxy endpoint with allow list validation
+	// Security: AllowList is REQUIRED per Design Spec Section 5.3
+	proxyHandler := WithAllowListMiddleware(
+		s.config.AllowList,
+		s.config.HeaderPrefix,
+		http.HandlerFunc(s.handleProxy),
+	)
+	mux.Handle("/proxy", proxyHandler)
+
+	// Apply global middleware stack (logging, panic recovery)
 	handler := s.withMiddleware(mux)
 
 	return handler
@@ -242,18 +267,21 @@ func (s *Server) startTLS(srv *http.Server) error {
 	return srv.ListenAndServeTLS("", "")
 }
 
-// withMiddleware wraps the handler with the middleware stack.
+// withMiddleware wraps the handler with the global middleware stack.
+// See Handler() for complete middleware ordering documentation.
 func (s *Server) withMiddleware(handler http.Handler) http.Handler {
-	// Apply middleware in order: outermost (first to run) to innermost
-	// 1. RequestLogging (outermost) - wraps response, captures status, always logs via defer
-	// 2. PanicRecovery (innermost) - catches panics, writes 500 to wrapped response
-	//
-	// This order ensures that when a panic occurs:
-	// - PanicRecovery catches it and writes 500 to the wrapped ResponseWriter
-	// - RequestLogging's defer runs and logs with the correct status (500)
+	// Apply middleware: outermost runs first
+	// Order: RequestLogging -> PanicRecovery -> handler
 	handler = WithPanicRecovery(handler)
 	handler = WithRequestLogging(handler)
 	return handler
+}
+
+// WithAllowListMiddleware wraps a handler with allow list validation.
+// Security: AllowList is REQUIRED per Design Spec Section 5.3.
+// Empty AllowList will deny all requests (secure default).
+func WithAllowListMiddleware(allowList map[string][]string, headerPrefix string, next http.Handler) http.Handler {
+	return router.NewAllowListMiddleware(allowList, headerPrefix, next)
 }
 
 // handleHealth handles GET /_ops/health requests.
