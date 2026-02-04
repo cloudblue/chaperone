@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -115,30 +116,53 @@ func TestBuild_BinaryRespondsToHealth(t *testing.T) {
 
 	tmpBinary := buildTestBinary(t)
 
-	// Start the binary on a random port
-	// Use --tls=false for this test since we don't have certs
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Find a free port using ListenConfig with context
+	// Find a free port for the server
 	lc := &net.ListenConfig{}
-	listener, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
+	serverListener, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("failed to find free port: %v", err)
+		t.Fatalf("failed to find free server port: %v", err)
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
+	serverPort := serverListener.Addr().(*net.TCPAddr).Port
+	serverListener.Close()
 
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	serverAddr := fmt.Sprintf("127.0.0.1:%d", serverPort)
 
-	// Start the server
-	cmd := exec.CommandContext(ctx, tmpBinary, "-addr", addr, "-tls=false")
+	// Create temporary config file (TLS disabled for this test)
+	// Note: admin_addr is configured but not used
+	configContent := fmt.Sprintf(`
+server:
+  addr: "%s"
+  tls:
+    enabled: false
+upstream:
+  header_prefix: "X-Connect"
+  allow_list:
+    "example.com":
+      - "/api/**"
+`, serverAddr)
+
+	configFile, err := os.CreateTemp(t.TempDir(), "chaperone-*.yaml")
+	if err != nil {
+		t.Fatalf("failed to create config file: %v", err)
+	}
+	if _, err := configFile.WriteString(configContent); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+	configFile.Close()
+
+	// Start the server with config file
+	cmd := exec.CommandContext(ctx, tmpBinary, "-config", configFile.Name())
 	cmd.Stdout = nil // Discard output
 	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("failed to start binary: %v", err)
 	}
 	defer cmd.Process.Kill()
+
+	addr := serverAddr
 
 	// Wait for server to be ready (poll health endpoint)
 	healthURL := fmt.Sprintf("http://%s/_ops/health", addr)
@@ -338,4 +362,31 @@ func TestPluginInterface_CompileTimeCompliance(t *testing.T) {
 	var _ sdk.ResponseModifier = plugin
 
 	t.Log("Plugin implements all required interfaces (verified at compile time)")
+}
+
+// TestParseLogLevel tests the parseLogLevel helper function used by main().
+// This is the only config-related test in main_test.go since config.Load()
+// is thoroughly tested in internal/config/config_test.go.
+func TestParseLogLevel(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected slog.Level
+	}{
+		{"debug", slog.LevelDebug},
+		{"info", slog.LevelInfo},
+		{"warn", slog.LevelWarn},
+		{"error", slog.LevelError},
+		{"unknown", slog.LevelInfo}, // Default
+		{"", slog.LevelInfo},        // Empty defaults to info
+		{"DEBUG", slog.LevelInfo},   // Case-sensitive, falls to default
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := parseLogLevel(tt.input)
+			if result != tt.expected {
+				t.Errorf("parseLogLevel(%q) = %v, want %v", tt.input, result, tt.expected)
+			}
+		})
+	}
 }

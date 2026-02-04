@@ -120,18 +120,113 @@ go get github.com/cloudblue/chaperone/sdk
 
 Chaperone is configured via a YAML file (`config.yaml`) with environment variable overrides following the 12-Factor App methodology.
 
+### Configuration File
+
+By default, Chaperone looks for configuration in this order:
+1. Path specified via `-config` flag
+2. Path in `CHAPERONE_CONFIG` environment variable
+3. `./config.yaml` in the current directory
+
+See [configs/config.example.yaml](configs/config.example.yaml) for a complete annotated example.
+
+### Quick Start Configuration
+
 ```yaml
 server:
-  addr: ":443"
+  addr: ":8443"
+  tls:
+    cert_file: "certs/server.crt"
+    key_file: "certs/server.key"
+    ca_file: "certs/ca.crt"
+
+upstream:
+  allow_list:
+    "api.vendor.com":
+      - "/v1/**"
+      - "/v2/**"
 
 observability:
   log_level: "info"
 ```
 
-Environment variables follow the pattern `CHAPERONE_<SECTION>_<KEY>`:
-```bash
-export CHAPERONE_SERVER_ADDR=":8443"
+### Configuration Reference
+
+#### Server Configuration
+
+| YAML Key | Environment Variable | Type | Default | Description |
+|----------|---------------------|------|---------|-------------|
+| `server.addr` | `CHAPERONE_SERVER_ADDR` | string | `:443` | Traffic port address |
+| `server.admin_addr` | `CHAPERONE_SERVER_ADMIN_ADDR` | string | `:9090` | Admin/metrics port address |
+| `server.tls.enabled` | `CHAPERONE_SERVER_TLS_ENABLED` | bool | `true` | Enable TLS/mTLS |
+| `server.tls.cert_file` | `CHAPERONE_SERVER_TLS_CERT_FILE` | string | `/certs/server.crt` | Path to server certificate (PEM) |
+| `server.tls.key_file` | `CHAPERONE_SERVER_TLS_KEY_FILE` | string | `/certs/server.key` | Path to server private key (PEM) |
+| `server.tls.ca_file` | `CHAPERONE_SERVER_TLS_CA_FILE` | string | `/certs/ca.crt` | Path to CA certificate for client verification (PEM) |
+| `server.tls.auto_rotate` | `CHAPERONE_SERVER_TLS_AUTO_ROTATE` | bool | `true` | Enable automatic certificate rotation |
+
+#### Upstream Configuration
+
+| YAML Key | Environment Variable | Type | Default | Description |
+|----------|---------------------|------|---------|-------------|
+| `upstream.header_prefix` | `CHAPERONE_UPSTREAM_HEADER_PREFIX` | string | `X-Connect` | Prefix for context headers (ADR-005) |
+| `upstream.trace_header` | `CHAPERONE_UPSTREAM_TRACE_HEADER` | string | `Connect-Request-ID` | Correlation ID header name |
+| `upstream.allow_list` | - | map | **Required** | Host → path patterns allow-list |
+| `upstream.timeouts.connect` | `CHAPERONE_UPSTREAM_TIMEOUTS_CONNECT` | duration | `5s` | Connection establishment timeout |
+| `upstream.timeouts.read` | `CHAPERONE_UPSTREAM_TIMEOUTS_READ` | duration | `30s` | Response header timeout |
+| `upstream.timeouts.write` | `CHAPERONE_UPSTREAM_TIMEOUTS_WRITE` | duration | `30s` | Response write timeout |
+| `upstream.timeouts.idle` | `CHAPERONE_UPSTREAM_TIMEOUTS_IDLE` | duration | `120s` | Keep-alive connection timeout |
+
+**Allow-List Pattern Syntax:**
+- `*` - Single-level wildcard (matches within a path segment)
+- `**` - Multi-level recursive wildcard (matches across path segments)
+
+Example:
+```yaml
+upstream:
+  allow_list:
+    "api.vendor.com":
+      - "/v1/**"           # All paths under /v1/
+      - "/v2/products/*"   # Single level under /v2/products/
+    "payments.example.com":
+      - "/api/charge"      # Exact path only
 ```
+
+#### Observability Configuration
+
+| YAML Key | Environment Variable | Type | Default | Description |
+|----------|---------------------|------|---------|-------------|
+| `observability.log_level` | `CHAPERONE_OBSERVABILITY_LOG_LEVEL` | string | `info` | Log level: `debug`, `info`, `warn`, `error` |
+| `observability.enable_profiling` | `CHAPERONE_OBSERVABILITY_ENABLE_PROFILING` | bool | `false` | Enable `/debug/pprof` on admin port |
+| `observability.sensitive_headers` | - | []string | See below | Headers to redact from logs |
+
+**Default Sensitive Headers (always redacted):**
+- `Authorization`
+- `Proxy-Authorization`
+- `Cookie`
+- `Set-Cookie`
+- `X-API-Key`
+- `X-Auth-Token`
+
+### Environment Variable Overrides
+
+Environment variables follow the pattern `CHAPERONE_<SECTION>_<KEY>` (uppercase, underscore separator):
+
+```bash
+# Override server address
+export CHAPERONE_SERVER_ADDR=":9443"
+
+# Override log level
+export CHAPERONE_OBSERVABILITY_LOG_LEVEL="debug"
+
+# Override TLS certificate paths
+export CHAPERONE_SERVER_TLS_CERT_FILE="/etc/certs/server.crt"
+export CHAPERONE_SERVER_TLS_KEY_FILE="/etc/certs/server.key"
+
+# Override timeouts
+export CHAPERONE_UPSTREAM_TIMEOUTS_CONNECT="10s"
+export CHAPERONE_UPSTREAM_TIMEOUTS_READ="60s"
+```
+
+Environment variables **always override** YAML values (12-Factor App methodology).
 
 ## Certificate Management
 

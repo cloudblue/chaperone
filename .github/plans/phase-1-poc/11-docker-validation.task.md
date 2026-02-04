@@ -229,11 +229,15 @@ COPY sdk/go.mod ./sdk/
 ```
 When external dependencies are added later, update to include `go.sum` files.
 
-### 2. Default CMD Uses HTTP Mode
+### 2. Default CMD Uses Config File
 
-Container starts with `-tls=false` by default since certificates must be mounted at runtime (not baked into image). Users override for mTLS:
+Container starts with `/app/config.yaml` which has TLS disabled by default since certificates must be mounted at runtime (not baked into image). Users can override for mTLS:
 ```bash
-docker run -v /certs:/certs chaperone:poc -tls=true -ca=/certs/ca.crt
+# Mount custom config
+docker run -v /path/to/config.yaml:/app/config.yaml chaperone:poc
+
+# Or use environment variables
+docker run -e CHAPERONE_SERVER_TLS_ENABLED=true -v /certs:/certs chaperone:poc
 ```
 
 ### 3. No HEALTHCHECK Directive in Dockerfile

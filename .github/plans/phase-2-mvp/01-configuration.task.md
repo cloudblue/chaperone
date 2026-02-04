@@ -1,6 +1,6 @@
 # Task: Configuration System
 
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 **Priority:** P0
 **Estimated Effort:** M
 
@@ -17,19 +17,19 @@ Implement YAML configuration file loading with environment variable overrides fo
 ## Dependencies
 
 - [x] Phase 1 complete - Core proxy skeleton exists
-- [ ] None within Phase 2 (this is the foundation task)
+- [x] None within Phase 2 (this is the foundation task)
 
 ## Acceptance Criteria
 
-- [ ] `config.yaml` loads from configurable path (default: `./config.yaml`, override via `CHAPERONE_CONFIG`)
-- [ ] All config sections supported: `server`, `upstream`, `observability`
-- [ ] Environment variables override YAML values using `CHAPERONE_<SECTION>_<KEY>` pattern
-- [ ] Nested config uses underscore separator (e.g., `CHAPERONE_SERVER_TLS_CERT_FILE`)
-- [ ] Missing required config returns clear error with field name
-- [ ] Default values applied for optional fields
-- [ ] Config validation rejects invalid values (bad ports, missing files, etc.)
-- [ ] Tests pass: `go test ./internal/config/...`
-- [ ] Lint passes: `make lint`
+- [x] `config.yaml` loads from configurable path (default: `./config.yaml`, override via `CHAPERONE_CONFIG`)
+- [x] All config sections supported: `server`, `upstream`, `observability`
+- [x] Environment variables override YAML values using `CHAPERONE_<SECTION>_<KEY>` pattern
+- [x] Nested config uses underscore separator (e.g., `CHAPERONE_SERVER_TLS_CERT_FILE`)
+- [x] Missing required config returns clear error with field name
+- [x] Default values applied for optional fields
+- [x] Config validation rejects invalid values (bad ports, missing files, etc.)
+- [x] Tests pass: `go test ./internal/config/...`
+- [x] Lint passes: `make lint`
 
 ## Implementation Hints
 
@@ -102,13 +102,15 @@ type ObservabilityConfig struct {
 
 ## Files to Create/Modify
 
-- [ ] `internal/config/config.go` - Config struct definitions
-- [ ] `internal/config/loader.go` - YAML + env loading
-- [ ] `internal/config/defaults.go` - Default value constants
-- [ ] `internal/config/validate.go` - Validation logic
-- [ ] `internal/config/config_test.go` - Unit tests
-- [ ] `configs/config.example.yaml` - Example configuration file
-- [ ] `cmd/chaperone/main.go` - Load config at startup
+- [x] `internal/config/config.go` - Config struct definitions
+- [x] `internal/config/loader.go` - YAML + env loading
+- [x] `internal/config/defaults.go` - Default value constants
+- [x] `internal/config/validate.go` - Validation logic
+- [x] `internal/config/config_test.go` - Unit tests
+- [x] `configs/config.example.yaml` - Example configuration file
+- [x] `cmd/chaperone/main.go` - Load config at startup
+- [x] `cmd/chaperone/main_test.go` - Config integration tests
+- [x] `README.md` - Exhaustive configuration documentation
 
 ## Testing Strategy
 
@@ -118,4 +120,5 @@ type ObservabilityConfig struct {
   - Validation error cases
   - Default value application
 - **Table-driven tests:** Multiple config scenarios
+- **Integration tests:** Config loading in main_test.go
 - **Fuzz tests:** Malformed YAML inputs (per Design Spec §9.2.B)

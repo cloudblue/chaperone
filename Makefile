@@ -114,6 +114,8 @@ docker-build: ## Build Docker image
 .PHONY: docker-run
 docker-run: ## Run Docker container (HTTP mode for testing)
 	@echo "Running $(DOCKER_IMAGE):$(DOCKER_TAG)..."
+	@echo "  Config: /app/config.yaml (TLS disabled, minimal allow_list)"
+	@echo "  Override: -v /path/config.yaml:/app/config.yaml or -e CHAPERONE_*"
 	docker run --rm -p 8443:8443 --name chaperone-test $(DOCKER_IMAGE):$(DOCKER_TAG)
 
 .PHONY: docker-test
