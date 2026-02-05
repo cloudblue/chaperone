@@ -22,12 +22,13 @@ LDFLAGS := -ldflags "-s -w \
 	-X main.BuildDate=$(BUILD_DATE) \
 	-X 'github.com/cloudblue/chaperone/internal/proxy.allowInsecureTargets=$(ALLOW_INSECURE_TARGETS)'"
 
-# Development build flags (allows insecure targets for testing)
+# Development build flags (allows insecure targets and profiling for testing)
 LDFLAGS_DEV := -ldflags "\
 	-X main.Version=$(VERSION)-dev \
 	-X main.GitCommit=$(GIT_COMMIT) \
 	-X main.BuildDate=$(BUILD_DATE) \
-	-X 'github.com/cloudblue/chaperone/internal/proxy.allowInsecureTargets=true'"
+	-X 'github.com/cloudblue/chaperone/internal/proxy.allowInsecureTargets=true' \
+	-X 'github.com/cloudblue/chaperone/internal/telemetry.allowProfiling=true'"
 
 # Default target
 .PHONY: all
@@ -93,6 +94,10 @@ test-cover: ## Run tests with coverage
 .PHONY: test-short
 test-short: ## Run short tests only
 	go test -short -v ./...
+
+.PHONY: test-integration
+test-integration: ## Run integration tests
+	go test -v -tags=integration ./...
 
 # ============================================================================
 # Docker
