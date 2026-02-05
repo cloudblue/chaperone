@@ -335,10 +335,13 @@ func TestPluginIntegration_AllMethodsCallable(t *testing.T) {
 			StatusCode: 200,
 			Header:     http.Header{"X-Test": []string{"value"}},
 		}
-		err := plugin.ModifyResponse(ctx, tx, resp)
-		// Reference plugin is a no-op, should return nil
+		action, err := plugin.ModifyResponse(ctx, tx, resp)
+		// Reference plugin is a no-op, should return nil action and nil error
 		if err != nil {
 			t.Errorf("ModifyResponse failed: %v", err)
+		}
+		if action != nil {
+			t.Errorf("ModifyResponse should return nil action, got %+v", action)
 		}
 	})
 }

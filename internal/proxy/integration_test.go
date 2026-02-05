@@ -21,7 +21,7 @@ import (
 type mockPlugin struct {
 	getCredentialsFn func(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error)
 	signCSRFn        func(ctx context.Context, csrPEM []byte) ([]byte, error)
-	modifyResponseFn func(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) error
+	modifyResponseFn func(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) (*sdk.ResponseAction, error)
 }
 
 func (m *mockPlugin) GetCredentials(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
@@ -38,11 +38,11 @@ func (m *mockPlugin) SignCSR(ctx context.Context, csrPEM []byte) ([]byte, error)
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockPlugin) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) error {
+func (m *mockPlugin) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) (*sdk.ResponseAction, error) {
 	if m.modifyResponseFn != nil {
 		return m.modifyResponseFn(ctx, tx, resp)
 	}
-	return nil
+	return nil, nil
 }
 
 // Verify mockPlugin implements sdk.Plugin at compile time.
@@ -659,5 +659,194 @@ func TestIntegration_AllowList_EmptyList_DeniesAll(t *testing.T) {
 	// Assert - should be forbidden
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("expected status %d for empty allow list, got %d", http.StatusForbidden, rec.Code)
+	}
+}
+
+// TestIntegration_UpstreamError_NormalizedResponse verifies that upstream 4xx/5xx
+// errors are normalized per Design Spec Section 5.3 (Error Masking).
+func TestIntegration_UpstreamError_NormalizedResponse(t *testing.T) {
+	cleanup := proxy.SetAllowInsecureTargetsForTesting(true)
+	defer cleanup()
+
+	tests := []struct {
+		name         string
+		statusCode   int
+		originalBody string
+		wantError    string
+	}{
+		{
+			name:         "500 with stack trace is normalized",
+			statusCode:   500,
+			originalBody: "panic: runtime error\ngoroutine 1:\nmain.go:42",
+			wantError:    "Upstream service error",
+		},
+		{
+			name:         "400 with internal details is normalized",
+			statusCode:   400,
+			originalBody: `{"error": "invalid field", "internal_id": "secret-123"}`,
+			wantError:    "Request rejected by upstream service",
+		},
+		{
+			name:         "503 service unavailable is normalized",
+			statusCode:   503,
+			originalBody: "Database connection failed: postgres://user:password@db.internal",
+			wantError:    "Upstream service error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange: create backend that returns error
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.statusCode)
+				w.Write([]byte(tt.originalBody))
+			}))
+			defer backend.Close()
+
+			srv := proxy.NewServer(proxy.Config{
+				Addr:      ":0",
+				TLS:       &proxy.TLSConfig{Enabled: false},
+				AllowList: testAllowList(),
+			})
+
+			req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+			req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+
+			rec := httptest.NewRecorder()
+			handler := srv.Handler()
+
+			// Act
+			handler.ServeHTTP(rec, req)
+
+			// Assert
+			if rec.Code != tt.statusCode {
+				t.Errorf("status code = %d, want %d", rec.Code, tt.statusCode)
+			}
+
+			body := rec.Body.String()
+
+			// Should contain normalized error message
+			if !strings.Contains(body, tt.wantError) {
+				t.Errorf("body should contain %q, got: %s", tt.wantError, body)
+			}
+
+			// Should NOT contain original sensitive content
+			if strings.Contains(body, tt.originalBody) {
+				t.Errorf("body should NOT contain original body %q, got: %s", tt.originalBody, body)
+			}
+
+			// Should be JSON
+			if !strings.Contains(rec.Header().Get("Content-Type"), "application/json") {
+				t.Errorf("Content-Type should be application/json, got: %s", rec.Header().Get("Content-Type"))
+			}
+
+			// Should have X-Error-ID header
+			if rec.Header().Get("X-Error-ID") == "" {
+				t.Error("X-Error-ID header should be set for error responses")
+			}
+		})
+	}
+}
+
+// TestIntegration_SuccessResponse_NotNormalized verifies that 2xx/3xx responses
+// pass through unmodified.
+func TestIntegration_SuccessResponse_NotNormalized(t *testing.T) {
+	cleanup := proxy.SetAllowInsecureTargetsForTesting(true)
+	defer cleanup()
+
+	expectedBody := `{"data": "success", "id": 123}`
+
+	// Arrange: create backend that returns success
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(expectedBody))
+	}))
+	defer backend.Close()
+
+	srv := proxy.NewServer(proxy.Config{
+		Addr:      ":0",
+		TLS:       &proxy.TLSConfig{Enabled: false},
+		AllowList: testAllowList(),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+
+	rec := httptest.NewRecorder()
+	handler := srv.Handler()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Errorf("status code = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	body := rec.Body.String()
+	if body != expectedBody {
+		t.Errorf("body = %q, want %q", body, expectedBody)
+	}
+
+	// Should NOT have X-Error-ID header
+	if rec.Header().Get("X-Error-ID") != "" {
+		t.Error("X-Error-ID header should NOT be set for success responses")
+	}
+}
+
+// TestIntegration_PluginModifyResponse_RunsBeforeNormalization verifies the
+// middleware chain order: Plugin.ModifyResponse runs BEFORE Core sanitization.
+func TestIntegration_PluginModifyResponse_RunsBeforeNormalization(t *testing.T) {
+	cleanup := proxy.SetAllowInsecureTargetsForTesting(true)
+	defer cleanup()
+
+	pluginCalled := false
+	pluginSawStatusCode := 0
+
+	plugin := &mockPlugin{
+		modifyResponseFn: func(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) (*sdk.ResponseAction, error) {
+			pluginCalled = true
+			pluginSawStatusCode = resp.StatusCode
+			// Plugin can read/modify the response before normalization
+			return nil, nil
+		},
+	}
+
+	// Arrange: create backend that returns error
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("original error body"))
+	}))
+	defer backend.Close()
+
+	srv := proxy.NewServer(proxy.Config{
+		Addr:      ":0",
+		TLS:       &proxy.TLSConfig{Enabled: false},
+		Plugin:    plugin,
+		AllowList: testAllowList(),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+
+	rec := httptest.NewRecorder()
+	handler := srv.Handler()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert
+	if !pluginCalled {
+		t.Error("Plugin.ModifyResponse should have been called")
+	}
+	if pluginSawStatusCode != http.StatusInternalServerError {
+		t.Errorf("Plugin should see status %d, got %d", http.StatusInternalServerError, pluginSawStatusCode)
+	}
+
+	// Response should still be normalized (Core runs after plugin)
+	body := rec.Body.String()
+	if !strings.Contains(body, "Upstream service error") {
+		t.Errorf("Response should be normalized, got: %s", body)
 	}
 }

@@ -106,6 +106,22 @@ type CertificateSigner interface {
 	SignCSR(ctx context.Context, csrPEM []byte) (crtPEM []byte, err error)
 }
 
+// ResponseAction tells the Core how to handle the response after plugin processing.
+// Return nil from ModifyResponse for default behavior (Core applies safety net).
+type ResponseAction struct {
+	// SkipErrorNormalization prevents Core from sanitizing error responses (4xx/5xx).
+	// When true, the response body is passed through as-is to the upstream platform.
+	//
+	// Use this when:
+	//   - The ISV returns structured validation errors that Connect needs
+	//   - The plugin has already sanitized/customized the error response
+	//
+	// The Core will still:
+	//   - Strip sensitive headers (Authorization, etc.)
+	//   - Add X-Error-ID for correlation
+	SkipErrorNormalization bool
+}
+
 // ResponseModifier allows post-processing of responses before returning
 // them to the upstream platform.
 //
@@ -113,6 +129,7 @@ type CertificateSigner interface {
 //   - Stripping PII or internal headers from vendor responses
 //   - Normalizing error codes across different vendors
 //   - Logging specific response fields for debugging
+//   - Passing through ISV validation errors to Connect
 //
 // Note: Reading resp.Body will buffer the entire response into memory,
 // which may impact performance for large responses.
@@ -125,6 +142,8 @@ type ResponseModifier interface {
 	//   - resp: The HTTP response (can be modified in place)
 	//
 	// Returns:
+	//   - *ResponseAction: Instructions for Core, or nil for default behavior
+	//     (nil means Core applies error normalization as safety net)
 	//   - error: Any error during modification (will be logged, response still sent)
-	ModifyResponse(ctx context.Context, tx TransactionContext, resp *http.Response) error
+	ModifyResponse(ctx context.Context, tx TransactionContext, resp *http.Response) (*ResponseAction, error)
 }

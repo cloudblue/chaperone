@@ -1,6 +1,6 @@
 # Task: Error Normalization
 
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 **Priority:** P0
 **Estimated Effort:** M
 
@@ -16,21 +16,23 @@ Implement middleware to intercept upstream 400/500 errors, replacing stack trace
 
 ## Dependencies
 
-- [ ] `01-configuration.task.md` - Error response format may be configurable
+- [x] `01-configuration.task.md` - Error response format may be configurable
 
 ## Acceptance Criteria
 
-- [ ] Upstream 4xx errors: Body replaced with generic JSON, original logged locally
-- [ ] Upstream 5xx errors: Body replaced with generic JSON, original logged locally
-- [ ] Stack traces never returned to client
-- [ ] Internal error details never returned to client
-- [ ] Original status code preserved (or mapped to safe equivalent)
-- [ ] Original error body logged at DEBUG level for Distributor troubleshooting
-- [ ] `X-Error-ID` header added for correlation (trace ID)
-- [ ] JSON response format: `{"error": "...", "error_id": "...", "status": N}`
-- [ ] Plugin's `ModifyResponse` runs BEFORE Core sanitization
-- [ ] Tests pass: `go test ./internal/sanitizer/...`
-- [ ] Lint passes: `make lint`
+- [x] Upstream 4xx errors: Body replaced with generic JSON, original logged locally
+- [x] Upstream 5xx errors: Body replaced with generic JSON, original logged locally
+- [x] Stack traces never returned to client
+- [x] Internal error details never returned to client
+- [x] Original status code preserved (or mapped to safe equivalent)
+- [x] Original error body logged at DEBUG level for Distributor troubleshooting
+- [x] `X-Error-ID` header added for correlation (trace ID)
+- [x] JSON response format: `{"error": "...", "error_id": "...", "status": N}`
+- [x] Plugin's `ModifyResponse` runs BEFORE Core sanitization
+- [x] Plugin can opt out via `ResponseAction{SkipErrorNormalization: true}`
+- [x] SDK updated: `ModifyResponse` returns `(*ResponseAction, error)`
+- [x] Tests pass: `go test ./internal/sanitizer/...`
+- [x] Lint passes: `make lint`
 
 ## Implementation Hints
 
@@ -62,13 +64,25 @@ For 4xx errors:
 }
 ```
 
-### Middleware Chain Order
+### Response Modification Chain
 
-```
-Request → Plugin.ModifyResponse → Core.ErrorNormalizer → Client
-```
+The `ModifyResponse` function in the proxy executes this chain:
 
-The Plugin can customize error responses, but the Core always runs last as a safety net.
+1. **Plugin.ModifyResponse** - Returns `*sdk.ResponseAction` or `nil`
+2. **Strip sensitive headers** - Always runs (security)
+3. **Core.NormalizeError** - Runs unless `action.SkipErrorNormalization == true`
+
+```go
+// Plugin can opt out of error normalization:
+func (p *MyPlugin) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) (*sdk.ResponseAction, error) {
+    // ISV returns structured validation errors on 400 - pass through to Connect
+    if resp.StatusCode == http.StatusBadRequest {
+        return &sdk.ResponseAction{SkipErrorNormalization: true}, nil
+    }
+    // Default: let Core sanitize
+    return nil, nil
+}
+```
 
 ### Key Code Locations
 
@@ -86,10 +100,13 @@ The Plugin can customize error responses, but the Core always runs last as a saf
 
 ## Files to Create/Modify
 
-- [ ] `internal/sanitizer/error.go` - Error detection and normalization
-- [ ] `internal/sanitizer/response.go` - Response body manipulation
-- [ ] `internal/sanitizer/error_test.go` - Unit tests
-- [ ] `internal/proxy/middleware.go` - Wire up in response chain
+- [x] `internal/sanitizer/error.go` - Error detection and normalization
+- [x] `internal/sanitizer/error_test.go` - Unit tests
+- [x] `internal/proxy/server.go` - Wire up in response chain (ModifyResponse)
+- [x] `internal/proxy/integration_test.go` - Integration tests
+- [x] `sdk/plugin.go` - Add ResponseAction struct, update ResponseModifier interface
+- [x] `sdk/compliance/verify.go` - Update tests for new signature
+- [x] `plugins/reference/reference.go` - Update ModifyResponse signature
 
 ## Testing Strategy
 
