@@ -111,7 +111,7 @@ func TestParseContext_ValidHeaders_ReturnsContext(t *testing.T) {
 				req.Header.Set(k, v)
 			}
 
-			got, err := ParseContext(req, tt.prefix)
+			got, err := ParseContext(req, tt.prefix, "Connect-Request-ID")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -156,7 +156,7 @@ func TestParseContext_MissingTargetURL_ReturnsError(t *testing.T) {
 				req.Header.Set(k, v)
 			}
 
-			got, err := ParseContext(req, tt.prefix)
+			got, err := ParseContext(req, tt.prefix, "Connect-Request-ID")
 			if err == nil {
 				t.Fatalf("expected error, got nil with context: %+v", got)
 			}
@@ -225,7 +225,7 @@ func TestParseContext_InvalidContextData_ReturnsError(t *testing.T) {
 				req.Header.Set(k, v)
 			}
 
-			got, err := ParseContext(req, tt.prefix)
+			got, err := ParseContext(req, tt.prefix, "Connect-Request-ID")
 			if err == nil {
 				t.Fatalf("expected error, got nil with context: %+v", got)
 			}
@@ -247,7 +247,7 @@ func TestParseContext_DefaultPrefix(t *testing.T) {
 	req.Header.Set("X-Connect-Vendor-ID", "vendor-123")
 
 	// Using default prefix constant
-	got, err := ParseContext(req, DefaultHeaderPrefix)
+	got, err := ParseContext(req, "X-Connect", "Connect-Request-ID")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestParseContext_ComplexContextData(t *testing.T) {
 	req.Header.Set("X-Connect-Target-URL", "https://api.vendor.com/v1")
 	req.Header.Set("X-Connect-Context-Data", encoded)
 
-	got, err := ParseContext(req, DefaultHeaderPrefix)
+	got, err := ParseContext(req, "X-Connect", "Connect-Request-ID")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -317,6 +317,7 @@ func TestParseContext_TraceIDExtraction(t *testing.T) {
 	tests := []struct {
 		name        string
 		headers     map[string]string
+		traceHeader string
 		wantTraceID string
 	}{
 		{
@@ -325,6 +326,7 @@ func TestParseContext_TraceIDExtraction(t *testing.T) {
 				"X-Connect-Target-URL": "https://api.vendor.com/v1",
 				"Connect-Request-ID":   "trace-12345",
 			},
+			traceHeader: "Connect-Request-ID",
 			wantTraceID: "trace-12345",
 		},
 		{
@@ -332,7 +334,27 @@ func TestParseContext_TraceIDExtraction(t *testing.T) {
 			headers: map[string]string{
 				"X-Connect-Target-URL": "https://api.vendor.com/v1",
 			},
+			traceHeader: "Connect-Request-ID",
 			wantTraceID: "",
+		},
+		{
+			name: "custom trace header",
+			headers: map[string]string{
+				"X-Connect-Target-URL": "https://api.vendor.com/v1",
+				"X-My-Trace-ID":        "custom-trace-456",
+			},
+			traceHeader: "X-My-Trace-ID",
+			wantTraceID: "custom-trace-456",
+		},
+		{
+			name: "custom trace header with default also present",
+			headers: map[string]string{
+				"X-Connect-Target-URL": "https://api.vendor.com/v1",
+				"Connect-Request-ID":   "default-trace",
+				"X-Custom-Correlation": "custom-correlation-789",
+			},
+			traceHeader: "X-Custom-Correlation",
+			wantTraceID: "custom-correlation-789",
 		},
 	}
 
@@ -343,7 +365,7 @@ func TestParseContext_TraceIDExtraction(t *testing.T) {
 				req.Header.Set(k, v)
 			}
 
-			got, err := ParseContext(req, DefaultHeaderPrefix)
+			got, err := ParseContext(req, "X-Connect", tt.traceHeader)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

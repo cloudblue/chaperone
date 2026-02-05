@@ -18,7 +18,7 @@ import (
 // Per Design Spec Section 5.3 (Error Masking).
 type ErrorResponse struct {
 	Error   string `json:"error"`
-	ErrorID string `json:"error_id"`
+	TraceID string `json:"trace_id"`
 	Status  int    `json:"status"`
 }
 
@@ -35,7 +35,6 @@ type ErrorResponse struct {
 //   - Body is replaced with sanitized JSON
 //   - Content-Type is set to application/json
 //   - Content-Length is updated
-//   - X-Error-ID header is added for correlation
 func NormalizeError(resp *http.Response, traceID string) error {
 	if !isErrorResponse(resp) {
 		return nil
@@ -58,7 +57,7 @@ func NormalizeError(resp *http.Response, traceID string) error {
 	errorMsg := getErrorMessage(resp.StatusCode)
 	sanitized := ErrorResponse{
 		Error:   errorMsg,
-		ErrorID: traceID,
+		TraceID: traceID,
 		Status:  resp.StatusCode,
 	}
 
@@ -71,7 +70,6 @@ func NormalizeError(resp *http.Response, traceID string) error {
 	resp.Body = io.NopCloser(bytes.NewReader(sanitizedBody))
 	resp.ContentLength = int64(len(sanitizedBody))
 	resp.Header.Set("Content-Type", "application/json")
-	resp.Header.Set("X-Error-ID", traceID)
 
 	return nil
 }
@@ -89,17 +87,25 @@ func getErrorMessage(statusCode int) string {
 	return "Request rejected by upstream service"
 }
 
-// captureAndReplaceBody reads the original body and replaces it for re-reading.
+// maxReadBodySize is the maximum number of bytes to read from an upstream
+// error response body. Prevents OOM from malicious or misbehaving upstreams.
+// Set to 1 MB — well above the log truncation limit (1 KB), but bounded.
+const maxReadBodySize = 1 << 20 // 1 MB
+
+// captureAndReplaceBody reads the original body (up to maxReadBodySize) and
+// replaces it for re-reading.
 func captureAndReplaceBody(resp *http.Response) ([]byte, error) {
 	if resp.Body == nil {
 		return nil, nil
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxReadBodySize))
 	if err != nil {
 		return nil, err
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		return nil, fmt.Errorf("closing original body: %w", err)
+	}
 
 	// Replace body with copy for any subsequent reads
 	resp.Body = io.NopCloser(bytes.NewReader(body))

@@ -57,17 +57,17 @@ func (rw *responseWriter) Flush() {
 // Per Design Spec Section 8.3.5, every request emits a log line including:
 // trace_id, latency, status, method, path, and client_ip.
 //
+// The traceHeader parameter specifies which header contains the correlation ID
+// (configured via upstream.trace_header, per ADR-005).
+//
 // Note: Sensitive headers are NOT logged here (redaction handled elsewhere).
 // Uses defer to ensure logging happens even if downstream handlers panic.
-func WithRequestLogging(next http.Handler) http.Handler {
+func WithRequestLogging(traceHeader string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		// Extract trace ID from headers
-		traceID := r.Header.Get("X-Trace-ID")
-		if traceID == "" {
-			traceID = r.Header.Get("Connect-Request-ID")
-		}
+		// Extract trace ID from configured header
+		traceID := r.Header.Get(traceHeader)
 
 		// Wrap response writer to capture status
 		wrapped := &responseWriter{ResponseWriter: w, status: http.StatusOK}

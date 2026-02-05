@@ -739,11 +739,6 @@ func TestIntegration_UpstreamError_NormalizedResponse(t *testing.T) {
 			if !strings.Contains(rec.Header().Get("Content-Type"), "application/json") {
 				t.Errorf("Content-Type should be application/json, got: %s", rec.Header().Get("Content-Type"))
 			}
-
-			// Should have X-Error-ID header
-			if rec.Header().Get("X-Error-ID") == "" {
-				t.Error("X-Error-ID header should be set for error responses")
-			}
 		})
 	}
 }
@@ -787,11 +782,6 @@ func TestIntegration_SuccessResponse_NotNormalized(t *testing.T) {
 	body := rec.Body.String()
 	if body != expectedBody {
 		t.Errorf("body = %q, want %q", body, expectedBody)
-	}
-
-	// Should NOT have X-Error-ID header
-	if rec.Header().Get("X-Error-ID") != "" {
-		t.Error("X-Error-ID header should NOT be set for success responses")
 	}
 }
 

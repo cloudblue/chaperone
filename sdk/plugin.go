@@ -118,7 +118,6 @@ type ResponseAction struct {
 	//
 	// The Core will still:
 	//   - Strip sensitive headers (Authorization, etc.)
-	//   - Add X-Error-ID for correlation
 	SkipErrorNormalization bool
 }
 
