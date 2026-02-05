@@ -15,12 +15,6 @@ import (
 	"github.com/cloudblue/chaperone/sdk"
 )
 
-// DefaultHeaderPrefix is the default prefix for Connect headers.
-const DefaultHeaderPrefix = "X-Connect"
-
-// DefaultTraceHeader is the default header name for trace/correlation IDs.
-const DefaultTraceHeader = "Connect-Request-ID"
-
 // Sentinel errors for context parsing.
 var (
 	// ErrTargetURLRequired is returned when the Target-URL header is missing.
@@ -39,12 +33,13 @@ var (
 // Parameters:
 //   - req: The incoming HTTP request
 //   - prefix: Header prefix (e.g., "X-Connect")
+//   - traceHeader: Header name for trace/correlation ID (e.g., "Connect-Request-ID")
 //
 // Returns an error if:
 //   - Target-URL header is missing (required)
 //   - Context-Data contains invalid Base64
 //   - Context-Data contains invalid JSON
-func ParseContext(req *http.Request, prefix string) (*sdk.TransactionContext, error) {
+func ParseContext(req *http.Request, prefix, traceHeader string) (*sdk.TransactionContext, error) {
 	ctx := &sdk.TransactionContext{}
 
 	// Extract required Target-URL
@@ -60,8 +55,8 @@ func ParseContext(req *http.Request, prefix string) (*sdk.TransactionContext, er
 	ctx.ProductID = req.Header.Get(prefix + "-Product-ID")
 	ctx.SubscriptionID = req.Header.Get(prefix + "-Subscription-ID")
 
-	// Extract trace ID (using default trace header)
-	ctx.TraceID = req.Header.Get(DefaultTraceHeader)
+	// Extract trace ID using configured header
+	ctx.TraceID = req.Header.Get(traceHeader)
 
 	// Decode optional Context-Data (Base64-encoded JSON)
 	contextData := req.Header.Get(prefix + "-Context-Data")

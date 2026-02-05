@@ -26,8 +26,7 @@ Implement middleware to intercept upstream 400/500 errors, replacing stack trace
 - [x] Internal error details never returned to client
 - [x] Original status code preserved (or mapped to safe equivalent)
 - [x] Original error body logged at DEBUG level for Distributor troubleshooting
-- [x] `X-Error-ID` header added for correlation (trace ID)
-- [x] JSON response format: `{"error": "...", "error_id": "...", "status": N}`
+- [x] JSON response format: `{"error": "...", "trace_id": "...", "status": N}`
 - [x] Plugin's `ModifyResponse` runs BEFORE Core sanitization
 - [x] Plugin can opt out via `ResponseAction{SkipErrorNormalization: true}`
 - [x] SDK updated: `ModifyResponse` returns `(*ResponseAction, error)`
@@ -50,7 +49,7 @@ Implement middleware to intercept upstream 400/500 errors, replacing stack trace
 ```json
 {
     "error": "Upstream service error",
-    "error_id": "abc-123-trace-id",
+    "trace_id": "abc-123-trace-id",
     "status": 500
 }
 ```
@@ -59,7 +58,7 @@ For 4xx errors:
 ```json
 {
     "error": "Request rejected by upstream service",
-    "error_id": "abc-123-trace-id", 
+    "trace_id": "abc-123-trace-id", 
     "status": 400
 }
 ```

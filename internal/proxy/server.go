@@ -17,6 +17,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/cloudblue/chaperone/internal/config"
 	chaperoneCtx "github.com/cloudblue/chaperone/internal/context"
 	"github.com/cloudblue/chaperone/internal/router"
 	"github.com/cloudblue/chaperone/internal/sanitizer"
@@ -71,6 +72,10 @@ type Config struct {
 	// HeaderPrefix is the prefix for context headers (default: "X-Connect").
 	HeaderPrefix string
 
+	// TraceHeader is the correlation ID header name (default: "Connect-Request-ID").
+	// Per ADR-005, this is configurable to support non-Connect platforms.
+	TraceHeader string
+
 	// Plugin is the credential provider plugin. If nil, requests are
 	// forwarded without credential injection.
 	Plugin sdk.Plugin
@@ -112,7 +117,10 @@ func NewServer(cfg Config) *Server {
 		cfg.PluginTimeout = DefaultPluginTimeout
 	}
 	if cfg.HeaderPrefix == "" {
-		cfg.HeaderPrefix = chaperoneCtx.DefaultHeaderPrefix
+		cfg.HeaderPrefix = config.DefaultHeaderPrefix
+	}
+	if cfg.TraceHeader == "" {
+		cfg.TraceHeader = config.DefaultTraceHeader
 	}
 	if cfg.Version == "" {
 		cfg.Version = "dev"
@@ -274,7 +282,7 @@ func (s *Server) withMiddleware(handler http.Handler) http.Handler {
 	// Apply middleware: outermost runs first
 	// Order: RequestLogging -> PanicRecovery -> handler
 	handler = WithPanicRecovery(handler)
-	handler = WithRequestLogging(handler)
+	handler = WithRequestLogging(s.config.TraceHeader, handler)
 	return handler
 }
 
@@ -304,9 +312,8 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 // It coordinates parsing, credential injection, and forwarding.
 func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	traceID := s.extractTraceID(r)
-	w.Header().Set("X-Trace-ID", traceID)
 
-	txCtx, err := chaperoneCtx.ParseContext(r, s.config.HeaderPrefix)
+	txCtx, err := chaperoneCtx.ParseContext(r, s.config.HeaderPrefix, s.config.TraceHeader)
 	if err != nil {
 		s.respondBadRequest(w, traceID, "failed to parse context", err)
 		return
@@ -349,8 +356,9 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 // extractTraceID returns the trace ID from the request header or generates a new one.
+// Uses the configured TraceHeader from proxy.Config.
 func (s *Server) extractTraceID(r *http.Request) string {
-	if traceID := r.Header.Get(chaperoneCtx.DefaultTraceHeader); traceID != "" {
+	if traceID := r.Header.Get(s.config.TraceHeader); traceID != "" {
 		return traceID
 	}
 	return generateTraceID()

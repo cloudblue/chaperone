@@ -91,9 +91,6 @@ func TestNormalizeError_4xxError_ReturnsGenericJSON(t *testing.T) {
 			if resp.Header.Get("Content-Type") != "application/json" {
 				t.Errorf("Content-Type = %q, want %q", resp.Header.Get("Content-Type"), "application/json")
 			}
-			if resp.Header.Get("X-Error-ID") != tt.traceID {
-				t.Errorf("X-Error-ID = %q, want %q", resp.Header.Get("X-Error-ID"), tt.traceID)
-			}
 		})
 	}
 }
@@ -225,10 +222,6 @@ func TestNormalizeError_SuccessResponse_Passthrough(t *testing.T) {
 			if resp.Header.Get("Content-Type") != originalContentType {
 				t.Errorf("Content-Type changed from %q to %q", originalContentType, resp.Header.Get("Content-Type"))
 			}
-
-			if resp.Header.Get("X-Error-ID") != "" {
-				t.Error("X-Error-ID header should not be set for success responses")
-			}
 		})
 	}
 }
@@ -348,12 +341,12 @@ func TestNormalizeError_JSONResponseFormat(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	bodyStr := string(body)
 
-	// Verify JSON format: {"error": "...", "error_id": "...", "status": N}
+	// Verify JSON format: {"error": "...", "trace_id": "...", "status": N}
 	if !strings.Contains(bodyStr, `"error"`) {
 		t.Error("JSON response should contain 'error' field")
 	}
-	if !strings.Contains(bodyStr, `"error_id"`) {
-		t.Error("JSON response should contain 'error_id' field")
+	if !strings.Contains(bodyStr, `"trace_id"`) {
+		t.Error("JSON response should contain 'trace_id' field")
 	}
 	if !strings.Contains(bodyStr, `"status"`) {
 		t.Error("JSON response should contain 'status' field")
@@ -431,6 +424,110 @@ func TestIsErrorResponse_DetectsErrors(t *testing.T) {
 				t.Errorf("isErrorResponse(%d) = %v, want %v", tt.statusCode, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeError_OversizedBody_LimitedToMaxRead(t *testing.T) {
+	// Arrange: body larger than maxReadBodySize (1 MB)
+	oversizedBody := strings.Repeat("A", 2*1024*1024) // 2 MB
+	resp := createMockResponse(500, oversizedBody)
+	defer resp.Body.Close()
+
+	// Act
+	err := NormalizeError(resp, "trace-oversized")
+
+	// Assert - should succeed without OOM
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	// Body should be replaced with a small sanitized JSON, not the 2 MB original
+	if len(body) > 1024 {
+		t.Errorf("sanitized body should be small JSON, got %d bytes", len(body))
+	}
+	if !strings.Contains(string(body), "Upstream service error") {
+		t.Errorf("body should contain generic error message, got: %s", string(body))
+	}
+}
+
+func TestCaptureAndReplaceBody_ExactlyAtLimit_ReadsAll(t *testing.T) {
+	// Arrange: body exactly at the 1 MB limit
+	exactBody := strings.Repeat("B", 1024*1024) // exactly 1 MB
+	resp := createMockResponse(500, exactBody)
+	defer resp.Body.Close()
+
+	// Act
+	captured, err := captureAndReplaceBody(resp)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(captured) != 1024*1024 {
+		t.Errorf("captured body length = %d, want %d", len(captured), 1024*1024)
+	}
+}
+
+func TestCaptureAndReplaceBody_OverLimit_Truncated(t *testing.T) {
+	// Arrange: body larger than 1 MB limit
+	oversizedBody := strings.Repeat("C", 2*1024*1024) // 2 MB
+	resp := createMockResponse(500, oversizedBody)
+	defer resp.Body.Close()
+
+	// Act
+	captured, err := captureAndReplaceBody(resp)
+
+	// Assert - should read at most maxReadBodySize bytes
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(captured) != 1024*1024 {
+		t.Errorf("captured body length = %d, want %d (maxReadBodySize)", len(captured), 1024*1024)
+	}
+}
+
+func TestCaptureAndReplaceBody_NilBody_ReturnsNil(t *testing.T) {
+	// Arrange
+	resp := &http.Response{
+		StatusCode: 500,
+		Header:     make(http.Header),
+		Body:       nil,
+	}
+
+	// Act
+	captured, err := captureAndReplaceBody(resp)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured != nil {
+		t.Errorf("captured should be nil for nil body, got %d bytes", len(captured))
+	}
+}
+
+func TestCaptureAndReplaceBody_SmallBody_ReadsAll(t *testing.T) {
+	// Arrange: small body well under limit
+	smallBody := "small error message"
+	resp := createMockResponse(500, smallBody)
+	defer resp.Body.Close()
+
+	// Act
+	captured, err := captureAndReplaceBody(resp)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(captured) != smallBody {
+		t.Errorf("captured = %q, want %q", string(captured), smallBody)
+	}
+
+	// Verify body is still readable after capture
+	replaced, _ := io.ReadAll(resp.Body)
+	if string(replaced) != smallBody {
+		t.Errorf("replaced body = %q, want %q", string(replaced), smallBody)
 	}
 }
 
