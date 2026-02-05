@@ -1,6 +1,6 @@
 # Task: Router (Allow-List)
 
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 **Priority:** P0
 **Estimated Effort:** M
 
@@ -16,21 +16,22 @@ Implement URL validation that enforces host and path allow-listing with glob pat
 
 ## Dependencies
 
-- [ ] `01-configuration.task.md` - AllowList comes from config
+- [x] `01-configuration.task.md` - AllowList comes from config
 
 ## Acceptance Criteria
 
-- [ ] Target URL host validated against `allow_list` keys
-- [ ] Target URL path validated against allowed path patterns
-- [ ] Glob patterns supported: `*` (single-level) and `**` (recursive)
-- [ ] Domain globs: `.` is separator (e.g., `*.google.com` matches `api.google.com`)
-- [ ] Path globs: `/` is separator (e.g., `/v1/**` matches `/v1/customers/123`)
-- [ ] Unknown hosts return `403 Forbidden`
-- [ ] Disallowed paths return `403 Forbidden`
-- [ ] Empty allow_list denies all requests (secure default)
-- [ ] Clear error messages in logs (without leaking sensitive data)
-- [ ] Tests pass: `go test ./internal/router/...`
-- [ ] Lint passes: `make lint`
+- [x] Target URL host validated against `allow_list` keys
+- [x] Target URL path validated against allowed path patterns
+- [x] Glob patterns supported: `*` (single-level) and `**` (recursive)
+- [x] Domain globs: `.` is separator (e.g., `*.google.com` matches `api.google.com`)
+- [x] Path globs: `/` is separator (e.g., `/v1/**` matches `/v1/customers/123`)
+- [x] Unknown hosts return `403 Forbidden`
+- [x] Disallowed paths return `403 Forbidden`
+- [x] Empty allow_list denies all requests (secure default)
+- [x] Clear error messages in logs (without leaking sensitive data)
+- [x] Tests pass: `go test ./internal/router/...`
+- [x] Lint passes: `make lint`
+- [x] Glob patterns validated at config load time (fail-fast)
 
 ## Implementation Hints
 
@@ -88,12 +89,15 @@ func AllowListMiddleware(cfg *config.Config, next http.Handler) http.Handler {
 
 ## Files to Create/Modify
 
-- [ ] `internal/router/allowlist.go` - Validation logic
-- [ ] `internal/router/glob.go` - Glob pattern matching
-- [ ] `internal/router/middleware.go` - HTTP middleware
-- [ ] `internal/router/allowlist_test.go` - Unit tests
-- [ ] `internal/router/glob_test.go` - Glob pattern tests
-- [ ] `internal/proxy/server.go` - Wire up middleware
+- [x] `internal/router/allowlist.go` - Validation logic
+- [x] `internal/router/glob.go` - Glob pattern matching
+- [x] `internal/router/middleware.go` - HTTP middleware
+- [x] `internal/router/allowlist_test.go` - Unit tests
+- [x] `internal/router/glob_test.go` - Glob pattern tests
+- [x] `internal/proxy/server.go` - Wire up middleware
+- [x] `internal/config/validate.go` - Glob pattern validation at load time
+- [x] `internal/config/config_test.go` - Tests for glob validation
+- [x] `internal/proxy/integration_test.go` - Integration tests for allow list
 
 ## Testing Strategy
 

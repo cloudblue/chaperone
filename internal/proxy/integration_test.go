@@ -48,6 +48,13 @@ func (m *mockPlugin) ModifyResponse(ctx context.Context, tx sdk.TransactionConte
 // Verify mockPlugin implements sdk.Plugin at compile time.
 var _ sdk.Plugin = (*mockPlugin)(nil)
 
+// testAllowList returns a permissive allow list for testing.
+func testAllowList() map[string][]string {
+	return map[string][]string{
+		"**": {"/**"}, // Allow all hosts and paths
+	}
+}
+
 func TestIntegration_ProxyInjectsCredentials(t *testing.T) {
 	// Arrange - mock backend that verifies injected headers
 	var receivedAuthHeader string
@@ -70,8 +77,9 @@ func TestIntegration_ProxyInjectsCredentials(t *testing.T) {
 	}
 
 	srv := proxy.NewServer(proxy.Config{
-		Addr:   ":0",
-		Plugin: plugin,
+		Addr:      ":0",
+		Plugin:    plugin,
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -104,7 +112,8 @@ func TestIntegration_ProxyForwardsBody(t *testing.T) {
 	defer backend.Close()
 
 	srv := proxy.NewServer(proxy.Config{
-		Addr: ":0",
+		Addr:      ":0",
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -141,8 +150,9 @@ func TestIntegration_PluginError_Returns500(t *testing.T) {
 	}
 
 	srv := proxy.NewServer(proxy.Config{
-		Addr:   ":0",
-		Plugin: plugin,
+		Addr:      ":0",
+		Plugin:    plugin,
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -183,6 +193,7 @@ func TestIntegration_PluginTimeout_Returns504(t *testing.T) {
 		Addr:          ":0",
 		Plugin:        plugin,
 		PluginTimeout: 50 * time.Millisecond, // Very short timeout for test
+		AllowList:     testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -218,8 +229,9 @@ func TestIntegration_PluginReturnsNil_ForwardsWithoutInjection(t *testing.T) {
 	}
 
 	srv := proxy.NewServer(proxy.Config{
-		Addr:   ":0",
-		Plugin: plugin,
+		Addr:      ":0",
+		Plugin:    plugin,
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -256,8 +268,9 @@ func TestIntegration_TransactionContextPassedToPlugin(t *testing.T) {
 	}
 
 	srv := proxy.NewServer(proxy.Config{
-		Addr:   ":0",
-		Plugin: plugin,
+		Addr:      ":0",
+		Plugin:    plugin,
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -299,7 +312,8 @@ func TestIntegration_BackendError_Returns502(t *testing.T) {
 	defer backend.Close()
 
 	srv := proxy.NewServer(proxy.Config{
-		Addr: ":0",
+		Addr:      ":0",
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -340,8 +354,9 @@ func TestIntegration_MultipleCredentialHeaders(t *testing.T) {
 	}
 
 	srv := proxy.NewServer(proxy.Config{
-		Addr:   ":0",
-		Plugin: plugin,
+		Addr:      ":0",
+		Plugin:    plugin,
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -384,6 +399,7 @@ func TestIntegration_PluginContextCancellation(t *testing.T) {
 		Addr:          ":0",
 		Plugin:        plugin,
 		PluginTimeout: 5 * time.Second,
+		AllowList:     testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -409,7 +425,8 @@ func TestIntegration_PluginContextCancellation(t *testing.T) {
 func TestIntegration_BackendUnreachable_Returns502(t *testing.T) {
 	// Arrange - target URL that doesn't exist
 	srv := proxy.NewServer(proxy.Config{
-		Addr: ":0",
+		Addr:      ":0",
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -438,8 +455,9 @@ func TestIntegration_PluginContextCanceled_NoResponse(t *testing.T) {
 	}
 
 	srv := proxy.NewServer(proxy.Config{
-		Addr:   ":0",
-		Plugin: plugin,
+		Addr:      ":0",
+		Plugin:    plugin,
+		AllowList: testAllowList(),
 	})
 	handler := srv.Handler()
 
@@ -456,5 +474,190 @@ func TestIntegration_PluginContextCanceled_NoResponse(t *testing.T) {
 	// In practice, client won't see this response since they disconnected
 	if rec.Code == http.StatusInternalServerError {
 		t.Error("context.Canceled should not return 500")
+	}
+}
+
+func TestIntegration_AllowList_ValidRequest_Passes(t *testing.T) {
+	// Arrange - mock backend
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"status": "allowed"}`)
+	}))
+	defer backend.Close()
+
+	// Configure server with allow list
+	srv := proxy.NewServer(proxy.Config{
+		Addr:         ":0",
+		HeaderPrefix: "X-Connect",
+		AllowList: map[string][]string{
+			"127.0.0.1": {"/**"},
+		},
+	})
+
+	// Create request to allowed host
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/v1/data")
+
+	rec := httptest.NewRecorder()
+	handler := srv.Handler()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - request should pass through
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "allowed") {
+		t.Errorf("expected response body to contain 'allowed', got %q", rec.Body.String())
+	}
+}
+
+func TestIntegration_AllowList_BlockedHost_Returns403(t *testing.T) {
+	// Configure server with allow list (does NOT include evil.com)
+	srv := proxy.NewServer(proxy.Config{
+		Addr:         ":0",
+		HeaderPrefix: "X-Connect",
+		AllowList: map[string][]string{
+			"api.example.com": {"/**"},
+		},
+	})
+
+	// Create request to blocked host
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", "https://evil.com/steal/data")
+
+	rec := httptest.NewRecorder()
+	handler := srv.Handler()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - should be forbidden
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status %d, got %d", http.StatusForbidden, rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "host not allowed") {
+		t.Errorf("expected response to contain 'host not allowed', got %q", rec.Body.String())
+	}
+}
+
+func TestIntegration_AllowList_BlockedPath_Returns403(t *testing.T) {
+	// Arrange - mock backend (should not be reached)
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("backend should not be reached for blocked path")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	// Configure server with restricted path
+	srv := proxy.NewServer(proxy.Config{
+		Addr:         ":0",
+		HeaderPrefix: "X-Connect",
+		AllowList: map[string][]string{
+			"127.0.0.1": {"/v1/**"},
+		},
+	})
+
+	// Create request to blocked path
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/admin/users")
+
+	rec := httptest.NewRecorder()
+	handler := srv.Handler()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - should be forbidden
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status %d, got %d", http.StatusForbidden, rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "path not allowed") {
+		t.Errorf("expected response to contain 'path not allowed', got %q", rec.Body.String())
+	}
+}
+
+func TestIntegration_AllowList_GlobPatternMatches(t *testing.T) {
+	// Arrange - mock backend
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"path": "`+r.URL.Path+`"}`)
+	}))
+	defer backend.Close()
+
+	// Configure server with glob patterns
+	srv := proxy.NewServer(proxy.Config{
+		Addr:         ":0",
+		HeaderPrefix: "X-Connect",
+		AllowList: map[string][]string{
+			"127.0.0.1": {"/v1/customers/*/profiles", "/v1/orders/**"},
+		},
+	})
+
+	tests := []struct {
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "single star matches one segment",
+			path:       "/v1/customers/123/profiles",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "single star does not match nested",
+			path:       "/v1/customers/123/456/profiles",
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "double star matches nested paths",
+			path:       "/v1/orders/2024/01/001",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "double star matches base path",
+			path:       "/v1/orders",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+			req.Header.Set("X-Connect-Target-URL", backend.URL+tt.path)
+
+			rec := httptest.NewRecorder()
+			handler := srv.Handler()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("expected status %d, got %d", tt.wantStatus, rec.Code)
+			}
+		})
+	}
+}
+
+func TestIntegration_AllowList_EmptyList_DeniesAll(t *testing.T) {
+	// Configure server without allow list (empty)
+	srv := proxy.NewServer(proxy.Config{
+		Addr:         ":0",
+		HeaderPrefix: "X-Connect",
+		AllowList:    map[string][]string{}, // Empty - deny all
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", "https://any.host.com/any/path")
+
+	rec := httptest.NewRecorder()
+	handler := srv.Handler()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - should be forbidden
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status %d for empty allow list, got %d", http.StatusForbidden, rec.Code)
 	}
 }
