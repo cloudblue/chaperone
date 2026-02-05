@@ -216,7 +216,7 @@ func TestSignCSR_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestModifyResponse_NoOp_ReturnsNil(t *testing.T) {
+func TestModifyResponse_NoOp_ReturnsNilAction(t *testing.T) {
 	// Arrange
 	plugin := reference.New("testdata/credentials.json")
 	ctx := context.Background()
@@ -228,11 +228,14 @@ func TestModifyResponse_NoOp_ReturnsNil(t *testing.T) {
 	resp.Header.Set("X-Custom-Header", "value")
 
 	// Act
-	err := plugin.ModifyResponse(ctx, tx, resp)
+	action, err := plugin.ModifyResponse(ctx, tx, resp)
 
 	// Assert
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if action != nil {
+		t.Errorf("expected nil action for default behavior, got %+v", action)
 	}
 	// Verify response is unchanged
 	if resp.Header.Get("X-Custom-Header") != "value" {

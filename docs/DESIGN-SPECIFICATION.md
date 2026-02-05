@@ -321,8 +321,9 @@ sequenceDiagram
 * **Credential Reflection Protection:** The Proxy strips all "Injection Headers" (like `Authorization`) from the **Response** before sending it back to Connect.
 * **Error Masking:**
     * Upstream `400/500` errors are intercepted.
-    * The body is replaced with a generic error unless modified by the Plugin.
-    * Original stack traces are logged locally for the Distributor but never returned to Connect.
+    * The body is replaced with a generic error by default (safety net).
+    * Plugins can opt out by returning `ResponseAction{SkipErrorNormalization: true}` from `ModifyResponse` - useful when ISV validation errors need to be passed through to Connect.
+    * Original error bodies are logged at DEBUG level for Distributor troubleshooting but never returned to Connect unless the plugin explicitly opts out.
 * **Sensitive Data Redaction:**
     * **Header Redaction:** The logger is configured with a strict "Redact List" (e.g., `Authorization`, `Proxy-Authorization`, `Cookie`, `X-API-Key`). These headers are replaced with `[REDACTED]` in all output.
     * **Body Safety:** Request and Response **bodies** are excluded from logs by default. Debug logging (which includes bodies) can only be enabled via an explicit environment variable and must emit a startup warning.
