@@ -6,6 +6,8 @@
 
 server:
   addr: ":8443"
+  # Note: Use "127.0.0.1:9090" for localhost-only (default).
+  # Use ":9090" only if you need container-external access to admin endpoints.
   admin_addr: ":9090"
   tls:
     # TLS disabled for testing - override via env or mount certs for production
