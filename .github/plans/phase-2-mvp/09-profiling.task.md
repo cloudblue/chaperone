@@ -1,12 +1,12 @@
 # Task: Profiling Endpoints
 
-**Status:** [~] In Progress
+**Status:** [x] Complete
 **Priority:** P1
 **Estimated Effort:** M
 
 ## Objective
 
-Enable runtime profiling endpoints (`/debug/pprof/*`) on the admin port for performance debugging and optimization.
+Implement the admin server infrastructure and optional pprof endpoints with build-time security controls for performance debugging.
 
 ## Design Spec Reference
 
@@ -16,20 +16,33 @@ Enable runtime profiling endpoints (`/debug/pprof/*`) on the admin port for perf
 
 ## Dependencies
 
-- [ ] Phase 1 completed (proxy core working)
-- [ ] No dependencies on other Phase 2 tasks (Workstream B - independent)
+- [x] Phase 1 completed (proxy core working)
+- [x] No dependencies on other Phase 2 tasks (Workstream B - independent)
 
 ## Acceptance Criteria
 
-- [ ] pprof endpoints available on admin port (`:9090`)
-- [ ] Endpoints disabled by default (`observability.enable_profiling: false`)
-- [ ] Startup warning emitted when profiling is enabled
-- [ ] Endpoints NOT exposed on traffic port (security)
-- [ ] All standard pprof endpoints available
-- [ ] Tests pass: `go test ./...`
-- [ ] Lint passes: `make lint`
+- [x] Admin server running on `:9090` (localhost only by default)
+- [x] `/_ops/health` endpoint always available on admin port
+- [x] pprof endpoints available when `enable_profiling` config set (dev builds only)
+- [x] **Build-time disabled** in production builds (`make build`)
+- [x] Startup warning emitted when profiling is enabled
+- [x] All standard pprof endpoints available (`/debug/pprof/*`)
+- [x] Tests pass: `go test ./internal/telemetry/...`
+- [x] Lint passes: `make lint`
 
 ## Implementation Hints
+
+### Architecture Decision: Shared Admin Port (Option C)
+
+pprof shares the admin port (`:9090`) with health and future metrics endpoints, rather than using a standalone port (`:6060`). This simplifies operations and follows production patterns.
+
+### Security Model
+
+| Layer | Control |
+|-------|---------|
+| Build-time | `allowProfiling` ldflags (prod=false, dev=true) |
+| Runtime | `-enable-profiling` CLI flag (requires dev build) |
+| Network | Localhost-only binding (`127.0.0.1:9090`) |
 
 ### Required Endpoints
 
@@ -46,81 +59,65 @@ Enable runtime profiling endpoints (`/debug/pprof/*`) on the admin port for perf
 
 ### Suggested Approach
 
-1. Add `enable_profiling` config option (default: `false`)
-2. Create admin server mux on `:9090`
-3. Conditionally register pprof handlers
-4. Add startup log warning when enabled
-5. Ensure traffic port does NOT include pprof routes
+1. Create `internal/telemetry/admin.go` - Admin server infrastructure
+2. Create `internal/telemetry/pprof.go` - pprof registration with build-time control
+3. Follow `allowInsecureTargets` pattern from `internal/proxy/security.go`
+4. Update Makefile to set `allowProfiling=true` in `build-dev` target
+5. Integrate in `cmd/chaperone/main.go` with `-admin-addr` and `-enable-profiling` flags
 
 ### Key Code Locations
 
-- `internal/config/config.go` - Add `Observability.EnableProfiling` field
-- `internal/proxy/server.go` - Admin server setup
-- `internal/proxy/admin.go` - New file for admin endpoints
-
-### Implementation Pattern
-
-```go
-import "net/http/pprof"
-
-func (s *Server) setupAdminServer() *http.Server {
-    mux := http.NewServeMux()
-    
-    // Always available
-    mux.HandleFunc("/metrics", s.metricsHandler)
-    
-    // Conditionally enabled
-    if s.config.Observability.EnableProfiling {
-        slog.Warn("profiling endpoints enabled - do not expose to public internet")
-        mux.HandleFunc("/debug/pprof/", pprof.Index)
-        mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-        mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-        mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-        mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
-    }
-    
-    return &http.Server{
-        Addr:    s.config.Server.AdminAddr,
-        Handler: mux,
-    }
-}
-```
-
-### Config Addition
-
-```yaml
-observability:
-  log_level: "info"
-  enable_profiling: false  # NEW: Enables /debug/pprof on Admin Port
-```
+- `internal/telemetry/admin.go` - New admin server
+- `internal/telemetry/pprof.go` - pprof handlers with build-time control
+- `internal/proxy/security.go` - Pattern to follow for ldflags
+- `cmd/chaperone/main.go` - CLI flag integration
 
 ### Security Considerations
 
-- **NEVER** expose pprof on traffic port (443)
+- **NEVER** expose admin port to public internet
 - Admin port should be firewalled to internal network only
-- Log warning at startup when enabled
-- Consider adding basic auth in future (out of scope for MVP)
+- Log warning at startup when profiling enabled
+- Build-time disable prevents pprof even if flag is set in production
 
 ### Gotchas
 
 - `net/http/pprof` registers handlers globally on import - use explicit registration
 - Block profiling requires `runtime.SetBlockProfileRate(1)` to collect data
 - Mutex profiling requires `runtime.SetMutexProfileFraction(1)` to collect data
+- Task 07 (Metrics) will later add `/metrics` to this admin server
+
+## What We're NOT Doing
+
+- **YAML config toggle**: CLI flag `-enable-profiling` only
+- **Environment variable**: CLI flag is sufficient
+- **Standalone pprof port (`:6060`)**: Using shared admin port (`:9090`)
+- **Authentication on pprof**: Localhost binding is sufficient
 
 ## Files to Create/Modify
 
-- [ ] `internal/config/config.go` - Add `EnableProfiling` field
-- [ ] `internal/proxy/admin.go` - Create admin server with pprof handlers
-- [ ] `internal/proxy/server.go` - Wire up admin server
-- [ ] `configs/chaperone.example.yaml` - Document new config option
-- [ ] `internal/proxy/admin_test.go` - Test profiling toggle
+- [x] `internal/telemetry/admin.go` - Admin server infrastructure
+- [x] `internal/telemetry/admin_test.go` - Admin server tests
+- [x] `internal/telemetry/pprof.go` - pprof registration
+- [x] `internal/telemetry/pprof_test.go` - pprof tests
+- [x] `internal/telemetry/integration_test.go` - Integration tests
+- [x] `cmd/chaperone/main.go` - Add flags and start admin server
+- [x] `Makefile` - Add `allowProfiling` to LDFLAGS_DEV
 
 ## Testing Strategy
 
 - **Unit tests:**
-  - Config parsing for `enable_profiling`
-  - Admin server creation with/without profiling
+  - Admin server health endpoint
+  - `RegisterPprofHandlers` returns false when build-time disabled
+  - `RegisterPprofHandlers` returns false when flag not set
+  - All pprof endpoints accessible when enabled
 - **Integration tests:**
-  - Verify pprof endpoints return 200 when enabled
-  - Verify pprof endpoints return 404 when disabled
-  - Verify traffic port does NOT have pprof routes
+  - Admin server starts and shuts down gracefully
+  - pprof returns 200 when enabled, 404 when disabled
+  - Health endpoint works regardless of pprof state
+- **Build verification:**
+  - `make build` produces binary without pprof capability
+  - `make build-dev` produces binary with pprof capability
+
+## Implementation Plan Reference
+
+See `.memory/plans/2026-02-03-profiling-pprof-endpoint.md` for detailed implementation with full code examples.

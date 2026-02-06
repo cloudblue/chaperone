@@ -13,7 +13,8 @@ const (
 	// DefaultServerAddr is the default traffic port address.
 	DefaultServerAddr = ":443"
 	// DefaultAdminAddr is the default management/metrics port address.
-	DefaultAdminAddr = ":9090"
+	// Bound to localhost only for security - admin endpoints should not be exposed to the network.
+	DefaultAdminAddr = "127.0.0.1:9090"
 )
 
 // Default TLS configuration values.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/cloudblue/chaperone/internal/config"
 	"github.com/cloudblue/chaperone/internal/proxy"
+	"github.com/cloudblue/chaperone/internal/telemetry"
 	"github.com/cloudblue/chaperone/plugins/reference"
 	"github.com/cloudblue/chaperone/sdk"
 )
@@ -70,6 +71,14 @@ Configuration:
   Environment variables use pattern: CHAPERONE_<SECTION>_<KEY>
   Example: CHAPERONE_SERVER_ADDR=":9443"
 
+Admin Server:
+  Admin endpoints are served on server.admin_addr (default: 127.0.0.1:9090)
+  Endpoints: /_ops/health, /debug/pprof/* (dev builds with profiling enabled)
+
+  To enable profiling (dev builds only):
+    - Set observability.enable_profiling: true in config
+    - Or set CHAPERONE_OBSERVABILITY_ENABLE_PROFILING=true
+
 Examples:
   chaperone                              # Start with default config
   chaperone -config /etc/chaperone.yaml  # Custom config path
@@ -108,6 +117,17 @@ Examples:
 		"config_admin_addr", cfg.Server.AdminAddr,
 		"log_level", cfg.Observability.LogLevel,
 	)
+
+	// Start admin server (health, pprof, future metrics)
+	adminSrv := telemetry.NewAdminServer(cfg.Server.AdminAddr)
+
+	// Register pprof handlers (dev builds only, when enabled via config)
+	telemetry.RegisterPprofHandlers(adminSrv.Mux(), cfg.Observability.EnableProfiling)
+
+	if err := adminSrv.Start(); err != nil {
+		slog.Error("failed to start admin server", "error", err)
+		os.Exit(1)
+	}
 
 	// Configure plugin (optional)
 	var plugin sdk.Plugin
