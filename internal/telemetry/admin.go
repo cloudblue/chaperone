@@ -7,7 +7,9 @@ package telemetry
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 )
@@ -48,23 +50,30 @@ func (s *AdminServer) Addr() string {
 }
 
 // Start starts the admin server in a goroutine.
+// It returns an error if the server fails to bind to the address,
+// ensuring callers are notified of startup failures.
 func (s *AdminServer) Start() error {
+	// Bind early to detect port conflicts before returning
+	lc := net.ListenConfig{}
+	ln, err := lc.Listen(context.Background(), "tcp", s.addr)
+	if err != nil {
+		return fmt.Errorf("admin server bind failed: %w", err)
+	}
+
 	s.server = &http.Server{
-		Addr:         s.addr,
 		Handler:      s.mux,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 60 * time.Second, // Longer for CPU profiling
 		IdleTimeout:  120 * time.Second,
 	}
 
-	slog.Info("admin server starting", "addr", s.addr)
-
 	go func() {
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			slog.Error("admin server error", "error", err)
 		}
 	}()
 
+	slog.Info("admin server started", "addr", s.addr)
 	return nil
 }
 

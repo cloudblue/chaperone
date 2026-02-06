@@ -72,7 +72,7 @@ Configuration:
   Example: CHAPERONE_SERVER_ADDR=":9443"
 
 Admin Server:
-  Admin endpoints are served on server.admin_addr (default: :9090)
+  Admin endpoints are served on server.admin_addr (default: 127.0.0.1:9090)
   Endpoints: /_ops/health, /debug/pprof/* (dev builds with profiling enabled)
 
   To enable profiling (dev builds only):
