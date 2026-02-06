@@ -158,7 +158,7 @@ func testResponseModifier(t *testing.T, p sdk.ResponseModifier) {
 		tx := sdk.TransactionContext{}
 
 		// Should return error or handle gracefully, not panic
-		_ = p.ModifyResponse(ctx, tx, nil)
+		_, _ = p.ModifyResponse(ctx, tx, nil)
 	})
 
 	t.Run("handles valid response", func(t *testing.T) {
@@ -175,7 +175,8 @@ func testResponseModifier(t *testing.T, p sdk.ResponseModifier) {
 			Header:     make(http.Header),
 		}
 
-		err := p.ModifyResponse(ctx, tx, resp)
+		// action can be nil (default behavior) - that's valid
+		_, err := p.ModifyResponse(ctx, tx, resp)
 		if err != nil {
 			t.Logf("ModifyResponse returned error: %v (may be expected)", err)
 		}

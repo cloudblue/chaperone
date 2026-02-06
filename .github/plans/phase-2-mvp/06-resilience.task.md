@@ -124,7 +124,7 @@ func RecoveryMiddleware(next http.Handler) http.Handler {
                 w.WriteHeader(http.StatusInternalServerError)
                 json.NewEncoder(w).Encode(map[string]interface{}{
                     "error":    "Internal server error",
-                    "error_id": TraceIDFromContext(r.Context()),
+                    "trace_id": TraceIDFromContext(r.Context()),
                     "status":   500,
                 })
             }

@@ -118,10 +118,11 @@ func (p *Plugin) SignCSR(ctx context.Context, csrPEM []byte) ([]byte, error) {
 }
 
 // ModifyResponse is a no-op in the reference plugin.
-// Override in custom plugins to modify vendor responses.
-func (p *Plugin) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) error {
+// Override in custom plugins to modify vendor responses or control error handling.
+func (p *Plugin) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) (*sdk.ResponseAction, error) {
 	// No modifications in reference implementation
-	return nil
+	// Return nil to let Core apply default error normalization (safety net)
+	return nil, nil
 }
 
 func (p *Plugin) loadVendorCredentials(vendorID string) (*vendorCredentials, error) {

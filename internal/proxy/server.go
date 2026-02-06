@@ -17,8 +17,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/cloudblue/chaperone/internal/config"
 	chaperoneCtx "github.com/cloudblue/chaperone/internal/context"
 	"github.com/cloudblue/chaperone/internal/router"
+	"github.com/cloudblue/chaperone/internal/sanitizer"
 	"github.com/cloudblue/chaperone/sdk"
 )
 
@@ -70,6 +72,10 @@ type Config struct {
 	// HeaderPrefix is the prefix for context headers (default: "X-Connect").
 	HeaderPrefix string
 
+	// TraceHeader is the correlation ID header name (default: "Connect-Request-ID").
+	// Per ADR-005, this is configurable to support non-Connect platforms.
+	TraceHeader string
+
 	// Plugin is the credential provider plugin. If nil, requests are
 	// forwarded without credential injection.
 	Plugin sdk.Plugin
@@ -111,7 +117,10 @@ func NewServer(cfg Config) *Server {
 		cfg.PluginTimeout = DefaultPluginTimeout
 	}
 	if cfg.HeaderPrefix == "" {
-		cfg.HeaderPrefix = chaperoneCtx.DefaultHeaderPrefix
+		cfg.HeaderPrefix = config.DefaultHeaderPrefix
+	}
+	if cfg.TraceHeader == "" {
+		cfg.TraceHeader = config.DefaultTraceHeader
 	}
 	if cfg.Version == "" {
 		cfg.Version = "dev"
@@ -273,7 +282,7 @@ func (s *Server) withMiddleware(handler http.Handler) http.Handler {
 	// Apply middleware: outermost runs first
 	// Order: RequestLogging -> PanicRecovery -> handler
 	handler = WithPanicRecovery(handler)
-	handler = WithRequestLogging(handler)
+	handler = WithRequestLogging(s.config.TraceHeader, handler)
 	return handler
 }
 
@@ -303,9 +312,8 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 // It coordinates parsing, credential injection, and forwarding.
 func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	traceID := s.extractTraceID(r)
-	w.Header().Set("X-Trace-ID", traceID)
 
-	txCtx, err := chaperoneCtx.ParseContext(r, s.config.HeaderPrefix)
+	txCtx, err := chaperoneCtx.ParseContext(r, s.config.HeaderPrefix, s.config.TraceHeader)
 	if err != nil {
 		s.respondBadRequest(w, traceID, "failed to parse context", err)
 		return
@@ -343,12 +351,14 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.forwardRequest(w, r, targetURL, traceID)
+	//nolint:contextcheck // ModifyResponse uses resp.Request.Context() internally
+	s.forwardRequest(w, r, targetURL, traceID, txCtx)
 }
 
 // extractTraceID returns the trace ID from the request header or generates a new one.
+// Uses the configured TraceHeader from proxy.Config.
 func (s *Server) extractTraceID(r *http.Request) string {
-	if traceID := r.Header.Get(chaperoneCtx.DefaultTraceHeader); traceID != "" {
+	if traceID := r.Header.Get(s.config.TraceHeader); traceID != "" {
 		return traceID
 	}
 	return generateTraceID()
@@ -394,8 +404,8 @@ func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContex
 }
 
 // forwardRequest forwards the request to the target URL via reverse proxy.
-func (s *Server) forwardRequest(w http.ResponseWriter, r *http.Request, target *url.URL, traceID string) {
-	proxy := s.createReverseProxy(target, traceID)
+func (s *Server) forwardRequest(w http.ResponseWriter, r *http.Request, target *url.URL, traceID string, txCtx *sdk.TransactionContext) {
+	proxy := s.createReverseProxy(target, traceID, txCtx)
 	proxy.ServeHTTP(w, r)
 }
 
@@ -428,7 +438,11 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, err er
 }
 
 // createReverseProxy creates a configured reverse proxy for the target URL.
-func (s *Server) createReverseProxy(target *url.URL, traceID string) *httputil.ReverseProxy {
+// The response modification chain runs in this order:
+//  1. Plugin.ModifyResponse (if plugin exists) - returns *ResponseAction for Core instructions
+//  2. Strip sensitive headers (Credential Reflection Protection) - always runs
+//  3. Core error normalization - runs unless plugin returned ResponseAction{SkipErrorNormalization: true}
+func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.TransactionContext) *httputil.ReverseProxy {
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
 	// Customize the Director to set the correct host and path
@@ -444,9 +458,42 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string) *httputil.R
 		}
 	}
 
-	// Modify response to strip sensitive headers
+	// Response modification chain: Plugin → Strip Headers → Error Normalization
 	proxy.ModifyResponse = func(resp *http.Response) error {
+		var action *sdk.ResponseAction
+
+		// Step 1: Plugin's ModifyResponse runs FIRST (allows Distributor customization)
+		if s.config.Plugin != nil {
+			// Use the request's context with a timeout for plugin execution
+			ctx, cancel := context.WithTimeout(resp.Request.Context(), s.config.PluginTimeout)
+			defer cancel()
+
+			var err error
+			action, err = s.config.Plugin.ModifyResponse(ctx, *txCtx, resp)
+			if err != nil {
+				slog.Warn("plugin ModifyResponse error",
+					"trace_id", traceID,
+					"error", err,
+				)
+				// Continue with response processing even if plugin fails
+				// action remains nil, so Core applies safety net
+			}
+		}
+
+		// Step 2: Strip sensitive headers (Credential Reflection Protection)
+		// This ALWAYS runs, regardless of plugin action
 		stripSensitiveHeaders(resp.Header)
+
+		// Step 3: Core error normalization (safety net - unless plugin opted out)
+		if action == nil || !action.SkipErrorNormalization {
+			if err := sanitizer.NormalizeError(resp, traceID); err != nil {
+				slog.Error("error normalization failed",
+					"trace_id", traceID,
+					"error", err,
+				)
+				// Continue even if normalization fails - response will be sent as-is
+			}
+		}
 
 		// Log the response
 		slog.Info("upstream response",
