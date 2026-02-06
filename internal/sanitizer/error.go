@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"unicode/utf8"
 )
 
 // ErrorResponse is the sanitized JSON response format for error responses.
@@ -114,11 +115,17 @@ func captureAndReplaceBody(resp *http.Response) ([]byte, error) {
 
 // truncateForLog truncates a string to a reasonable length for logging.
 // Prevents log bloat from large error bodies while preserving useful context.
+// Uses rune-aware truncation to avoid splitting multi-byte UTF-8 characters.
 const maxLogBodyLength = 1024
 
 func truncateForLog(s string) string {
 	if len(s) <= maxLogBodyLength {
 		return s
 	}
-	return s[:maxLogBodyLength] + "... [truncated]"
+	// Walk back from the cut point to find a valid rune boundary.
+	i := maxLogBodyLength
+	for i > 0 && !utf8.RuneStart(s[i]) {
+		i--
+	}
+	return s[:i] + "... [truncated]"
 }

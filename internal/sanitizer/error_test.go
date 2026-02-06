@@ -376,6 +376,10 @@ func TestNormalizeError_EmptyBody(t *testing.T) {
 }
 
 func TestNormalizeError_LargeBody(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping large body test in short mode")
+	}
+
 	// Arrange: 1MB body with stack trace
 	largeBody := strings.Repeat("stack trace line\n", 65536)
 	resp := createMockResponse(500, largeBody)
@@ -392,6 +396,69 @@ func TestNormalizeError_LargeBody(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if len(body) >= len(largeBody) {
 		t.Errorf("response body should be smaller than original, got %d bytes (original: %d)", len(body), len(largeBody))
+	}
+}
+
+func TestTruncateForLog_RuneSafe(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "ASCII under limit",
+			input: "short string",
+			want:  "short string",
+		},
+		{
+			name:  "ASCII at limit",
+			input: strings.Repeat("a", maxLogBodyLength),
+			want:  strings.Repeat("a", maxLogBodyLength),
+		},
+		{
+			name:  "ASCII over limit",
+			input: strings.Repeat("a", maxLogBodyLength+100),
+			want:  strings.Repeat("a", maxLogBodyLength) + "... [truncated]",
+		},
+		{
+			name: "multi-byte runes not split",
+			// 'é' is 2 bytes, '日' is 3 bytes, '🎉' is 4 bytes
+			// Fill with 3-byte runes so a naive byte slice would split mid-rune
+			input: strings.Repeat("日", maxLogBodyLength),
+			want:  strings.Repeat("日", maxLogBodyLength/3) + "... [truncated]",
+		},
+		{
+			name:  "4-byte emoji not split",
+			input: strings.Repeat("🎉", maxLogBodyLength),
+			want:  strings.Repeat("🎉", maxLogBodyLength/4) + "... [truncated]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateForLog(tt.input)
+			if got != tt.want {
+				t.Errorf("truncateForLog() = %d bytes, want %d bytes", len(got), len(tt.want))
+			}
+		})
+	}
+}
+
+func TestTruncateForLog_ValidUTF8(t *testing.T) {
+	// A string of multi-byte runes that would be split by naive byte truncation
+	input := strings.Repeat("日本語", 500) // 4500 runes, 13500 bytes
+	result := truncateForLog(input)
+
+	// Result minus the suffix must be valid UTF-8 (no broken runes)
+	trimmed := strings.TrimSuffix(result, "... [truncated]")
+	for i, r := range trimmed {
+		if r == '\uFFFD' {
+			t.Errorf("invalid UTF-8 replacement character at byte %d", i)
+		}
+	}
+	// Result byte length (excluding suffix) must not exceed maxLogBodyLength
+	if len(trimmed) > maxLogBodyLength {
+		t.Errorf("truncated body is %d bytes, exceeds limit %d", len(trimmed), maxLogBodyLength)
 	}
 }
 

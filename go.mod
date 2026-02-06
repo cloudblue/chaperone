@@ -1,6 +1,6 @@
 module github.com/cloudblue/chaperone
 
-go 1.25.6
+go 1.25.7
 
 // LOCAL DEVELOPMENT ONLY
 // This replace directive allows building without publishing the SDK.
