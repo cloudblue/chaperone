@@ -41,8 +41,9 @@ These are the critical per-request operations that directly impact latency:
 | **Context Hashing** | Cache key generation | < 5μs, minimal allocs | `internal/cache/hash.go` |
 | **Allow-List Matching** | Glob pattern validation | < 10μs per pattern | `internal/router/allowlist.go` |
 | **Credential Injection** | Header manipulation | < 1μs, 0 allocs | `internal/proxy/inject.go` |
-| **Response Sanitization** | Header stripping (Reflector) | < 1μs, 0 allocs | `internal/sanitizer/reflector.go` |
-| **Log Redaction** | Sensitive header masking | < 2μs, 0 allocs | `internal/sanitizer/redactor.go` |
+| **Response Sanitization** | Header stripping (Reflector) | < 1μs, 0 allocs | `internal/security/reflector.go` |
+
+| **RedactingHandler (slog)** | slog wrapper overhead vs plain JSONHandler | < 5% overhead, 0 extra allocs (no-header path) | `internal/observability/logger.go` |
 | **Full Request Cycle** | End-to-end with mock upstream | < 100μs overhead | `internal/proxy/` |
 
 ## Target Metrics & Acceptance Criteria
@@ -67,7 +68,7 @@ These are the critical per-request operations that directly impact latency:
 | Allow-List (per pattern) | < 10μs | 0 allocs |
 | Header Injection | < 1μs | 0 allocs |
 | Response Sanitization | < 1μs | 0 allocs |
-| Log Redaction | < 2μs | 0 allocs |
+| RedactingHandler (slog) | < 5% overhead vs plain JSONHandler | 0 extra allocs (no-header path) |
 | Full middleware chain | < 50μs | < 30 allocs |
 
 ## Implementation Hints

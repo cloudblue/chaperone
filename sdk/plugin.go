@@ -82,6 +82,13 @@ type CredentialProvider interface {
 	//   signature := sign(req.Body)
 	//   req.Header.Set("X-Signature", signature)
 	//   return nil, nil
+	//
+	// Slow Path Security Note:
+	// The Core automatically detects headers added or modified by Slow Path
+	// plugins (via pre/post snapshot diffing) and ensures they are:
+	//   - Redacted from log output (value-based scanning)
+	//   - Stripped from responses (credential reflection protection)
+	// No manual action is required from the plugin author.
 	GetCredentials(ctx context.Context, tx TransactionContext, req *http.Request) (*Credential, error)
 }
 

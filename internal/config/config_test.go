@@ -92,6 +92,13 @@ observability:
 	if cfg.Observability.EnableProfiling != true {
 		t.Errorf("Observability.EnableProfiling = %v, want true", cfg.Observability.EnableProfiling)
 	}
+	// Sensitive headers: custom "X-Secret-Key" merged with defaults
+	defaults := defaultSensitiveHeaders()
+	wantLen := len(defaults) + 1 // defaults + "X-Secret-Key"
+	if len(cfg.Observability.SensitiveHeaders) != wantLen {
+		t.Errorf("Observability.SensitiveHeaders length = %d, want %d (defaults + custom); got %v",
+			len(cfg.Observability.SensitiveHeaders), wantLen, cfg.Observability.SensitiveHeaders)
+	}
 }
 
 func TestLoad_MinimalYAML_AppliesDefaults(t *testing.T) {
@@ -854,6 +861,7 @@ upstream:
 		{"invalid TLS enabled", "CHAPERONE_SERVER_TLS_ENABLED", "yes"},
 		{"invalid TLS auto rotate", "CHAPERONE_SERVER_TLS_AUTO_ROTATE", "nope"},
 		{"invalid profiling", "CHAPERONE_OBSERVABILITY_ENABLE_PROFILING", "enabled"},
+		{"invalid body logging", "CHAPERONE_OBSERVABILITY_ENABLE_BODY_LOGGING", "yes-please"},
 	}
 
 	for _, tt := range tests {
@@ -878,6 +886,80 @@ func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
 }
 
+// TestLoad_EnableBodyLogging_EnvVarEnablesIt verifies that the env var is the
+// only way to enable body logging (security-critical: yaml:"-" tag prevents config file).
+func TestLoad_EnableBodyLogging_EnvVarEnablesIt(t *testing.T) {
+	yamlContent := `
+server:
+  tls:
+    enabled: false
+upstream:
+  allow_list:
+    api.example.com:
+      - "/**"
+`
+	configPath := writeTestConfig(t, yamlContent)
+	t.Setenv("CHAPERONE_OBSERVABILITY_ENABLE_BODY_LOGGING", "true")
+
+	cfg, err := Load(configPath)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.Observability.EnableBodyLogging {
+		t.Error("EnableBodyLogging should be true when env var is set to 'true'")
+	}
+}
+
+// TestLoad_EnableBodyLogging_YAMLCannotEnableIt verifies that the yaml:"-" tag
+// prevents config file from enabling body logging.
+func TestLoad_EnableBodyLogging_YAMLCannotEnableIt(t *testing.T) {
+	yamlContent := `
+server:
+  tls:
+    enabled: false
+upstream:
+  allow_list:
+    api.example.com:
+      - "/**"
+observability:
+  enable_body_logging: true
+`
+	configPath := writeTestConfig(t, yamlContent)
+
+	cfg, err := Load(configPath)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Observability.EnableBodyLogging {
+		t.Error("EnableBodyLogging should be false — yaml:\"-\" tag must prevent config file from setting it")
+	}
+}
+
+// TestLoad_EnableBodyLogging_DefaultFalse verifies the secure default.
+func TestLoad_EnableBodyLogging_DefaultFalse(t *testing.T) {
+	yamlContent := `
+server:
+  tls:
+    enabled: false
+upstream:
+  allow_list:
+    api.example.com:
+      - "/**"
+`
+	configPath := writeTestConfig(t, yamlContent)
+
+	cfg, err := Load(configPath)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Observability.EnableBodyLogging {
+		t.Error("EnableBodyLogging should default to false (secure default)")
+	}
+}
+
 func containsHelper(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
@@ -898,7 +980,7 @@ func TestDefaultSensitiveHeaders_IncludesSecurityCritical(t *testing.T) {
 		"X-Auth-Token",
 	}
 
-	headers := DefaultSensitiveHeaders()
+	headers := defaultSensitiveHeaders()
 	for _, header := range required {
 		found := false
 		for _, h := range headers {
@@ -908,23 +990,177 @@ func TestDefaultSensitiveHeaders_IncludesSecurityCritical(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("DefaultSensitiveHeaders() missing required header %q", header)
+			t.Errorf("defaultSensitiveHeaders() missing required header %q", header)
 		}
 	}
 }
 
 func TestDefaultSensitiveHeaders_ReturnsNewCopy(t *testing.T) {
-	// Verify that DefaultSensitiveHeaders returns a new copy each time
+	// Verify that defaultSensitiveHeaders returns a new copy each time
 	// to prevent accidental mutation (Issue #3 from PR review)
-	headers1 := DefaultSensitiveHeaders()
-	headers2 := DefaultSensitiveHeaders()
+	headers1 := defaultSensitiveHeaders()
+	headers2 := defaultSensitiveHeaders()
 
 	// Modify the first slice
 	headers1[0] = "MUTATED"
 
 	// Second slice should be unaffected
 	if headers2[0] == "MUTATED" {
-		t.Error("DefaultSensitiveHeaders() returns same slice, should return new copy")
+		t.Error("defaultSensitiveHeaders() returns same slice, should return new copy")
+	}
+}
+
+func TestMergeSensitiveHeaders(t *testing.T) {
+	defaults := defaultSensitiveHeaders()
+
+	tests := []struct {
+		name      string
+		extra     []string
+		wantLen   int
+		wantItems []string // items that must appear in result
+	}{
+		{
+			name:      "nil extra returns defaults only",
+			extra:     nil,
+			wantLen:   len(defaults),
+			wantItems: defaults,
+		},
+		{
+			name:      "empty extra returns defaults only",
+			extra:     []string{},
+			wantLen:   len(defaults),
+			wantItems: defaults,
+		},
+		{
+			name:      "custom header merged with defaults",
+			extra:     []string{"X-Vendor-Secret"},
+			wantLen:   len(defaults) + 1,
+			wantItems: append(defaults, "X-Vendor-Secret"),
+		},
+		{
+			name:      "multiple custom headers merged",
+			extra:     []string{"X-Vendor-Secret", "X-Partner-Key"},
+			wantLen:   len(defaults) + 2,
+			wantItems: []string{"Authorization", "X-Vendor-Secret", "X-Partner-Key"},
+		},
+		{
+			name:      "duplicate of default is deduplicated",
+			extra:     []string{"Authorization"},
+			wantLen:   len(defaults),
+			wantItems: defaults,
+		},
+		{
+			name:      "case-insensitive dedup",
+			extra:     []string{"authorization", "COOKIE", "x-api-key"},
+			wantLen:   len(defaults),
+			wantItems: defaults,
+		},
+		{
+			name:      "duplicates within extra are deduplicated",
+			extra:     []string{"X-Custom", "x-custom", "X-CUSTOM"},
+			wantLen:   len(defaults) + 1,
+			wantItems: []string{"Authorization", "X-Custom"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := MergeSensitiveHeaders(tt.extra)
+
+			if len(result) != tt.wantLen {
+				t.Errorf("MergeSensitiveHeaders() length = %d, want %d; got %v",
+					len(result), tt.wantLen, result)
+			}
+
+			for _, want := range tt.wantItems {
+				found := false
+				for _, got := range result {
+					if got == want {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("MergeSensitiveHeaders() missing %q in result %v", want, result)
+				}
+			}
+		})
+	}
+}
+
+func TestMergeSensitiveHeaders_DefaultsAlwaysFirst(t *testing.T) {
+	// Verify that built-in defaults always come before extra entries.
+	defaults := defaultSensitiveHeaders()
+	extra := []string{"X-Custom-One", "X-Custom-Two"}
+
+	result := MergeSensitiveHeaders(extra)
+
+	wantLen := len(defaults) + len(extra)
+	if len(result) != wantLen {
+		t.Fatalf("expected %d entries, got %d: %v", wantLen, len(result), result)
+	}
+	// First entries must be the defaults
+	for i, d := range defaults {
+		if result[i] != d {
+			t.Errorf("result[%d] = %q, want default %q", i, result[i], d)
+		}
+	}
+	// Then the extras
+	if result[len(defaults)] != "X-Custom-One" || result[len(defaults)+1] != "X-Custom-Two" {
+		t.Errorf("extra entries not after defaults: got %v", result)
+	}
+}
+
+func TestApplyDefaults_SensitiveHeaders_MergesWithDefaults(t *testing.T) {
+	// Security: Verify that user-provided sensitive headers are merged
+	// with defaults, not used as a replacement.
+	cfg := &Config{
+		Observability: ObservabilityConfig{
+			SensitiveHeaders: []string{"X-Vendor-Secret"},
+		},
+	}
+
+	applyDefaults(cfg)
+
+	// Must contain all defaults
+	defaults := defaultSensitiveHeaders()
+	for _, d := range defaults {
+		found := false
+		for _, h := range cfg.Observability.SensitiveHeaders {
+			if h == d {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("applyDefaults() dropped default header %q; got %v",
+				d, cfg.Observability.SensitiveHeaders)
+		}
+	}
+
+	// Must also contain the custom header
+	found := false
+	for _, h := range cfg.Observability.SensitiveHeaders {
+		if h == "X-Vendor-Secret" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("applyDefaults() dropped custom header %q; got %v",
+			"X-Vendor-Secret", cfg.Observability.SensitiveHeaders)
+	}
+}
+
+func TestApplyDefaults_SensitiveHeaders_EmptyUsesDefaults(t *testing.T) {
+	cfg := &Config{}
+	applyDefaults(cfg)
+
+	defaults := defaultSensitiveHeaders()
+	if len(cfg.Observability.SensitiveHeaders) != len(defaults) {
+		t.Errorf("expected %d defaults, got %d: %v",
+			len(defaults), len(cfg.Observability.SensitiveHeaders),
+			cfg.Observability.SensitiveHeaders)
 	}
 }
 

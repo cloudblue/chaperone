@@ -840,3 +840,345 @@ func TestIntegration_PluginModifyResponse_RunsBeforeNormalization(t *testing.T) 
 		t.Errorf("Response should be normalized, got: %s", body)
 	}
 }
+
+// TestIntegration_ResponseSanitization_StripsSensitiveHeaders verifies that
+// the Reflector strips sensitive headers from responses per Design Spec Section 5.3.
+func TestIntegration_ResponseSanitization_StripsSensitiveHeaders(t *testing.T) {
+	cleanup := proxy.SetAllowInsecureTargetsForTesting(true)
+	defer cleanup()
+
+	// Arrange - backend that returns sensitive headers (simulating credential leak)
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Simulate a misconfigured backend that echoes auth headers
+		w.Header().Set("Authorization", "Bearer leaked-secret")
+		w.Header().Set("Set-Cookie", "session=leaked-session-id")
+		w.Header().Set("X-Api-Key", "leaked-api-key")
+		w.Header().Set("X-Auth-Token", "leaked-auth-token")
+		// Safe headers that should be preserved
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Request-Id", "req-123")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"result": "success"}`)
+	}))
+	defer backend.Close()
+
+	srv := proxy.NewServer(proxy.Config{
+		Addr:      ":0",
+		TLS:       &proxy.TLSConfig{Enabled: false},
+		AllowList: testAllowList(),
+	})
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - sensitive headers MUST be stripped from response
+	if rec.Header().Get("Authorization") != "" {
+		t.Error("Authorization header should be stripped from response")
+	}
+	if rec.Header().Get("Set-Cookie") != "" {
+		t.Error("Set-Cookie header should be stripped from response")
+	}
+	if rec.Header().Get("X-Api-Key") != "" {
+		t.Error("X-Api-Key header should be stripped from response")
+	}
+	if rec.Header().Get("X-Auth-Token") != "" {
+		t.Error("X-Auth-Token header should be stripped from response")
+	}
+
+	// Assert - safe headers should be preserved
+	if rec.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("Content-Type should be preserved, got %q", rec.Header().Get("Content-Type"))
+	}
+	if rec.Header().Get("X-Request-Id") != "req-123" {
+		t.Errorf("X-Request-Id should be preserved, got %q", rec.Header().Get("X-Request-Id"))
+	}
+}
+
+// TestIntegration_ResponseSanitization_CustomHeaders verifies that custom
+// sensitive headers are merged with built-in defaults (not replacing them).
+// Security: Default headers like Authorization MUST always be stripped,
+// even when custom headers are configured. Per Design Spec Section 5.3.
+func TestIntegration_ResponseSanitization_CustomHeaders(t *testing.T) {
+	cleanup := proxy.SetAllowInsecureTargetsForTesting(true)
+	defer cleanup()
+
+	// Arrange - backend that returns both a custom header and a default sensitive header
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Custom-Secret", "leaked-secret")
+		w.Header().Set("Authorization", "Bearer token") // Default sensitive
+		w.Header().Set("X-Safe-Header", "visible")      // Non-sensitive
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	// Configure server with custom sensitive headers (merged with defaults)
+	srv := proxy.NewServer(proxy.Config{
+		Addr:             ":0",
+		TLS:              &proxy.TLSConfig{Enabled: false},
+		AllowList:        testAllowList(),
+		SensitiveHeaders: []string{"X-Custom-Secret"}, // Merged with defaults
+	})
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - custom header stripped (user-provided)
+	if rec.Header().Get("X-Custom-Secret") != "" {
+		t.Error("X-Custom-Secret should be stripped when in custom sensitive list")
+	}
+
+	// Assert - Authorization stripped (from merged defaults)
+	if rec.Header().Get("Authorization") != "" {
+		t.Error("Authorization should be stripped (merged defaults always included)")
+	}
+
+	// Assert - non-sensitive header preserved
+	if rec.Header().Get("X-Safe-Header") != "visible" {
+		t.Errorf("X-Safe-Header should be preserved, got %q", rec.Header().Get("X-Safe-Header"))
+	}
+}
+
+// TestIntegration_ResponseSanitization_StripsInjectedHeaders verifies that
+// headers dynamically injected by the plugin are stripped from responses,
+// even when they aren't in the static sensitive headers list.
+//
+// This covers the Design Spec Section 5.3 "Credential Reflection Protection":
+// "The Proxy strips all Injection Headers" — meaning whatever the plugin
+// actually injected, not just well-known names.
+func TestIntegration_ResponseSanitization_StripsInjectedHeaders(t *testing.T) {
+	cleanup := proxy.SetAllowInsecureTargetsForTesting(true)
+	defer cleanup()
+
+	// Arrange - backend that echoes the injected header back in its response
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Simulate ISV echoing the vendor-specific auth header
+		if v := r.Header.Get("X-Vendor-Magic-Token"); v != "" {
+			w.Header().Set("X-Vendor-Magic-Token", v)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Request-Id", "req-456")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"result": "ok"}`)
+	}))
+	defer backend.Close()
+
+	// Plugin injects a non-standard header (not in DefaultSensitiveHeaders)
+	plugin := &mockPlugin{
+		getCredentialsFn: func(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+			return &sdk.Credential{
+				Headers: map[string]string{
+					"X-Vendor-Magic-Token": "super-secret-vendor-key",
+				},
+				ExpiresAt: time.Now().Add(1 * time.Hour),
+			}, nil
+		},
+	}
+
+	srv := proxy.NewServer(proxy.Config{
+		Addr:      ":0",
+		TLS:       &proxy.TLSConfig{Enabled: false},
+		Plugin:    plugin,
+		AllowList: testAllowList(),
+	})
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - the echoed injection header MUST be stripped
+	if rec.Header().Get("X-Vendor-Magic-Token") != "" {
+		t.Error("X-Vendor-Magic-Token should be stripped from response (injected header reflection)")
+	}
+
+	// Assert - safe headers preserved
+	if rec.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("Content-Type should be preserved, got %q", rec.Header().Get("Content-Type"))
+	}
+	if rec.Header().Get("X-Request-Id") != "req-456" {
+		t.Errorf("X-Request-Id should be preserved, got %q", rec.Header().Get("X-Request-Id"))
+	}
+}
+
+// TestIntegration_ResponseSanitization_InjectedAndStaticCombined verifies
+// that both static (well-known) and dynamic (per-request injected) headers
+// are stripped from the same response.
+func TestIntegration_ResponseSanitization_InjectedAndStaticCombined(t *testing.T) {
+	cleanup := proxy.SetAllowInsecureTargetsForTesting(true)
+	defer cleanup()
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// ISV echoes both the standard and custom injected headers
+		w.Header().Set("Authorization", "Bearer leaked")
+		w.Header().Set("X-Vendor-Token", "vendor-secret-echoed")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	plugin := &mockPlugin{
+		getCredentialsFn: func(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+			return &sdk.Credential{
+				Headers: map[string]string{
+					"Authorization":  "Bearer my-token",
+					"X-Vendor-Token": "vendor-secret",
+				},
+				ExpiresAt: time.Now().Add(1 * time.Hour),
+			}, nil
+		},
+	}
+
+	srv := proxy.NewServer(proxy.Config{
+		Addr:      ":0",
+		TLS:       &proxy.TLSConfig{Enabled: false},
+		Plugin:    plugin,
+		AllowList: testAllowList(),
+	})
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - both static and dynamic injection headers stripped
+	if rec.Header().Get("Authorization") != "" {
+		t.Error("Authorization should be stripped (static sensitive list)")
+	}
+	if rec.Header().Get("X-Vendor-Token") != "" {
+		t.Error("X-Vendor-Token should be stripped (dynamically injected header)")
+	}
+	if rec.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("Content-Type should be preserved, got %q", rec.Header().Get("Content-Type"))
+	}
+}
+
+// TestIntegration_ResponseSanitization_SlowPath_NoInjectedHeaders verifies
+// that when the plugin uses the Slow Path (returns nil credential), the
+// dynamic stripping is a safe no-op and static stripping still works.
+func TestIntegration_ResponseSanitization_SlowPath_NoInjectedHeaders(t *testing.T) {
+	cleanup := proxy.SetAllowInsecureTargetsForTesting(true)
+	defer cleanup()
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Authorization", "Bearer leaked")
+		w.Header().Set("X-Custom-Header", "should-stay")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	// Slow Path: plugin mutates request directly, returns nil credential
+	plugin := &mockPlugin{
+		getCredentialsFn: func(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+			req.Header.Set("X-Slow-Path-Auth", "direct-mutation")
+			return nil, nil // Slow Path
+		},
+	}
+
+	srv := proxy.NewServer(proxy.Config{
+		Addr:      ":0",
+		TLS:       &proxy.TLSConfig{Enabled: false},
+		Plugin:    plugin,
+		AllowList: testAllowList(),
+	})
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - static stripping still works
+	if rec.Header().Get("Authorization") != "" {
+		t.Error("Authorization should be stripped by static reflector")
+	}
+	// Non-sensitive header preserved (no dynamic keys were registered)
+	if rec.Header().Get("X-Custom-Header") != "should-stay" {
+		t.Errorf("X-Custom-Header should be preserved, got %q", rec.Header().Get("X-Custom-Header"))
+	}
+}
+
+// TestIntegration_ResponseSanitization_SlowPath_AutoDetectsInjectedHeaders verifies
+// that the Core automatically detects headers injected by Slow Path plugins
+// (via pre/post snapshot diffing) and strips them from responses — without
+// the plugin needing to call WithInjectedHeaders() or WithSecretValue().
+//
+// This is the defense-in-depth guarantee: even if a plugin author forgets
+// the manual context calls, credential reflection protection still works.
+func TestIntegration_ResponseSanitization_SlowPath_AutoDetectsInjectedHeaders(t *testing.T) {
+	cleanup := proxy.SetAllowInsecureTargetsForTesting(true)
+	defer cleanup()
+
+	// Backend echoes the injected header back in the response
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if v := r.Header.Get("X-Vendor-Hmac-Sig"); v != "" {
+			w.Header().Set("X-Vendor-Hmac-Sig", v) // ISV echoes it
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Request-Id", "req-789")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"result": "ok"}`)
+	}))
+	defer backend.Close()
+
+	// Slow Path plugin: directly mutates headers, does NOT call
+	// WithSecretValue or WithInjectedHeaders. The Core must detect this.
+	plugin := &mockPlugin{
+		getCredentialsFn: func(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+			// Simulate HMAC signing — adds a non-standard header
+			req.Header.Set("X-Vendor-Hmac-Sig", "hmac-sha256-signature-value")
+			return nil, nil // Slow Path
+		},
+	}
+
+	srv := proxy.NewServer(proxy.Config{
+		Addr:      ":0",
+		TLS:       &proxy.TLSConfig{Enabled: false},
+		Plugin:    plugin,
+		AllowList: testAllowList(),
+	})
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - the echoed injection header MUST be stripped
+	// even though the plugin never called WithInjectedHeaders
+	if rec.Header().Get("X-Vendor-Hmac-Sig") != "" {
+		t.Error("X-Vendor-Hmac-Sig should be auto-detected and stripped from response (Slow Path defense-in-depth)")
+	}
+
+	// Assert - safe headers preserved
+	if rec.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("Content-Type should be preserved, got %q", rec.Header().Get("Content-Type"))
+	}
+	if rec.Header().Get("X-Request-Id") != "req-789" {
+		t.Errorf("X-Request-Id should be preserved, got %q", rec.Header().Get("X-Request-Id"))
+	}
+}
