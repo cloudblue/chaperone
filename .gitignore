@@ -55,3 +55,8 @@ tmp/
 # Code review outputs (ephemeral)
 .github/reviews/latest-review.md
 .github/reviews/current-task.txt
+
+# Benchmark artifacts (baseline is committed, current is ephemeral)
+benchmark-current.txt
+cpu.prof
+mem.prof
