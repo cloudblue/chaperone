@@ -24,7 +24,7 @@ var APILatencyBuckets = []float64{
 // Per Design Spec Section 8.3.2: Metrics (Performance Telemetry)
 //
 // Label cardinality notes:
-//   - vendor_id: Expected low cardinality (tens of vendors), truncated to 64 chars
+//   - vendor_id: Expected low cardinality (tens of vendors), validated against [a-zA-Z0-9._-] and truncated to 64 chars
 //   - status_class: Bucketed to 2xx/3xx/4xx/5xx/other (5 values max)
 //   - method: Limited HTTP methods (< 10 values)
 //   - AVOID: subscription_id, product_id (high cardinality)
@@ -132,18 +132,24 @@ func StatusString(code int) string {
 }
 
 // NormalizeVendorID ensures vendor_id is safe for use as a metric label.
-// It returns DefaultVendorID for empty strings and truncates long values
-// to prevent unbounded cardinality.
+// It returns DefaultVendorID for empty strings or strings containing characters
+// outside the allowed set [a-zA-Z0-9._-]. Long values are truncated to
+// MaxVendorIDLength.
 //
-// Note: Vendor IDs in the Connect system are ASCII identifiers (e.g., "microsoft",
-// "adobe"). Byte-based truncation is safe for ASCII. If non-ASCII vendor IDs are
-// ever supported, this should be updated to truncate at rune boundaries.
+// This prevents unbounded label cardinality from malicious or misconfigured
+// clients sending arbitrary strings in the X-Connect-Vendor-ID header.
 func NormalizeVendorID(id string) string {
 	if id == "" {
 		return DefaultVendorID
 	}
 	if len(id) > MaxVendorIDLength {
-		return id[:MaxVendorIDLength]
+		id = id[:MaxVendorIDLength]
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') {
+			return DefaultVendorID
+		}
 	}
 	return id
 }

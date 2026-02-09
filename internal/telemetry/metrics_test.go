@@ -20,19 +20,19 @@ func TestRequestsTotal_Increment(t *testing.T) {
 	t.Cleanup(func() { RequestsTotal.Reset() })
 
 	// Increment counter
-	RequestsTotal.WithLabelValues("microsoft", "2xx", "POST").Inc()
-	RequestsTotal.WithLabelValues("microsoft", "2xx", "POST").Inc()
-	RequestsTotal.WithLabelValues("adobe", "5xx", "GET").Inc()
+	RequestsTotal.WithLabelValues("VA-000-001", "2xx", "POST").Inc()
+	RequestsTotal.WithLabelValues("VA-000-001", "2xx", "POST").Inc()
+	RequestsTotal.WithLabelValues("VA-000-002", "5xx", "GET").Inc()
 
 	// Verify counts
-	count := testutil.ToFloat64(RequestsTotal.WithLabelValues("microsoft", "2xx", "POST"))
+	count := testutil.ToFloat64(RequestsTotal.WithLabelValues("VA-000-001", "2xx", "POST"))
 	if count != 2 {
-		t.Errorf("expected count 2 for microsoft/2xx/POST, got %v", count)
+		t.Errorf("expected count 2 for VA-000-001/2xx/POST, got %v", count)
 	}
 
-	count = testutil.ToFloat64(RequestsTotal.WithLabelValues("adobe", "5xx", "GET"))
+	count = testutil.ToFloat64(RequestsTotal.WithLabelValues("VA-000-002", "5xx", "GET"))
 	if count != 1 {
-		t.Errorf("expected count 1 for adobe/5xx/GET, got %v", count)
+		t.Errorf("expected count 1 for VA-000-002/5xx/GET, got %v", count)
 	}
 }
 
@@ -42,8 +42,8 @@ func TestRequestDuration_Observe(t *testing.T) {
 	t.Cleanup(func() { RequestDuration.Reset() })
 
 	// Record some durations
-	RequestDuration.WithLabelValues("microsoft").Observe(0.1)
-	RequestDuration.WithLabelValues("microsoft").Observe(0.2)
+	RequestDuration.WithLabelValues("VA-000-001").Observe(0.1)
+	RequestDuration.WithLabelValues("VA-000-001").Observe(0.2)
 
 	// Verify histogram has observations (use Collect to verify it works)
 	ch := make(chan prometheus.Metric, 10)
@@ -127,10 +127,25 @@ func TestNormalizeVendorID(t *testing.T) {
 		input    string
 		expected string
 	}{
+		// Valid inputs
 		{"empty", "", DefaultVendorID},
-		{"normal", "microsoft", "microsoft"},
+		{"normal lowercase", "microsoft", "microsoft"},
+		{"vendor account format", "VA-000-000", "VA-000-000"},
+		{"alphanumeric with dots", "vendor.123", "vendor.123"},
+		{"underscores", "test_vendor", "test_vendor"},
+		{"hyphens", "test-vendor", "test-vendor"},
+		{"mixed case", "TestVendor-123", "TestVendor-123"},
 		{"max length", strings.Repeat("a", MaxVendorIDLength), strings.Repeat("a", MaxVendorIDLength)},
-		{"too long", strings.Repeat("b", MaxVendorIDLength+10), strings.Repeat("b", MaxVendorIDLength)},
+		{"too long truncated", strings.Repeat("b", MaxVendorIDLength+10), strings.Repeat("b", MaxVendorIDLength)},
+
+		// Invalid inputs — rejected to DefaultVendorID to prevent cardinality explosion
+		{"spaces", "vendor 123", DefaultVendorID},
+		{"unicode", "vendor\u00e9", DefaultVendorID},
+		{"slashes", "vendor/123", DefaultVendorID},
+		{"newline injection", "vendor\n123", DefaultVendorID},
+		{"null byte", "vendor\x00id", DefaultVendorID},
+		{"special chars", "vendor@123!", DefaultVendorID},
+		{"uuid-shaped valid input", "550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440000"}, // all characters are in the allowed set
 	}
 
 	for _, tt := range tests {
