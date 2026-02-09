@@ -153,10 +153,13 @@ func applyDefaults(cfg *Config) {
 	}
 	// EnableProfiling defaults to false (secure default), which is Go zero value
 
-	// Security: Always ensure sensitive headers has secure defaults
-	if len(cfg.Observability.SensitiveHeaders) == 0 {
-		cfg.Observability.SensitiveHeaders = DefaultSensitiveHeaders()
-	}
+	// Security: Always merge user-provided sensitive headers with mandatory
+	// defaults. This prevents silent credential leaks when a Distributor adds
+	// custom headers without realizing the defaults would be dropped.
+	// Per Design Spec Section 5.3: the default list is a "strict Redact List".
+	cfg.Observability.SensitiveHeaders = MergeSensitiveHeaders(
+		cfg.Observability.SensitiveHeaders,
+	)
 }
 
 // applyEnvOverrides applies environment variable overrides to the configuration.
@@ -271,6 +274,16 @@ func applyObservabilityEnvOverrides(cfg *Config) error {
 			return fmt.Errorf("invalid %s_%s value %q: %w", EnvPrefix, "OBSERVABILITY_ENABLE_PROFILING", v, err)
 		}
 		cfg.Observability.EnableProfiling = b
+	}
+	// Security: Body logging can ONLY be enabled via env var, not config file.
+	// The yaml:"-" tag on EnableBodyLogging prevents YAML from setting it.
+	// Per Design Spec Section 5.3 (Body Safety).
+	if v := getEnv("OBSERVABILITY_ENABLE_BODY_LOGGING"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("invalid %s_%s value %q: %w", EnvPrefix, "OBSERVABILITY_ENABLE_BODY_LOGGING", v, err)
+		}
+		cfg.Observability.EnableBodyLogging = b
 	}
 	return nil
 }

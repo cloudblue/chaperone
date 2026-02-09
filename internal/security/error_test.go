@@ -1,7 +1,7 @@
 // Copyright 2026 CloudBlue LLC
 // SPDX-License-Identifier: Apache-2.0
 
-package sanitizer
+package security
 
 import (
 	"bytes"

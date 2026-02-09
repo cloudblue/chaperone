@@ -1,9 +1,7 @@
 // Copyright 2026 CloudBlue LLC
 // SPDX-License-Identifier: Apache-2.0
 
-// Package sanitizer provides response sanitization functionality to prevent
-// leakage of sensitive information from upstream error responses.
-package sanitizer
+package security
 
 import (
 	"bytes"

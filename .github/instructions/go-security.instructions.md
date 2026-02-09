@@ -22,6 +22,33 @@ var sensitiveHeaders = []string{
 }
 ```
 
+### Security Default Lists: Always Merge, Never Replace
+
+When configuration allows users to extend a security-critical list (e.g.,
+`sensitive_headers`), the built-in defaults MUST always be included.
+User entries are **merged on top**, never used as a replacement.
+
+This prevents silent credential leaks when a Distributor adds custom
+headers without realizing the defaults disappear.
+
+```go
+// ✅ Correct: Merge user entries with mandatory defaults
+func applyDefaults(cfg *Config) {
+    cfg.SensitiveHeaders = MergeSensitiveHeaders(
+        cfg.SensitiveHeaders, // built-in defaults are always included
+    )
+}
+
+// ❌ Wrong: Replace semantics — user list silently drops defaults
+if len(cfg.SensitiveHeaders) == 0 {
+    cfg.SensitiveHeaders = defaultSensitiveHeaders()
+}
+```
+
+**Applies to:** Any config field whose defaults are security-critical
+(redaction lists, required TLS settings, mandatory validations).
+Ref: Design Spec Section 5.3 ("strict Redact List").
+
 ### Never Log Credentials
 
 ```go
@@ -121,6 +148,30 @@ tlsConfig := &tls.Config{
 func sanitizeResponse(resp *http.Response) {
     for _, h := range sensitiveHeaders {
         resp.Header.Del(h)
+    }
+}
+```
+
+When iterating a map to delete entries (e.g., ranging over `http.Header`),
+prefer a **two-pass collect-then-delete** pattern for clarity in
+security-critical code:
+
+```go
+// ✅ Correct: Two-pass — unambiguous, no mutation-during-iteration questions
+var toDelete []string
+for header := range headers {
+    if shouldStrip(header) {
+        toDelete = append(toDelete, header)
+    }
+}
+for _, h := range toDelete {
+    headers.Del(h)
+}
+
+// ❌ Avoid in security paths: delete during range (safe per spec, but a code review footgun)
+for header := range headers {
+    if shouldStrip(header) {
+        headers.Del(header) // readers pause to verify safety
     }
 }
 ```

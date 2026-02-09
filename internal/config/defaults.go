@@ -6,7 +6,10 @@
 // following 12-Factor App methodology.
 package config
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Default server configuration values.
 const (
@@ -59,10 +62,10 @@ const (
 	DefaultEnableProfiling = false
 )
 
-// DefaultSensitiveHeaders returns the list of headers that MUST be redacted in logs.
-// This is a security-critical default per Design Spec Section 5.3.
+// defaultSensitiveHeaders returns the list of headers that MUST be redacted
+// in logs. This is a security-critical default per Design Spec Section 5.3.
 // Returns a new copy each time to prevent accidental mutation.
-func DefaultSensitiveHeaders() []string {
+func defaultSensitiveHeaders() []string {
 	return []string{
 		"Authorization",
 		"Proxy-Authorization",
@@ -71,6 +74,34 @@ func DefaultSensitiveHeaders() []string {
 		"X-API-Key",
 		"X-Auth-Token",
 	}
+}
+
+// MergeSensitiveHeaders returns the built-in security-critical headers merged
+// with any additional headers, deduplicated case-insensitively.
+// Built-in defaults always come first in the result.
+//
+// This ensures security-critical defaults (Authorization, Cookie, etc.)
+// are never silently dropped when a Distributor adds custom headers.
+// Per Design Spec Section 5.3: these form a "strict Redact List".
+func MergeSensitiveHeaders(extra []string) []string {
+	base := defaultSensitiveHeaders()
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	merged := make([]string, 0, len(base)+len(extra))
+	for _, h := range base {
+		key := strings.ToLower(h)
+		if _, ok := seen[key]; !ok {
+			seen[key] = struct{}{}
+			merged = append(merged, h)
+		}
+	}
+	for _, h := range extra {
+		key := strings.ToLower(h)
+		if _, ok := seen[key]; !ok {
+			seen[key] = struct{}{}
+			merged = append(merged, h)
+		}
+	}
+	return merged
 }
 
 // ValidLogLevels is the list of accepted log level values.

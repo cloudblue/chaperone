@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"github.com/cloudblue/chaperone/internal/config"
+	"github.com/cloudblue/chaperone/internal/observability"
 	"github.com/cloudblue/chaperone/internal/proxy"
 	"github.com/cloudblue/chaperone/internal/telemetry"
 	"github.com/cloudblue/chaperone/plugins/reference"
@@ -103,11 +104,8 @@ Examples:
 		os.Exit(1)
 	}
 
-	// Configure logging based on config
-	logLevel := parseLogLevel(cfg.Observability.LogLevel)
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: logLevel,
-	})))
+	// Configure logging with defense-in-depth redaction.
+	configureLogging(cfg)
 
 	slog.Info("starting chaperone",
 		"version", Version,
@@ -138,15 +136,21 @@ Examples:
 		slog.Warn("no credentials file specified, running without credential injection")
 	}
 
-	// Create and start server using config values
+	// Create and start server using config values.
+	//
+	// NOTE: This manual mapping from config.Config (nested, YAML-oriented) to
+	// proxy.Config (flat, runtime-oriented) is a drift risk. When adding new
+	// config fields, ensure they are wired through here. Consider replacing
+	// with a ProxyConfigFrom() conversion function (see Task 14).
 	tlsEnabled := *cfg.Server.TLS.Enabled
 	srv := proxy.NewServer(proxy.Config{
-		Addr:         cfg.Server.Addr,
-		Plugin:       plugin,
-		Version:      Version,
-		HeaderPrefix: cfg.Upstream.HeaderPrefix,
-		TraceHeader:  cfg.Upstream.TraceHeader,
-		AllowList:    cfg.Upstream.AllowList,
+		Addr:             cfg.Server.Addr,
+		Plugin:           plugin,
+		Version:          Version,
+		HeaderPrefix:     cfg.Upstream.HeaderPrefix,
+		TraceHeader:      cfg.Upstream.TraceHeader,
+		AllowList:        cfg.Upstream.AllowList,
+		SensitiveHeaders: cfg.Observability.SensitiveHeaders,
 		TLS: &proxy.TLSConfig{
 			Enabled:  tlsEnabled,
 			CertFile: cfg.Server.TLS.CertFile,
@@ -180,5 +184,25 @@ func parseLogLevel(level string) slog.Level {
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
+	}
+}
+
+// configureLogging sets up the global slog logger with defense-in-depth
+// redaction per Design Spec Section 5.3 (Sensitive Data Redaction).
+func configureLogging(cfg *config.Config) {
+	logLevel := parseLogLevel(cfg.Observability.LogLevel)
+	slog.SetDefault(observability.NewLogger(
+		os.Stdout, logLevel,
+		cfg.Observability.SensitiveHeaders,
+		cfg.Observability.EnableBodyLogging,
+	))
+
+	// Security: Emit startup warning when body logging is enabled.
+	// Per Design Spec Section 5.3 (Body Safety): body logging requires explicit
+	// env var AND must emit a startup warning.
+	if cfg.Observability.EnableBodyLogging {
+		slog.Warn("body logging enabled — request/response bodies may appear in debug logs",
+			"env_var", "CHAPERONE_OBSERVABILITY_ENABLE_BODY_LOGGING",
+		)
 	}
 }

@@ -109,16 +109,11 @@ observability:
   # Env: CHAPERONE_OBSERVABILITY_ENABLE_PROFILING
   enable_profiling: false
 
-  # Headers to redact from logs
-  # Default includes security-critical headers:
+  # Additional headers to redact from logs and strip from responses.
+  # These are MERGED with the built-in defaults which are always included:
   #   Authorization, Proxy-Authorization, Cookie, Set-Cookie, X-API-Key, X-Auth-Token
-  # Override to add custom sensitive headers
-  sensitive_headers:
-    - "Authorization"
-    - "Proxy-Authorization"
-    - "Cookie"
-    - "Set-Cookie"
-    - "X-API-Key"
-    - "X-Auth-Token"
-    # Add custom headers below:
+  # You only need to list headers beyond the defaults.
+  # Duplicates are ignored (case-insensitive).
+  sensitive_headers: []
     # - "X-Custom-Secret"
+    # - "X-Vendor-Token"

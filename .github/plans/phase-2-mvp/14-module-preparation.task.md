@@ -99,6 +99,11 @@ git push origin v1.0.0
 
 ### Gotchas
 
+- **Defaults duplication:** `config.applyDefaults()` and `proxy.NewServer()` both
+  call `MergeSensitiveHeaders` because they operate on different Config struct shapes
+  (`config.Config` nested vs `proxy.Config` flat). Consider adding a
+  `ProxyConfigFrom(*config.Config)` conversion function to centralize defaults
+  and eliminate drift risk. Both call sites have cross-reference comments.
 - Replace directives: May exist for local development; must be removed for release
 - Module cache: `go clean -modcache` if testing stale versions
 - Private repo: If still private, import tests need authentication

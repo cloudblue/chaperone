@@ -6,6 +6,12 @@ BINARY_NAME := chaperone
 BUILD_DIR := bin
 CMD_PATH := ./cmd/chaperone
 
+# Prevent Go from auto-downloading a different toolchain version.
+# This avoids silent compile/tool version mismatches when the local
+# Go installation lags behind go.mod. If you see a version error,
+# run: brew upgrade go
+export GOTOOLCHAIN := local
+
 # Version information (override via environment or CI)
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
