@@ -19,8 +19,9 @@ import (
 
 	"github.com/cloudblue/chaperone/internal/config"
 	chaperoneCtx "github.com/cloudblue/chaperone/internal/context"
+	"github.com/cloudblue/chaperone/internal/observability"
 	"github.com/cloudblue/chaperone/internal/router"
-	"github.com/cloudblue/chaperone/internal/sanitizer"
+	"github.com/cloudblue/chaperone/internal/security"
 	"github.com/cloudblue/chaperone/sdk"
 )
 
@@ -88,6 +89,10 @@ type Config struct {
 	// in this list are rejected with 403 Forbidden.
 	AllowList map[string][]string
 
+	// SensitiveHeaders lists additional headers to redact from logs and strip
+	// from responses. These are merged with built-in defaults by NewServer.
+	SensitiveHeaders []string
+
 	// Timeouts
 	ReadTimeout   time.Duration
 	WriteTimeout  time.Duration
@@ -97,7 +102,8 @@ type Config struct {
 
 // Server is the main proxy server.
 type Server struct {
-	config Config
+	config    Config
+	reflector *security.Reflector
 }
 
 // NewServer creates a new proxy server with the given configuration.
@@ -147,8 +153,14 @@ func NewServer(cfg Config) *Server {
 		}
 	}
 
+	// Security: Merge user-provided sensitive headers with mandatory defaults.
+	// Even if the config loader already merged, NewServer can be called directly
+	// in tests — always ensure defaults are present.
+	sensitiveHeaders := config.MergeSensitiveHeaders(cfg.SensitiveHeaders)
+
 	return &Server{
-		config: cfg,
+		config:    cfg,
+		reflector: security.NewReflector(sensitiveHeaders),
 	}
 }
 
@@ -345,7 +357,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	err = s.injectCredentials(r, txCtx)
+	r, err = s.injectCredentials(r, txCtx)
 	if err != nil {
 		s.handlePluginError(w, traceID, err)
 		return
@@ -378,29 +390,106 @@ func (s *Server) respondBadRequest(w http.ResponseWriter, traceID, msg string, e
 }
 
 // injectCredentials fetches credentials from the plugin and injects them into the request.
-// Returns an error if credential injection fails; caller is responsible for handling the error.
-func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContext) error {
+// After injection, it stores credential values in the request context so the
+// RedactingHandler can detect and redact them if they leak into log output
+// (value-based scanning, Layers 3 & 4).
+//
+// Returns the (possibly updated) request and any error. The caller MUST use
+// the returned request for all subsequent operations, because the context may
+// have been enriched with secret values and injected header keys.
+func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContext) (*http.Request, error) {
 	if s.config.Plugin == nil {
-		return nil
+		return r, nil
 	}
+
+	// Snapshot headers BEFORE the plugin call so we can detect Slow Path
+	// mutations. This costs one Header.Clone() per request, but only for
+	// requests that actually have a plugin — acceptable overhead given that
+	// Slow Path plugins already do expensive operations (HMAC, Vault calls).
+	headersBefore := r.Header.Clone()
 
 	ctx, cancel := context.WithTimeout(r.Context(), s.config.PluginTimeout)
 	defer cancel()
 
 	cred, err := s.config.Plugin.GetCredentials(ctx, *txCtx, r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Fast Path: plugin returned headers to inject
 	if cred != nil {
+		reqCtx := r.Context()
+		injectedKeys := make([]string, 0, len(cred.Headers))
 		for k, v := range cred.Headers {
 			r.Header.Set(k, v)
+			injectedKeys = append(injectedKeys, k)
+			// Store each credential value in context for value-based log redaction.
+			// The RedactingHandler will scan all slog string attrs and messages
+			// for these values. Short values (< MinSecretLength) are automatically
+			// skipped by the handler to avoid false positives.
+			reqCtx = observability.WithSecretValue(reqCtx, v)
+		}
+		// Store injected header keys so the Reflector can strip them from
+		// responses (prevents credential reflection for non-standard headers).
+		reqCtx = security.WithInjectedHeaders(reqCtx, injectedKeys)
+		// Propagate enriched context to the returned request. The reverse proxy
+		// will Clone this request, so resp.Request.Context() in ModifyResponse
+		// will carry the secret values and injected header keys.
+		r = r.WithContext(reqCtx)
+		return r, nil
+	}
+
+	// Slow Path: plugin mutated the request directly (cred is nil).
+	// Defense-in-depth: detect what the plugin injected by diffing headers
+	// against our pre-call snapshot. This ensures log redaction and response
+	// stripping work even if the plugin doesn't call WithSecretValue() or
+	// WithInjectedHeaders() itself.
+	r = s.detectSlowPathInjections(r, headersBefore)
+	return r, nil
+}
+
+// detectSlowPathInjections compares the current request headers against
+// a pre-plugin snapshot to discover what a Slow Path plugin injected.
+// Any new or modified headers are treated as injected credentials:
+//   - Their values are stored in context for value-based log redaction
+//   - Their keys are stored in context for response header stripping
+//
+// This is a safety net — Slow Path plugins MAY still call
+// observability.WithSecretValue() and security.WithInjectedHeaders()
+// for finer control, but forgetting to do so is no longer a security gap.
+func (s *Server) detectSlowPathInjections(r *http.Request, before http.Header) *http.Request {
+	var injectedKeys []string
+	reqCtx := r.Context()
+
+	for key, newValues := range r.Header {
+		oldValues, existed := before[key]
+		if !existed || !headerValuesEqual(oldValues, newValues) {
+			injectedKeys = append(injectedKeys, key)
+			for _, v := range newValues {
+				reqCtx = observability.WithSecretValue(reqCtx, v)
+			}
 		}
 	}
-	// Slow Path: plugin mutated request directly (cred is nil)
 
-	return nil
+	if len(injectedKeys) > 0 {
+		reqCtx = security.WithInjectedHeaders(reqCtx, injectedKeys)
+		r = r.WithContext(reqCtx)
+	}
+
+	return r
+}
+
+// headerValuesEqual returns true if two header value slices are identical.
+func headerValuesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // forwardRequest forwards the request to the target URL via reverse proxy.
@@ -481,12 +570,17 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 		}
 
 		// Step 2: Strip sensitive headers (Credential Reflection Protection)
-		// This ALWAYS runs, regardless of plugin action
-		stripSensitiveHeaders(resp.Header)
+		// This ALWAYS runs, regardless of plugin action.
+		// Static list: well-known sensitive headers (Authorization, Cookie, etc.)
+		s.reflector.StripResponseHeaders(resp.Header)
+		// Dynamic list: whatever headers the plugin actually injected per-request.
+		// Prevents credential reflection for non-standard headers (e.g., X-Vendor-Token)
+		// that aren't in the static sensitive list.
+		security.StripInjectedHeaders(resp.Request.Context(), resp.Header)
 
 		// Step 3: Core error normalization (safety net - unless plugin opted out)
 		if action == nil || !action.SkipErrorNormalization {
-			if err := sanitizer.NormalizeError(resp, traceID); err != nil {
+			if err := security.NormalizeError(resp, traceID); err != nil {
 				slog.Error("error normalization failed",
 					"trace_id", traceID,
 					"error", err,
@@ -515,23 +609,6 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 	}
 
 	return proxy
-}
-
-// sensitiveHeaders is the list of headers that must be stripped from responses.
-var sensitiveHeaders = []string{
-	"Authorization",
-	"Proxy-Authorization",
-	"Cookie",
-	"Set-Cookie",
-	"X-API-Key",
-	"X-Auth-Token",
-}
-
-// stripSensitiveHeaders removes sensitive headers from the header map.
-func stripSensitiveHeaders(h http.Header) {
-	for _, header := range sensitiveHeaders {
-		h.Del(header)
-	}
 }
 
 // generateTraceID generates a unique trace ID for request tracking.
