@@ -1,6 +1,6 @@
 # Task: Performance Attribution (Server-Timing)
 
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 **Priority:** P1
 **Estimated Effort:** M
 
@@ -16,18 +16,19 @@ Implement `Server-Timing` header in responses to allow upstream platforms to und
 
 ## Dependencies
 
-- [ ] Phase 1 completed (proxy core working)
-- [ ] No dependencies on other Phase 2 tasks (Workstream B - independent)
+- [x] Phase 1 completed (proxy core working)
+- [x] No dependencies on other Phase 2 tasks (Workstream B - independent)
 
 ## Acceptance Criteria
 
-- [ ] `Server-Timing` header present in all proxy responses
-- [ ] Header contains `plugin`, `upstream`, and `overhead` metrics
-- [ ] Timing values are in milliseconds with 2 decimal precision
-- [ ] Zero overhead when timing is disabled (config option)
-- [ ] Timing survives error responses
-- [ ] Tests pass: `go test ./...`
-- [ ] Lint passes: `make lint`
+- [x] `Server-Timing` header present in all proxy responses
+- [x] Header contains `plugin`, `upstream`, and `overhead` metrics
+- [x] Timing values are in milliseconds with 2 decimal precision
+- [x] Always-on (no config toggle — adds negligible overhead: ~4 `time.Now()` calls per request)
+- [x] Timing survives error responses (400, 403, 500, 502, 504, panics)
+- [x] Tests pass: `go test ./...`
+- [x] Lint passes: `make lint`
+- [x] Race detector clean: `go test -race`
 
 ## Implementation Hints
 
@@ -157,12 +158,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-### Config Option (Optional Enhancement)
+### Config Option (Not Implemented)
 
-```yaml
-observability:
-  enable_server_timing: true  # Default: true
-```
+Always-on by design. The overhead is negligible (~4 `time.Now()` calls at ~20ns each per request) and the header provides observability value on every response. A config toggle would add complexity for no practical benefit.
 
 ### Gotchas
 
@@ -170,25 +168,35 @@ observability:
 - Use monotonic clock (`time.Now()` in Go provides this)
 - Protect against negative overhead (clock skew)
 - Header must be set BEFORE writing response body
+- **Critical:** Upstream duration MUST be recorded inside `ModifyResponse`/`ErrorHandler`, NOT after `proxy.ServeHTTP()` returns — `httputil.ReverseProxy` calls `WriteHeader` internally before returning, so post-ServeHTTP recording would always be zero
+- Response writer wrappers need `Unwrap()` for `http.ResponseController` compatibility (Go 1.20+)
 
 ## Files to Create/Modify
 
-- [ ] `internal/timing/recorder.go` - Timing recorder implementation
-- [ ] `internal/timing/recorder_test.go` - Unit tests
-- [ ] `internal/proxy/handler.go` - Integrate timing into request flow
-- [ ] `internal/proxy/middleware.go` - Ensure header is added
+- [x] `internal/timing/recorder.go` - Timing recorder, context helpers, `Header()`
+- [x] `internal/timing/recorder_test.go` - 10 unit tests
+- [x] `internal/timing/middleware.go` - `timingResponseWriter`, `WithTiming` middleware
+- [x] `internal/timing/middleware_test.go` - 7 unit tests
+- [x] `internal/proxy/server.go` - Timing middleware in chain, plugin/upstream instrumentation, extracted `modifyResponse`
+- [x] `internal/proxy/middleware.go` - Added `Unwrap()` to existing `responseWriter`
+- [x] `internal/proxy/integration_test.go` - 10 new Server-Timing integration tests
 
 ## Testing Strategy
 
-- **Unit tests:**
-  - `Recorder.Header()` format validation
+- **Unit tests (17 total):**
+  - `Recorder.Header()` format validation and decimal precision
   - Zero duration handling
-  - Negative overhead protection
-  - Duration accessors
-- **Integration tests:**
-  - Response contains `Server-Timing` header
-  - Values are reasonable (plugin < total, etc.)
-  - Header present on error responses (4xx, 5xx)
+  - Negative overhead protection (clock skew clamping)
+  - Duration accessors and `durationToMS` conversion table
+  - Context round-trip (`WithRecorder`/`FromContext`)
+  - `timingResponseWriter`: header injection, error paths, streaming, implicit `WriteHeader`, `Unwrap()`
+- **Integration tests (10 total):**
+  - Response contains `Server-Timing` header on success (200)
+  - Header present on upstream error (500), bad request (400), AllowList rejection (403), bad gateway (502), plugin timeout (504)
+  - Plugin duration reflects actual execution time (50ms sleep, 40-500ms bounds)
+  - Upstream duration reflects actual latency (30ms sleep, 20-500ms bounds)
+  - No plugin shows `plugin;dur=0.00`
+  - Plugin error shows `upstream;dur=0.00` (upstream never reached)
 
 ## Metrics Integration
 

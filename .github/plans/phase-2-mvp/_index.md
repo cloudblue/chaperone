@@ -17,7 +17,7 @@
 | 07 | Telemetry (Metrics) | [x] | P1 | Phase 1 only | M |
 | 08 | Telemetry (Tracing) | [ ] | P1 | 07 | L |
 | 09 | Profiling | [~] | P1 | Phase 1 only | M |
-| 10 | Performance Attribution | [ ] | P1 | Phase 1 only | M |
+| 10 | Performance Attribution | [x] | P1 | Phase 1 only | M |
 | 11 | Benchmark Testing | [ ] | P1 | 09 | M |
 | 12 | Load Testing | [ ] | P1 | 07, 11 | M |
 | 13 | Documentation | [ ] | P1 | 01-06 | M |
@@ -94,8 +94,7 @@ Phase 1 (Complete) ────────────────────�
 │   ┌─────────────────┬─────────────────────┬─────────────────────┐
 │   │                 │                     │                     │
 │   ▼                 ▼                     ▼                     │
-│   07-metrics [x]  09-profiling [~]    10-perf-attribution         │
-│   │                 │                                           │
+│   07-metrics [x]  09-profiling [~]    10-perf-attribution [x]     ││   │                 │                                           │
 │   ▼                 ▼                                           │
 │   08-tracing    11-benchmarks                                   │
 │   │                 │                                           │
