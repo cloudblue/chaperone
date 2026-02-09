@@ -81,3 +81,39 @@ func TestAdminServer_Shutdown_NotStarted(t *testing.T) {
 		t.Errorf("expected nil error for non-started server shutdown, got %v", err)
 	}
 }
+
+func TestAdminServer_MetricsEndpoint(t *testing.T) {
+	srv := NewAdminServer("")
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w := httptest.NewRecorder()
+
+	srv.Mux().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	// Verify Prometheus format (should contain go_* metrics at minimum)
+	body := w.Body.String()
+	if !strings.Contains(body, "go_goroutines") {
+		t.Error("expected metrics output to contain Go runtime metrics")
+	}
+}
+
+func TestAdminServer_MetricsContentType(t *testing.T) {
+	srv := NewAdminServer("")
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w := httptest.NewRecorder()
+
+	srv.Mux().ServeHTTP(w, req)
+
+	contentType := w.Header().Get("Content-Type")
+	// Prometheus handler returns text/plain for exposition format
+	// or application/openmetrics-text for OpenMetrics format depending on Accept header
+	if !strings.HasPrefix(contentType, "text/plain") &&
+		!strings.HasPrefix(contentType, "application/openmetrics-text") {
+		t.Errorf("expected Prometheus-compatible Content-Type, got %s", contentType)
+	}
+}
