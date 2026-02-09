@@ -156,7 +156,8 @@ observability:
 | YAML Key | Environment Variable | Type | Default | Description |
 |----------|---------------------|------|---------|-------------|
 | `server.addr` | `CHAPERONE_SERVER_ADDR` | string | `:443` | Traffic port address |
-| `server.admin_addr` | `CHAPERONE_SERVER_ADMIN_ADDR` | string | `:9090` | Admin/metrics port address |
+| `server.admin_addr` | `CHAPERONE_SERVER_ADMIN_ADDR` | string | `127.0.0.1:9090` | Admin/metrics port address |
+| `server.shutdown_timeout` | `CHAPERONE_SERVER_SHUTDOWN_TIMEOUT` | duration | `30s` | Max time to drain in-flight requests during graceful shutdown |
 | `server.tls.enabled` | `CHAPERONE_SERVER_TLS_ENABLED` | bool | `true` | Enable TLS/mTLS |
 | `server.tls.cert_file` | `CHAPERONE_SERVER_TLS_CERT_FILE` | string | `/certs/server.crt` | Path to server certificate (PEM) |
 | `server.tls.key_file` | `CHAPERONE_SERVER_TLS_KEY_FILE` | string | `/certs/server.key` | Path to server private key (PEM) |
@@ -174,6 +175,8 @@ observability:
 | `upstream.timeouts.read` | `CHAPERONE_UPSTREAM_TIMEOUTS_READ` | duration | `30s` | Response header timeout |
 | `upstream.timeouts.write` | `CHAPERONE_UPSTREAM_TIMEOUTS_WRITE` | duration | `30s` | Response write timeout |
 | `upstream.timeouts.idle` | `CHAPERONE_UPSTREAM_TIMEOUTS_IDLE` | duration | `120s` | Keep-alive connection timeout |
+| `upstream.timeouts.keep_alive` | `CHAPERONE_UPSTREAM_TIMEOUTS_KEEP_ALIVE` | duration | `30s` | TCP keep-alive probe interval |
+| `upstream.timeouts.plugin` | `CHAPERONE_UPSTREAM_TIMEOUTS_PLUGIN` | duration | `10s` | Max time for plugin credential fetch |
 
 **Allow-List Pattern Syntax:**
 - `*` - Single-level wildcard (matches within a path segment)
@@ -224,6 +227,8 @@ export CHAPERONE_SERVER_TLS_KEY_FILE="/etc/certs/server.key"
 # Override timeouts
 export CHAPERONE_UPSTREAM_TIMEOUTS_CONNECT="10s"
 export CHAPERONE_UPSTREAM_TIMEOUTS_READ="60s"
+export CHAPERONE_UPSTREAM_TIMEOUTS_KEEP_ALIVE="15s"
+export CHAPERONE_UPSTREAM_TIMEOUTS_PLUGIN="15s"
 ```
 
 Environment variables **always override** YAML values (12-Factor App methodology).

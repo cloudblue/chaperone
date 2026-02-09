@@ -18,6 +18,9 @@ const (
 	// DefaultAdminAddr is the default management/metrics port address.
 	// Bound to localhost only for security - admin endpoints should not be exposed to the network.
 	DefaultAdminAddr = "127.0.0.1:9090"
+	// DefaultShutdownTimeout is the maximum time to drain in-flight
+	// requests during graceful shutdown.
+	DefaultShutdownTimeout = 30 * time.Second
 )
 
 // Default TLS configuration values.
@@ -52,6 +55,10 @@ const (
 	DefaultWriteTimeout = 30 * time.Second
 	// DefaultIdleTimeout is the keep-alive connection timeout.
 	DefaultIdleTimeout = 120 * time.Second
+	// DefaultKeepAlive is the interval between TCP keep-alive probes.
+	DefaultKeepAlive = 30 * time.Second
+	// DefaultPluginTimeout is the maximum time for a plugin to return credentials.
+	DefaultPluginTimeout = 10 * time.Second
 )
 
 // Default observability configuration values.
@@ -74,6 +81,12 @@ func defaultSensitiveHeaders() []string {
 		"X-API-Key",
 		"X-Auth-Token",
 	}
+}
+
+// durationPtr returns a pointer to the given duration.
+// Used by applyDefaults to fill nil pointer fields.
+func durationPtr(d time.Duration) *time.Duration {
+	return &d
 }
 
 // MergeSensitiveHeaders returns the built-in security-critical headers merged

@@ -76,11 +76,9 @@ func TestIntegration_ProxyInjectsCredentials(t *testing.T) {
 		},
 	}
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		Plugin:    plugin,
-		AllowList: testAllowList(),
-	})
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -111,10 +109,7 @@ func TestIntegration_ProxyForwardsBody(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		AllowList: testAllowList(),
-	})
+	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
 	requestBody := `{"action": "create", "data": {"name": "test"}}`
@@ -149,11 +144,9 @@ func TestIntegration_PluginError_Returns500(t *testing.T) {
 		},
 	}
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		Plugin:    plugin,
-		AllowList: testAllowList(),
-	})
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -189,12 +182,10 @@ func TestIntegration_PluginTimeout_Returns504(t *testing.T) {
 		},
 	}
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:          ":0",
-		Plugin:        plugin,
-		PluginTimeout: 50 * time.Millisecond, // Very short timeout for test
-		AllowList:     testAllowList(),
-	})
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	cfg.PluginTimeout = 50 * time.Millisecond // Very short timeout for test
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -228,11 +219,9 @@ func TestIntegration_PluginReturnsNil_ForwardsWithoutInjection(t *testing.T) {
 		},
 	}
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		Plugin:    plugin,
-		AllowList: testAllowList(),
-	})
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -267,11 +256,9 @@ func TestIntegration_TransactionContextPassedToPlugin(t *testing.T) {
 		},
 	}
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		Plugin:    plugin,
-		AllowList: testAllowList(),
-	})
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -311,10 +298,7 @@ func TestIntegration_BackendError_Returns502(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		AllowList: testAllowList(),
-	})
+	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -353,11 +337,9 @@ func TestIntegration_MultipleCredentialHeaders(t *testing.T) {
 		},
 	}
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		Plugin:    plugin,
-		AllowList: testAllowList(),
-	})
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -395,12 +377,10 @@ func TestIntegration_PluginContextCancellation(t *testing.T) {
 		},
 	}
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:          ":0",
-		Plugin:        plugin,
-		PluginTimeout: 5 * time.Second,
-		AllowList:     testAllowList(),
-	})
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	cfg.PluginTimeout = 5 * time.Second
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -424,10 +404,7 @@ func TestIntegration_PluginContextCancellation(t *testing.T) {
 
 func TestIntegration_BackendUnreachable_Returns502(t *testing.T) {
 	// Arrange - target URL that doesn't exist
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		AllowList: testAllowList(),
-	})
+	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -454,11 +431,9 @@ func TestIntegration_PluginContextCanceled_NoResponse(t *testing.T) {
 		},
 	}
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		Plugin:    plugin,
-		AllowList: testAllowList(),
-	})
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -486,13 +461,11 @@ func TestIntegration_AllowList_ValidRequest_Passes(t *testing.T) {
 	defer backend.Close()
 
 	// Configure server with allow list
-	srv := proxy.NewServer(proxy.Config{
-		Addr:         ":0",
-		HeaderPrefix: "X-Connect",
-		AllowList: map[string][]string{
-			"127.0.0.1": {"/**"},
-		},
-	})
+	cfg := testConfig()
+	cfg.AllowList = map[string][]string{
+		"127.0.0.1": {"/**"},
+	}
+	srv := mustNewServer(t, cfg)
 
 	// Create request to allowed host
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -515,13 +488,11 @@ func TestIntegration_AllowList_ValidRequest_Passes(t *testing.T) {
 
 func TestIntegration_AllowList_BlockedHost_Returns403(t *testing.T) {
 	// Configure server with allow list (does NOT include evil.com)
-	srv := proxy.NewServer(proxy.Config{
-		Addr:         ":0",
-		HeaderPrefix: "X-Connect",
-		AllowList: map[string][]string{
-			"api.example.com": {"/**"},
-		},
-	})
+	cfg := testConfig()
+	cfg.AllowList = map[string][]string{
+		"api.example.com": {"/**"},
+	}
+	srv := mustNewServer(t, cfg)
 
 	// Create request to blocked host
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -551,13 +522,11 @@ func TestIntegration_AllowList_BlockedPath_Returns403(t *testing.T) {
 	defer backend.Close()
 
 	// Configure server with restricted path
-	srv := proxy.NewServer(proxy.Config{
-		Addr:         ":0",
-		HeaderPrefix: "X-Connect",
-		AllowList: map[string][]string{
-			"127.0.0.1": {"/v1/**"},
-		},
-	})
+	cfg := testConfig()
+	cfg.AllowList = map[string][]string{
+		"127.0.0.1": {"/v1/**"},
+	}
+	srv := mustNewServer(t, cfg)
 
 	// Create request to blocked path
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -587,13 +556,11 @@ func TestIntegration_AllowList_GlobPatternMatches(t *testing.T) {
 	defer backend.Close()
 
 	// Configure server with glob patterns
-	srv := proxy.NewServer(proxy.Config{
-		Addr:         ":0",
-		HeaderPrefix: "X-Connect",
-		AllowList: map[string][]string{
-			"127.0.0.1": {"/v1/customers/*/profiles", "/v1/orders/**"},
-		},
-	})
+	cfg := testConfig()
+	cfg.AllowList = map[string][]string{
+		"127.0.0.1": {"/v1/customers/*/profiles", "/v1/orders/**"},
+	}
+	srv := mustNewServer(t, cfg)
 
 	tests := []struct {
 		name       string
@@ -641,11 +608,9 @@ func TestIntegration_AllowList_GlobPatternMatches(t *testing.T) {
 
 func TestIntegration_AllowList_EmptyList_DeniesAll(t *testing.T) {
 	// Configure server without allow list (empty)
-	srv := proxy.NewServer(proxy.Config{
-		Addr:         ":0",
-		HeaderPrefix: "X-Connect",
-		AllowList:    map[string][]string{}, // Empty - deny all
-	})
+	cfg := testConfig()
+	cfg.AllowList = map[string][]string{} // Empty - deny all
+	srv := mustNewServer(t, cfg)
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://any.host.com/any/path")
@@ -703,11 +668,7 @@ func TestIntegration_UpstreamError_NormalizedResponse(t *testing.T) {
 			}))
 			defer backend.Close()
 
-			srv := proxy.NewServer(proxy.Config{
-				Addr:      ":0",
-				TLS:       &proxy.TLSConfig{Enabled: false},
-				AllowList: testAllowList(),
-			})
+			srv := mustNewServer(t, testConfig())
 
 			req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
 			req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
@@ -759,11 +720,7 @@ func TestIntegration_SuccessResponse_NotNormalized(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		TLS:       &proxy.TLSConfig{Enabled: false},
-		AllowList: testAllowList(),
-	})
+	srv := mustNewServer(t, testConfig())
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
@@ -810,12 +767,9 @@ func TestIntegration_PluginModifyResponse_RunsBeforeNormalization(t *testing.T) 
 	}))
 	defer backend.Close()
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		TLS:       &proxy.TLSConfig{Enabled: false},
-		Plugin:    plugin,
-		AllowList: testAllowList(),
-	})
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
@@ -862,11 +816,7 @@ func TestIntegration_ResponseSanitization_StripsSensitiveHeaders(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		TLS:       &proxy.TLSConfig{Enabled: false},
-		AllowList: testAllowList(),
-	})
+	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -918,12 +868,9 @@ func TestIntegration_ResponseSanitization_CustomHeaders(t *testing.T) {
 	defer backend.Close()
 
 	// Configure server with custom sensitive headers (merged with defaults)
-	srv := proxy.NewServer(proxy.Config{
-		Addr:             ":0",
-		TLS:              &proxy.TLSConfig{Enabled: false},
-		AllowList:        testAllowList(),
-		SensitiveHeaders: []string{"X-Custom-Secret"}, // Merged with defaults
-	})
+	cfg := testConfig()
+	cfg.SensitiveHeaders = []string{"X-Custom-Secret"} // Merged with defaults
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -985,12 +932,9 @@ func TestIntegration_ResponseSanitization_StripsInjectedHeaders(t *testing.T) {
 		},
 	}
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		TLS:       &proxy.TLSConfig{Enabled: false},
-		Plugin:    plugin,
-		AllowList: testAllowList(),
-	})
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1043,12 +987,9 @@ func TestIntegration_ResponseSanitization_InjectedAndStaticCombined(t *testing.T
 		},
 	}
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		TLS:       &proxy.TLSConfig{Enabled: false},
-		Plugin:    plugin,
-		AllowList: testAllowList(),
-	})
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1093,12 +1034,9 @@ func TestIntegration_ResponseSanitization_SlowPath_NoInjectedHeaders(t *testing.
 		},
 	}
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		TLS:       &proxy.TLSConfig{Enabled: false},
-		Plugin:    plugin,
-		AllowList: testAllowList(),
-	})
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1152,12 +1090,9 @@ func TestIntegration_ResponseSanitization_SlowPath_AutoDetectsInjectedHeaders(t 
 		},
 	}
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		TLS:       &proxy.TLSConfig{Enabled: false},
-		Plugin:    plugin,
-		AllowList: testAllowList(),
-	})
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)

@@ -6,6 +6,7 @@ package proxy_test
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/cloudblue/chaperone/internal/proxy"
 )
@@ -18,4 +19,39 @@ func TestMain(m *testing.M) {
 	defer cleanup()
 
 	os.Exit(m.Run())
+}
+
+// testConfig returns a valid proxy.Config with all required fields populated.
+// Tests should use this as a base and override only the fields they need.
+//
+// This ensures all tests pass NewServer validation (no zero timeouts, no
+// missing required fields) while keeping test code concise.
+func testConfig() proxy.Config {
+	return proxy.Config{
+		Addr:             ":0",
+		Version:          "test",
+		HeaderPrefix:     "X-Connect",
+		TraceHeader:      "Connect-Request-ID",
+		TLS:              &proxy.TLSConfig{Enabled: false},
+		AllowList:        testAllowList(),
+		ReadTimeout:      5 * time.Second,
+		WriteTimeout:     30 * time.Second,
+		IdleTimeout:      120 * time.Second,
+		KeepAliveTimeout: 30 * time.Second,
+		PluginTimeout:    10 * time.Second,
+		ConnectTimeout:   5 * time.Second,
+		ShutdownTimeout:  30 * time.Second,
+	}
+}
+
+// mustNewServer creates a proxy.Server from the given config, failing the
+// test immediately if the config is invalid. Use for tests that are not
+// testing config validation itself.
+func mustNewServer(t *testing.T, cfg proxy.Config) *proxy.Server {
+	t.Helper()
+	srv, err := proxy.NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer failed with valid config: %v", err)
+	}
+	return srv
 }

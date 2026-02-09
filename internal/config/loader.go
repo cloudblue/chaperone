@@ -96,60 +96,87 @@ func loadYAML(path string) (*Config, error) {
 
 // applyDefaults applies default values for any unset configuration fields.
 func applyDefaults(cfg *Config) {
-	// Server defaults
-	if cfg.Server.Addr == "" {
-		cfg.Server.Addr = DefaultServerAddr
-	}
-	if cfg.Server.AdminAddr == "" {
-		cfg.Server.AdminAddr = DefaultAdminAddr
-	}
+	applyServerDefaults(&cfg.Server)
+	applyUpstreamDefaults(&cfg.Upstream)
+	applyObservabilityDefaults(&cfg.Observability)
+}
 
-	// TLS defaults
+// applyServerDefaults applies default values for server configuration.
+func applyServerDefaults(cfg *ServerConfig) {
+	if cfg.Addr == "" {
+		cfg.Addr = DefaultServerAddr
+	}
+	if cfg.AdminAddr == "" {
+		cfg.AdminAddr = DefaultAdminAddr
+	}
+	if cfg.ShutdownTimeout == nil {
+		cfg.ShutdownTimeout = durationPtr(DefaultShutdownTimeout)
+	}
+	applyTLSDefaults(&cfg.TLS)
+}
+
+// applyTLSDefaults applies default values for TLS configuration.
+func applyTLSDefaults(cfg *TLSConfig) {
 	// Enabled: nil means not set, so apply default (true for security)
-	if cfg.Server.TLS.Enabled == nil {
+	if cfg.Enabled == nil {
 		tlsEnabled := DefaultTLSEnabled
-		cfg.Server.TLS.Enabled = &tlsEnabled
+		cfg.Enabled = &tlsEnabled
 	}
-	if cfg.Server.TLS.CertFile == "" {
-		cfg.Server.TLS.CertFile = DefaultCertFile
+	if cfg.CertFile == "" {
+		cfg.CertFile = DefaultCertFile
 	}
-	if cfg.Server.TLS.KeyFile == "" {
-		cfg.Server.TLS.KeyFile = DefaultKeyFile
+	if cfg.KeyFile == "" {
+		cfg.KeyFile = DefaultKeyFile
 	}
-	if cfg.Server.TLS.CAFile == "" {
-		cfg.Server.TLS.CAFile = DefaultCAFile
+	if cfg.CAFile == "" {
+		cfg.CAFile = DefaultCAFile
 	}
 	// AutoRotate: nil means not set, so apply default (true)
-	if cfg.Server.TLS.AutoRotate == nil {
+	if cfg.AutoRotate == nil {
 		autoRotate := DefaultAutoRotate
-		cfg.Server.TLS.AutoRotate = &autoRotate
+		cfg.AutoRotate = &autoRotate
 	}
+}
 
-	// Upstream defaults
-	if cfg.Upstream.HeaderPrefix == "" {
-		cfg.Upstream.HeaderPrefix = DefaultHeaderPrefix
+// applyUpstreamDefaults applies default values for upstream configuration.
+func applyUpstreamDefaults(cfg *UpstreamConfig) {
+	if cfg.HeaderPrefix == "" {
+		cfg.HeaderPrefix = DefaultHeaderPrefix
 	}
-	if cfg.Upstream.TraceHeader == "" {
-		cfg.Upstream.TraceHeader = DefaultTraceHeader
+	if cfg.TraceHeader == "" {
+		cfg.TraceHeader = DefaultTraceHeader
 	}
+	applyTimeoutDefaults(&cfg.Timeouts)
+}
 
-	// Timeout defaults
-	if cfg.Upstream.Timeouts.Connect == 0 {
-		cfg.Upstream.Timeouts.Connect = DefaultConnectTimeout
+// applyTimeoutDefaults applies default values for timeout configuration.
+// Only fills nil pointers — explicitly set values (including zero) are preserved
+// and validated later.
+func applyTimeoutDefaults(cfg *TimeoutConfig) {
+	if cfg.Connect == nil {
+		cfg.Connect = durationPtr(DefaultConnectTimeout)
 	}
-	if cfg.Upstream.Timeouts.Read == 0 {
-		cfg.Upstream.Timeouts.Read = DefaultReadTimeout
+	if cfg.Read == nil {
+		cfg.Read = durationPtr(DefaultReadTimeout)
 	}
-	if cfg.Upstream.Timeouts.Write == 0 {
-		cfg.Upstream.Timeouts.Write = DefaultWriteTimeout
+	if cfg.Write == nil {
+		cfg.Write = durationPtr(DefaultWriteTimeout)
 	}
-	if cfg.Upstream.Timeouts.Idle == 0 {
-		cfg.Upstream.Timeouts.Idle = DefaultIdleTimeout
+	if cfg.Idle == nil {
+		cfg.Idle = durationPtr(DefaultIdleTimeout)
 	}
+	if cfg.KeepAlive == nil {
+		cfg.KeepAlive = durationPtr(DefaultKeepAlive)
+	}
+	if cfg.Plugin == nil {
+		cfg.Plugin = durationPtr(DefaultPluginTimeout)
+	}
+}
 
-	// Observability defaults
-	if cfg.Observability.LogLevel == "" {
-		cfg.Observability.LogLevel = DefaultLogLevel
+// applyObservabilityDefaults applies default values for observability configuration.
+func applyObservabilityDefaults(cfg *ObservabilityConfig) {
+	if cfg.LogLevel == "" {
+		cfg.LogLevel = DefaultLogLevel
 	}
 	// EnableProfiling defaults to false (secure default), which is Go zero value
 
@@ -157,8 +184,8 @@ func applyDefaults(cfg *Config) {
 	// defaults. This prevents silent credential leaks when a Distributor adds
 	// custom headers without realizing the defaults would be dropped.
 	// Per Design Spec Section 5.3: the default list is a "strict Redact List".
-	cfg.Observability.SensitiveHeaders = MergeSensitiveHeaders(
-		cfg.Observability.SensitiveHeaders,
+	cfg.SensitiveHeaders = MergeSensitiveHeaders(
+		cfg.SensitiveHeaders,
 	)
 }
 
@@ -187,6 +214,13 @@ func applyServerEnvOverrides(cfg *Config) error {
 	}
 	if v := getEnv("SERVER_ADMIN_ADDR"); v != "" {
 		cfg.Server.AdminAddr = v
+	}
+	if v := getEnv("SERVER_SHUTDOWN_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid %s_%s value %q: %w", EnvPrefix, "SERVER_SHUTDOWN_TIMEOUT", v, err)
+		}
+		cfg.Server.ShutdownTimeout = &d
 	}
 	return applyTLSEnvOverrides(cfg)
 }
@@ -232,34 +266,36 @@ func applyUpstreamEnvOverrides(cfg *Config) error {
 
 // applyTimeoutEnvOverrides applies timeout-related environment variable overrides.
 func applyTimeoutEnvOverrides(cfg *Config) error {
-	if v := getEnv("UPSTREAM_TIMEOUTS_CONNECT"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("invalid %s_%s value %q: %w", EnvPrefix, "UPSTREAM_TIMEOUTS_CONNECT", v, err)
-		}
-		cfg.Upstream.Timeouts.Connect = d
+	overrides := []struct {
+		envKey string
+		target **time.Duration
+	}{
+		{"UPSTREAM_TIMEOUTS_CONNECT", &cfg.Upstream.Timeouts.Connect},
+		{"UPSTREAM_TIMEOUTS_READ", &cfg.Upstream.Timeouts.Read},
+		{"UPSTREAM_TIMEOUTS_WRITE", &cfg.Upstream.Timeouts.Write},
+		{"UPSTREAM_TIMEOUTS_IDLE", &cfg.Upstream.Timeouts.Idle},
+		{"UPSTREAM_TIMEOUTS_KEEP_ALIVE", &cfg.Upstream.Timeouts.KeepAlive},
+		{"UPSTREAM_TIMEOUTS_PLUGIN", &cfg.Upstream.Timeouts.Plugin},
 	}
-	if v := getEnv("UPSTREAM_TIMEOUTS_READ"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("invalid %s_%s value %q: %w", EnvPrefix, "UPSTREAM_TIMEOUTS_READ", v, err)
+	for _, o := range overrides {
+		if err := applyDurationEnvOverride(o.envKey, o.target); err != nil {
+			return err
 		}
-		cfg.Upstream.Timeouts.Read = d
 	}
-	if v := getEnv("UPSTREAM_TIMEOUTS_WRITE"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("invalid %s_%s value %q: %w", EnvPrefix, "UPSTREAM_TIMEOUTS_WRITE", v, err)
-		}
-		cfg.Upstream.Timeouts.Write = d
+	return nil
+}
+
+// applyDurationEnvOverride reads a single duration env var and writes it to target.
+func applyDurationEnvOverride(envKey string, target **time.Duration) error {
+	v := getEnv(envKey)
+	if v == "" {
+		return nil
 	}
-	if v := getEnv("UPSTREAM_TIMEOUTS_IDLE"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("invalid %s_%s value %q: %w", EnvPrefix, "UPSTREAM_TIMEOUTS_IDLE", v, err)
-		}
-		cfg.Upstream.Timeouts.Idle = d
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return fmt.Errorf("invalid %s_%s value %q: %w", EnvPrefix, envKey, v, err)
 	}
+	*target = &d
 	return nil
 }
 

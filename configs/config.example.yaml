@@ -21,6 +21,11 @@ server:
   # Env: CHAPERONE_SERVER_ADMIN_ADDR
   admin_addr: ":9090"
 
+  # Maximum time to drain in-flight requests during graceful shutdown.
+  # Default: 30s
+  # Env: CHAPERONE_SERVER_SHUTDOWN_TIMEOUT
+  shutdown_timeout: 30s
+
   tls:
     # Enable TLS/mTLS (mutual TLS)
     # Default: true
@@ -95,6 +100,19 @@ upstream:
     # Default: 120s
     # Env: CHAPERONE_UPSTREAM_TIMEOUTS_IDLE
     idle: 120s
+
+    # Interval between TCP keep-alive probes on idle upstream connections.
+    # Detects dead peers before the idle timeout fires.
+    # Default: 30s
+    # Env: CHAPERONE_UPSTREAM_TIMEOUTS_KEEP_ALIVE
+    keep_alive: 30s
+
+    # Maximum time for a plugin to return credentials.
+    # If a plugin (e.g., Vault lookup, OAuth token exchange) takes longer
+    # than this, the request fails with 504 Gateway Timeout.
+    # Default: 10s
+    # Env: CHAPERONE_UPSTREAM_TIMEOUTS_PLUGIN
+    plugin: 10s
 
 observability:
   # Logging level
