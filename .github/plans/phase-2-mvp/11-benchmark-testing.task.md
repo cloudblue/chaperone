@@ -1,6 +1,6 @@
 # Task: Benchmark Testing
 
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 **Priority:** P1
 **Estimated Effort:** M
 
@@ -15,21 +15,21 @@ Implement comprehensive Go benchmarks for all hot-path components to establish p
 
 ## Dependencies
 
-- [ ] `09-profiling.task.md` - pprof integration enables deeper analysis
-- [ ] Phase 1 completed (components to benchmark exist)
+- [x] `09-profiling.task.md` - pprof integration enables deeper analysis
+- [x] Phase 1 completed (components to benchmark exist)
 
 ## Acceptance Criteria
 
-- [ ] Benchmark files exist for all hot-path components
-- [ ] All benchmarks use `b.ReportAllocs()`
-- [ ] Parallel benchmarks use `b.RunParallel()`
-- [ ] TLS handshake benchmarks included
-- [ ] Benchmark baseline saved to repository
-- [ ] Makefile targets: `bench`, `bench-save`, `bench-compare`
-- [ ] CI workflow compares benchmarks on PR
-- [ ] Target metrics documented and verified
-- [ ] Tests pass: `go test ./...`
-- [ ] Lint passes: `make lint`
+- [x] Benchmark files exist for all hot-path components (9 files)
+- [x] All benchmarks use `b.ReportAllocs()`
+- [x] Parallel benchmarks use `b.RunParallel()` with `runtime.KeepAlive()` for race-safe sinks
+- [x] TLS handshake benchmarks included (with and without keep-alives, plus cert verification)
+- [x] Benchmark baseline saved to repository (`benchmark-baseline.txt`, 60 KB)
+- [x] Makefile targets: `bench`, `bench-save`, `bench-compare`, `bench-short`, `bench-profile`
+- [x] CI workflow compares benchmarks on PR (advisory only, posts benchstat to step summary)
+- [x] Target metrics documented and verified
+- [x] Tests pass: `go test ./...`
+- [x] Lint passes: `make lint`
 
 ## Hot Path Components to Benchmark
 
@@ -40,9 +40,9 @@ These are the critical per-request operations that directly impact latency:
 | **Context Parsing** | Runs on every request, extracts headers | < 1μs, 0 allocs | `internal/context/parser.go` |
 | **Context Hashing** | Cache key generation | < 5μs, minimal allocs | `internal/cache/hash.go` |
 | **Allow-List Matching** | Glob pattern validation | < 10μs per pattern | `internal/router/allowlist.go` |
-| **Credential Injection** | Header manipulation | < 1μs, 0 allocs | `internal/proxy/inject.go` |
+| **Credential Injection** | Header manipulation | < 1μs, 0 allocs | `internal/proxy/server.go` (injectCredentials) |
 | **Response Sanitization** | Header stripping (Reflector) | < 1μs, 0 allocs | `internal/security/reflector.go` |
-
+| **Path Traversal Check** | Security validation per request | < 1μs, 0 allocs | `internal/router/allowlist.go` (checkPathTraversal) |
 | **RedactingHandler (slog)** | slog wrapper overhead vs plain JSONHandler | < 5% overhead, 0 extra allocs (no-header path) | `internal/observability/logger.go` |
 | **Full Request Cycle** | End-to-end with mock upstream | < 100μs overhead | `internal/proxy/` |
 
@@ -395,19 +395,22 @@ jobs:
 
 ### Benchmark Files (Create)
 
-- [ ] `internal/context/parser_bench_test.go` - Context parsing benchmarks
-- [ ] `internal/cache/hash_bench_test.go` - Hash function benchmarks
-- [ ] `internal/router/allowlist_bench_test.go` - Glob matching benchmarks
-- [ ] `internal/proxy/middleware_bench_test.go` - Middleware chain benchmarks
-- [ ] `internal/proxy/tls_bench_test.go` - TLS handshake benchmarks
-- [ ] `internal/sanitizer/redactor_bench_test.go` - Log redaction benchmarks
-- [ ] `test/benchmark/e2e_bench_test.go` - End-to-end benchmarks
+- [x] `internal/context/parser_bench_test.go` - Context parsing benchmarks
+- [x] `internal/cache/hash_bench_test.go` - Hash function benchmarks
+- [x] `internal/router/glob_bench_test.go` - Glob matching benchmarks
+- [x] `internal/router/allowlist_bench_test.go` - Allow-list + path traversal benchmarks
+- [x] `internal/security/reflector_bench_test.go` - Header stripping benchmarks
+- [x] `internal/observability/logger_bench_test.go` - Log redaction benchmarks
+- [x] `internal/proxy/middleware_bench_test.go` - Middleware chain benchmarks
+- [x] `internal/proxy/tls_bench_test.go` - TLS handshake benchmarks
+- [x] `internal/proxy/e2e_bench_test.go` - End-to-end benchmarks (real proxy.Server)
 
 ### Infrastructure (Create/Modify)
 
-- [ ] `Makefile` - Add bench targets
-- [ ] `.github/workflows/benchmark.yml` - CI workflow
-- [ ] `benchmark-baseline.txt` - Committed baseline (after initial run)
+- [x] `Makefile` - Add bench, bench-save, bench-compare, bench-short, bench-profile targets
+- [x] `.github/workflows/benchmark.yml` - CI workflow (advisory benchstat comparison)
+- [x] `.gitignore` - Add benchmark artifacts (benchmark-current.txt, cpu.prof, mem.prof)
+- [x] `benchmark-baseline.txt` - Committed baseline (60 KB, 579 lines)
 
 ## File Organization
 

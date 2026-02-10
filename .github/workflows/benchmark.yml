@@ -1,0 +1,63 @@
+# Copyright 2026 CloudBlue LLC
+# SPDX-License-Identifier: Apache-2.0
+
+name: Benchmark
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: '1.25.7'
+
+jobs:
+  benchmark:
+    name: Benchmark Comparison
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Run benchmarks on PR
+        run: go test -run='^$' -bench=. -benchmem -count=6 ./... > benchmark-pr.txt
+
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+
+      - name: Run benchmarks on base
+        run: |
+          cd base
+          # Guard: skip comparison if base branch has no benchmarks
+          if go test -list 'Benchmark.*' ./... 2>/dev/null | grep -q 'Benchmark'; then
+            go test -run='^$' -bench=. -benchmem -count=6 ./... > ../benchmark-base.txt
+          else
+            echo "No benchmarks found on base branch. Skipping comparison."
+            echo "SKIP_COMPARE=true" >> $GITHUB_ENV
+          fi
+
+      - name: Compare benchmarks
+        if: env.SKIP_COMPARE != 'true'
+        run: |
+          echo "## Benchmark Comparison" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "benchstat compares base branch vs PR. Look for statistically significant changes (p < 0.05)." >> $GITHUB_STEP_SUMMARY
+          echo "Results marked with \`~\` are not statistically significant." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          benchstat benchmark-base.txt benchmark-pr.txt >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
