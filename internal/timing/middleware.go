@@ -19,8 +19,14 @@ type timingResponseWriter struct {
 }
 
 // WriteHeader injects the Server-Timing header and writes the status code.
-// Guarded against duplicate calls to avoid "superfluous WriteHeader" warnings.
+// 1xx informational responses are forwarded without injecting timing, since
+// httputil.ReverseProxy may send 100 Continue before the final response.
+// Final responses are guarded against duplicate calls.
 func (w *timingResponseWriter) WriteHeader(code int) {
+	if code >= 100 && code <= 199 {
+		w.ResponseWriter.WriteHeader(code)
+		return
+	}
 	if w.headerWritten {
 		return
 	}

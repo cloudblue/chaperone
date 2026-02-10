@@ -227,7 +227,7 @@ func (s *Server) Config() Config {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Register operational endpoints (no allow list validation needed)
+	// Register operational endpoints (no timing, no panic recovery needed)
 	mux.HandleFunc("GET /_ops/health", s.handleHealth)
 	mux.HandleFunc("GET /_ops/version", s.handleVersion)
 
@@ -245,7 +245,7 @@ func (s *Server) Handler() http.Handler {
 	)
 	mux.Handle("/proxy", proxyHandler)
 
-	// Apply global middleware stack (logging, panic recovery)
+	// Apply global middleware stack (logging only)
 	handler := s.withMiddleware(mux)
 
 	return handler
@@ -419,14 +419,17 @@ func (s *Server) logStartup() {
 // withMiddleware wraps the handler with the global middleware stack.
 // See Handler() for complete middleware ordering documentation.
 // AllowListMiddleware is intentionally NOT here — it's per-route (only /proxy).
+//
+// Note: timing.WithTiming and a per-route PanicRecovery are applied to /proxy
+// in Handler() — they are NOT applied here. The global PanicRecovery below
+// protects /_ops endpoints and acts as a safety net for /proxy.
 func (s *Server) withMiddleware(handler http.Handler) http.Handler {
 	// Apply middleware: outermost runs first.
 	// Order: TraceID -> RequestLogger -> Metrics -> PanicRecovery -> handler
 	//
 	// Note: timing.WithTiming and a per-route PanicRecovery are applied to /proxy
 	// in Handler() — they are NOT applied here. The global PanicRecovery below
-	// protects /_ops endpoints and acts as a safety net for /proxy.
-	handler = PanicRecoveryMiddleware(handler)
+	// protects /_ops endpoints and acts as a safety net for /proxy.	handler = PanicRecoveryMiddleware(handler)
 	handler = telemetry.MetricsMiddleware(s.config.HeaderPrefix, handler)
 	handler = observability.RequestLoggerMiddleware(slog.Default(), s.config.HeaderPrefix+"-Vendor-ID", handler)
 	handler = observability.TraceIDMiddleware(s.config.TraceHeader, handler)
