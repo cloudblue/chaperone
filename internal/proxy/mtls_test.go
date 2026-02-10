@@ -16,6 +16,37 @@ import (
 	"github.com/cloudblue/chaperone/pkg/crypto"
 )
 
+// mtlsTestConfig returns a valid Config for mTLS tests (internal package).
+// This mirrors the testConfig() in the proxy_test package but is accessible
+// from internal (white-box) tests.
+func mtlsTestConfig() Config {
+	return Config{
+		Addr:             ":0",
+		Version:          "test",
+		HeaderPrefix:     "X-Connect",
+		TraceHeader:      "Connect-Request-ID",
+		TLS:              &TLSConfig{Enabled: false},
+		ReadTimeout:      5 * time.Second,
+		WriteTimeout:     30 * time.Second,
+		IdleTimeout:      120 * time.Second,
+		KeepAliveTimeout: 30 * time.Second,
+		PluginTimeout:    10 * time.Second,
+		ConnectTimeout:   5 * time.Second,
+		ShutdownTimeout:  30 * time.Second,
+	}
+}
+
+// mustNewTestServer creates a Server from the given config for internal tests,
+// failing the test immediately if the config is invalid.
+func mustNewTestServer(t *testing.T, cfg Config) *Server {
+	t.Helper()
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer failed with valid config: %v", err)
+	}
+	return srv
+}
+
 // TestMTLS_ValidClientCert_Success verifies that a client with a valid
 // certificate signed by the trusted CA can successfully connect.
 func TestMTLS_ValidClientCert_Success(t *testing.T) {
@@ -25,7 +56,7 @@ func TestMTLS_ValidClientCert_Success(t *testing.T) {
 	}
 
 	// Create server with mTLS
-	srv := NewServer(Config{Addr: ":0"})
+	srv := mustNewTestServer(t, mtlsTestConfig())
 	server := httptest.NewUnstartedServer(srv.Handler())
 	server.TLS = createServerTLSConfig(t, bundle)
 	server.StartTLS()
@@ -63,7 +94,7 @@ func TestMTLS_NoClientCert_Rejected(t *testing.T) {
 	}
 
 	// Create server with mTLS
-	srv := NewServer(Config{Addr: ":0"})
+	srv := mustNewTestServer(t, mtlsTestConfig())
 	server := httptest.NewUnstartedServer(srv.Handler())
 	server.TLS = createServerTLSConfig(t, bundle)
 	server.StartTLS()
@@ -107,7 +138,7 @@ func TestMTLS_WrongCA_Rejected(t *testing.T) {
 	}
 
 	// Create server with mTLS (trusts only serverBundle.CA)
-	srv := NewServer(Config{Addr: ":0"})
+	srv := mustNewTestServer(t, mtlsTestConfig())
 	server := httptest.NewUnstartedServer(srv.Handler())
 	server.TLS = createServerTLSConfig(t, serverBundle)
 	server.StartTLS()
@@ -134,7 +165,7 @@ func TestMTLS_ExpiredCert_Rejected(t *testing.T) {
 		t.Fatalf("failed to generate expired cert: %v", err)
 	}
 	// Create server with mTLS
-	srv := NewServer(Config{Addr: ":0"})
+	srv := mustNewTestServer(t, mtlsTestConfig())
 	server := httptest.NewUnstartedServer(srv.Handler())
 	server.TLS = createServerTLSConfig(t, bundle)
 	server.StartTLS()
@@ -156,7 +187,7 @@ func TestMTLS_TLS12Client_Rejected(t *testing.T) {
 	}
 
 	// Create server with mTLS (requires TLS 1.3)
-	srv := NewServer(Config{Addr: ":0"})
+	srv := mustNewTestServer(t, mtlsTestConfig())
 	server := httptest.NewUnstartedServer(srv.Handler())
 	server.TLS = createServerTLSConfig(t, bundle)
 	server.StartTLS()
@@ -202,7 +233,7 @@ func TestMTLS_SelfSignedCert_Rejected(t *testing.T) {
 	}
 
 	// Create server with mTLS
-	srv := NewServer(Config{Addr: ":0"})
+	srv := mustNewTestServer(t, mtlsTestConfig())
 	server := httptest.NewUnstartedServer(srv.Handler())
 	server.TLS = createServerTLSConfig(t, bundle)
 	server.StartTLS()

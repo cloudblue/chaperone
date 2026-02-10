@@ -8,13 +8,16 @@ package proxy
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudblue/chaperone/internal/config"
@@ -25,31 +28,11 @@ import (
 	"github.com/cloudblue/chaperone/sdk"
 )
 
-// Default timeout values for resilience.
-const (
-	DefaultReadTimeout   = 5 * time.Second
-	DefaultWriteTimeout  = 30 * time.Second
-	DefaultIdleTimeout   = 120 * time.Second
-	DefaultPluginTimeout = 10 * time.Second
-)
-
-// DefaultMTLSEnabled controls whether mTLS is enabled by default.
-// Set to false for development/testing (basic Mode B).
-// In production (Mode A), this should always be true.
-const DefaultMTLSEnabled = true
-
-// Default certificate file paths (per Design Spec Section 5.5).
-const (
-	DefaultCertFile = "/certs/server.crt"
-	DefaultKeyFile  = "/certs/server.key"
-	DefaultCAFile   = "/certs/ca.crt"
-)
-
 // TLSConfig holds the TLS/mTLS configuration for the server.
 // When Enabled is true, the server enforces mTLS (Mode A) with TLS 1.3 minimum.
 // When Enabled is false, the server runs plain HTTP (basic Mode B for testing).
 type TLSConfig struct {
-	// Enabled controls whether mTLS is active. Defaults to DefaultMTLSEnabled.
+	// Enabled controls whether mTLS is active.
 	Enabled bool
 
 	// CertFile is the path to the server certificate PEM file.
@@ -94,63 +77,39 @@ type Config struct {
 	SensitiveHeaders []string
 
 	// Timeouts
-	ReadTimeout   time.Duration
-	WriteTimeout  time.Duration
-	IdleTimeout   time.Duration
-	PluginTimeout time.Duration
+	ReadTimeout      time.Duration
+	WriteTimeout     time.Duration
+	IdleTimeout      time.Duration
+	KeepAliveTimeout time.Duration
+	PluginTimeout    time.Duration
+	ConnectTimeout   time.Duration
+	ShutdownTimeout  time.Duration
 }
 
 // Server is the main proxy server.
 type Server struct {
 	config    Config
 	reflector *security.Reflector
+	httpSrv   *http.Server
+	transport *http.Transport
+
+	// started guards against calling Start() more than once, which would
+	// panic on double-close of the ready channel.
+	started atomic.Bool
+
+	// ready is closed when the server is listening and ready to accept connections.
+	ready chan struct{}
 }
 
 // NewServer creates a new proxy server with the given configuration.
-// Default values are applied for any unset configuration options.
-func NewServer(cfg Config) *Server {
-	// Apply defaults for timeouts
-	if cfg.ReadTimeout == 0 {
-		cfg.ReadTimeout = DefaultReadTimeout
-	}
-	if cfg.WriteTimeout == 0 {
-		cfg.WriteTimeout = DefaultWriteTimeout
-	}
-	if cfg.IdleTimeout == 0 {
-		cfg.IdleTimeout = DefaultIdleTimeout
-	}
-	if cfg.PluginTimeout == 0 {
-		cfg.PluginTimeout = DefaultPluginTimeout
-	}
-	if cfg.HeaderPrefix == "" {
-		cfg.HeaderPrefix = config.DefaultHeaderPrefix
-	}
-	if cfg.TraceHeader == "" {
-		cfg.TraceHeader = config.DefaultTraceHeader
-	}
-	if cfg.Version == "" {
-		cfg.Version = "dev"
-	}
-
-	// Apply TLS defaults
-	if cfg.TLS == nil {
-		cfg.TLS = &TLSConfig{
-			Enabled:  DefaultMTLSEnabled,
-			CertFile: DefaultCertFile,
-			KeyFile:  DefaultKeyFile,
-			CAFile:   DefaultCAFile,
-		}
-	} else {
-		// Apply defaults for any unset TLS fields
-		if cfg.TLS.CertFile == "" {
-			cfg.TLS.CertFile = DefaultCertFile
-		}
-		if cfg.TLS.KeyFile == "" {
-			cfg.TLS.KeyFile = DefaultKeyFile
-		}
-		if cfg.TLS.CAFile == "" {
-			cfg.TLS.CAFile = DefaultCAFile
-		}
+// All required fields must be explicitly set; NewServer does not apply defaults.
+// Returns an error if any required field is missing or invalid.
+//
+// Required fields: Addr, Version, HeaderPrefix, TraceHeader, TLS (non-nil),
+// and all timeout values (must be > 0).
+func NewServer(cfg Config) (*Server, error) {
+	if err := validateProxyConfig(&cfg); err != nil {
+		return nil, fmt.Errorf("invalid proxy config: %w", err)
 	}
 
 	// Security: Merge user-provided sensitive headers with mandatory defaults.
@@ -158,10 +117,76 @@ func NewServer(cfg Config) *Server {
 	// in tests — always ensure defaults are present.
 	sensitiveHeaders := config.MergeSensitiveHeaders(cfg.SensitiveHeaders)
 
+	// Clone http.DefaultTransport to inherit its production-ready defaults
+	// (TLSHandshakeTimeout, KeepAlive, ForceAttemptHTTP2, MaxIdleConns, etc.)
+	// and override only the fields we need to make configurable.
+	dt, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, errors.New("http.DefaultTransport is not *http.Transport")
+	}
+	t := dt.Clone()
+	t.DialContext = (&net.Dialer{
+		Timeout:   cfg.ConnectTimeout,
+		KeepAlive: cfg.KeepAliveTimeout,
+	}).DialContext
+	t.ResponseHeaderTimeout = cfg.ReadTimeout
+	t.IdleConnTimeout = cfg.IdleTimeout
+
 	return &Server{
 		config:    cfg,
 		reflector: security.NewReflector(sensitiveHeaders),
+		transport: t,
+		ready:     make(chan struct{}),
+	}, nil
+}
+
+// validateProxyConfig validates that all required proxy configuration fields
+// are set. This is defense-in-depth: the config loader validates too, but
+// NewServer may be called directly by tests or Distributor code.
+func validateProxyConfig(cfg *Config) error {
+	var errs []error
+
+	if cfg.Addr == "" {
+		errs = append(errs, errors.New("addr is required"))
 	}
+	if cfg.Version == "" {
+		errs = append(errs, errors.New("version is required"))
+	}
+	if cfg.HeaderPrefix == "" {
+		errs = append(errs, errors.New("header prefix is required"))
+	}
+	if cfg.TraceHeader == "" {
+		errs = append(errs, errors.New("trace header is required"))
+	}
+	if cfg.TLS == nil {
+		errs = append(errs, errors.New("TLS config is required (use &TLSConfig{Enabled: false} to disable)"))
+	}
+	if cfg.ReadTimeout <= 0 {
+		errs = append(errs, errors.New("read timeout must be positive"))
+	}
+	if cfg.WriteTimeout <= 0 {
+		errs = append(errs, errors.New("write timeout must be positive"))
+	}
+	if cfg.IdleTimeout <= 0 {
+		errs = append(errs, errors.New("idle timeout must be positive"))
+	}
+	if cfg.PluginTimeout <= 0 {
+		errs = append(errs, errors.New("plugin timeout must be positive"))
+	}
+	if cfg.ConnectTimeout <= 0 {
+		errs = append(errs, errors.New("connect timeout must be positive"))
+	}
+	if cfg.KeepAliveTimeout <= 0 {
+		errs = append(errs, errors.New("keep-alive timeout must be positive"))
+	}
+	if cfg.ShutdownTimeout <= 0 {
+		errs = append(errs, errors.New("shutdown timeout must be positive"))
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
 }
 
 // Config returns the server's current configuration.
@@ -207,8 +232,18 @@ func (s *Server) Handler() http.Handler {
 // Start starts the HTTP server and blocks until it's shut down.
 // If TLS is enabled (Mode A), the server starts with mTLS requiring client certificates.
 // If TLS is disabled (basic Mode B), the server starts as plain HTTP.
+//
+// Start supports graceful shutdown via Shutdown(). It signals readiness via
+// WaitForReady() once the server is listening. Returns nil if stopped cleanly
+// via Shutdown (http.ErrServerClosed is suppressed).
+//
+// The actual listening address is available via Addr() after WaitForReady returns.
+// Start must only be called once; subsequent calls return an error.
 func (s *Server) Start() error {
-	srv := &http.Server{
+	if !s.started.CompareAndSwap(false, true) {
+		return errors.New("server already started")
+	}
+	s.httpSrv = &http.Server{
 		Addr:         s.config.Addr,
 		Handler:      s.Handler(),
 		ReadTimeout:  s.config.ReadTimeout,
@@ -216,76 +251,147 @@ func (s *Server) Start() error {
 		IdleTimeout:  s.config.IdleTimeout,
 	}
 
+	// Load TLS configuration if mTLS is enabled (Mode A)
 	if s.config.TLS.Enabled {
-		return s.startTLS(srv)
+		tlsConfig, err := s.loadTLSConfig()
+		if err != nil {
+			return err
+		}
+		s.httpSrv.TLSConfig = tlsConfig
 	}
 
-	return s.startHTTP(srv)
+	s.logStartup()
+
+	// Create listener
+	lc := net.ListenConfig{}
+	ln, err := lc.Listen(context.Background(), "tcp", s.httpSrv.Addr)
+	if err != nil {
+		return fmt.Errorf("listening on %s: %w", s.httpSrv.Addr, err)
+	}
+
+	// When TLS is enabled, wrap the listener with TLS
+	if s.config.TLS.Enabled {
+		ln = tls.NewListener(ln, s.httpSrv.TLSConfig)
+	}
+
+	// Update Addr with the actual address (useful when :0 is used)
+	s.httpSrv.Addr = ln.Addr().String()
+
+	// Signal readiness
+	close(s.ready)
+
+	slog.Info("server listening", "addr", s.httpSrv.Addr)
+
+	err = s.httpSrv.Serve(ln)
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
 }
 
-// startHTTP starts the server in plain HTTP mode (basic Mode B).
-func (s *Server) startHTTP(srv *http.Server) error {
-	slog.Warn("starting proxy server in HTTP mode (no mTLS) - FOR DEVELOPMENT ONLY",
-		"addr", s.config.Addr,
-		"mode", "B (basic)",
-	)
-
-	slog.Info("server configuration",
-		"read_timeout", s.config.ReadTimeout,
-		"write_timeout", s.config.WriteTimeout,
-		"idle_timeout", s.config.IdleTimeout,
-		"plugin_timeout", s.config.PluginTimeout,
-	)
-
-	return srv.ListenAndServe()
+// Addr returns the address the server is listening on.
+// Only valid after WaitForReady() returns true.
+func (s *Server) Addr() string {
+	if s.httpSrv != nil {
+		return s.httpSrv.Addr
+	}
+	return s.config.Addr
 }
 
-// startTLS starts the server with mTLS enabled (Mode A).
-func (s *Server) startTLS(srv *http.Server) error {
+// Shutdown gracefully shuts down the server, allowing in-flight requests
+// to complete within the given context's deadline.
+//
+// It waits for the server to become ready before draining, so it is safe
+// to call concurrently with Start(). If the context expires first,
+// Shutdown returns without draining.
+func (s *Server) Shutdown(ctx context.Context) {
+	select {
+	case <-s.ready:
+		// Server is listening, proceed with shutdown.
+	case <-ctx.Done():
+		slog.Warn("shutdown context expired before server was ready",
+			"error", ctx.Err(),
+		)
+		return
+	}
+
+	slog.Info("shutdown initiated, draining connections...")
+
+	if err := s.httpSrv.Shutdown(ctx); err != nil {
+		slog.Error("shutdown error, forcing close", "error", err)
+		_ = s.httpSrv.Close()
+	}
+
+	slog.Info("shutdown complete")
+}
+
+// WaitForReady blocks until the server is ready to accept connections
+// or the timeout is reached. Returns true if ready, false if timed out.
+func (s *Server) WaitForReady(timeout time.Duration) bool {
+	select {
+	case <-s.ready:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+// loadTLSConfig reads certificate files and creates a TLS configuration for mTLS.
+func (s *Server) loadTLSConfig() (*tls.Config, error) {
 	tlsCfg := s.config.TLS
 
-	// Load certificates from files
 	caCert, err := os.ReadFile(tlsCfg.CAFile)
 	if err != nil {
-		return fmt.Errorf("reading CA certificate %s: %w", tlsCfg.CAFile, err)
+		return nil, fmt.Errorf("reading CA certificate %s: %w", tlsCfg.CAFile, err)
 	}
 
 	serverCert, err := os.ReadFile(tlsCfg.CertFile)
 	if err != nil {
-		return fmt.Errorf("reading server certificate %s: %w", tlsCfg.CertFile, err)
+		return nil, fmt.Errorf("reading server certificate %s: %w", tlsCfg.CertFile, err)
 	}
 
 	serverKey, err := os.ReadFile(tlsCfg.KeyFile)
 	if err != nil {
-		return fmt.Errorf("reading server key %s: %w", tlsCfg.KeyFile, err)
+		return nil, fmt.Errorf("reading server key %s: %w", tlsCfg.KeyFile, err)
 	}
 
-	// Create TLS config with mTLS
 	tlsConfig, err := NewTLSConfig(caCert, serverCert, serverKey)
 	if err != nil {
-		return fmt.Errorf("creating TLS config: %w", err)
+		return nil, fmt.Errorf("creating TLS config: %w", err)
 	}
 
-	srv.TLSConfig = tlsConfig
+	return tlsConfig, nil
+}
 
-	slog.Info("starting proxy server with mTLS (Mode A)",
-		"addr", s.config.Addr,
-		"mode", "A (mTLS)",
-		"tls_min_version", "1.3",
-		"client_auth", "RequireAndVerifyClientCert",
-	)
-
-	slog.Info("server configuration",
-		"read_timeout", s.config.ReadTimeout,
-		"write_timeout", s.config.WriteTimeout,
-		"idle_timeout", s.config.IdleTimeout,
-		"plugin_timeout", s.config.PluginTimeout,
-		"cert_file", tlsCfg.CertFile,
-		"ca_file", tlsCfg.CAFile,
-	)
-
-	// Use empty strings for cert/key files since they're already loaded into TLSConfig
-	return srv.ListenAndServeTLS("", "")
+// logStartup logs the server startup configuration.
+func (s *Server) logStartup() {
+	if s.config.TLS.Enabled {
+		slog.Info("starting proxy server with mTLS (Mode A)",
+			"addr", s.config.Addr,
+			"mode", "A (mTLS)",
+			"tls_min_version", "1.3",
+			"client_auth", "RequireAndVerifyClientCert",
+		)
+		slog.Info("server configuration",
+			"read_timeout", s.config.ReadTimeout,
+			"write_timeout", s.config.WriteTimeout,
+			"idle_timeout", s.config.IdleTimeout,
+			"plugin_timeout", s.config.PluginTimeout,
+			"cert_file", s.config.TLS.CertFile,
+			"ca_file", s.config.TLS.CAFile,
+		)
+	} else {
+		slog.Warn("starting proxy server in HTTP mode (no mTLS) - FOR DEVELOPMENT ONLY",
+			"addr", s.config.Addr,
+			"mode", "B (basic)",
+		)
+		slog.Info("server configuration",
+			"read_timeout", s.config.ReadTimeout,
+			"write_timeout", s.config.WriteTimeout,
+			"idle_timeout", s.config.IdleTimeout,
+			"plugin_timeout", s.config.PluginTimeout,
+		)
+	}
 }
 
 // withMiddleware wraps the handler with the global middleware stack.
@@ -534,6 +640,9 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, err er
 func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.TransactionContext) *httputil.ReverseProxy {
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
+	// Apply upstream transport with configurable timeouts.
+	proxy.Transport = s.upstreamTransport()
+
 	// Customize the Director to set the correct host and path
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
@@ -541,14 +650,34 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 		req.Host = target.Host
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
-		// Preserve path from target URL (allows proxying to specific endpoints)
 		if target.Path != "" && target.Path != "/" {
 			req.URL.Path = target.Path
 		}
 	}
 
 	// Response modification chain: Plugin → Strip Headers → Error Normalization
-	proxy.ModifyResponse = func(resp *http.Response) error {
+	proxy.ModifyResponse = s.buildModifyResponse(traceID, txCtx) //nolint:bodyclose // resp.Body is managed by httputil.ReverseProxy
+
+	// Handle proxy errors
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		slog.Error("proxy error", "trace_id", traceID, "error", err)
+		http.Error(w, "Bad Gateway", http.StatusBadGateway)
+	}
+
+	return proxy
+}
+
+// upstreamTransport returns the shared HTTP transport with configurable
+// connect, read, and idle timeouts. Created once in NewServer and reused
+// across requests so all connections share a single pool.
+func (s *Server) upstreamTransport() http.RoundTripper {
+	return s.transport
+}
+
+// buildModifyResponse creates the response modification closure that runs
+// the plugin → strip headers → error normalization chain.
+func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionContext) func(*http.Response) error {
+	return func(resp *http.Response) error {
 		var action *sdk.ResponseAction
 
 		// Step 1: Plugin's ModifyResponse runs FIRST (allows Distributor customization)
@@ -598,17 +727,6 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 
 		return nil
 	}
-
-	// Handle proxy errors
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		slog.Error("proxy error",
-			"trace_id", traceID,
-			"error", err,
-		)
-		http.Error(w, "Bad Gateway", http.StatusBadGateway)
-	}
-
-	return proxy
 }
 
 // generateTraceID generates a unique trace ID for request tracking.

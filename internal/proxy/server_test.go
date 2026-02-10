@@ -20,10 +20,7 @@ import (
 
 func TestHealth_ReturnsAlive(t *testing.T) {
 	// Arrange
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		AllowList: testAllowList(),
-	})
+	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/_ops/health", nil)
@@ -49,11 +46,9 @@ func TestHealth_ReturnsAlive(t *testing.T) {
 
 func TestVersion_ReturnsVersionInfo(t *testing.T) {
 	// Arrange
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		Version:   "1.0.0",
-		AllowList: testAllowList(),
-	})
+	cfg := testConfig()
+	cfg.Version = "1.0.0"
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/_ops/version", nil)
@@ -79,10 +74,7 @@ func TestVersion_ReturnsVersionInfo(t *testing.T) {
 
 func TestProxy_MissingTargetURL_Returns400(t *testing.T) {
 	// Arrange
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		AllowList: testAllowList(),
-	})
+	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -112,67 +104,33 @@ func TestPanicRecovery_CatchesPanic_Returns500(t *testing.T) {
 	// Act - should not panic
 	handler.ServeHTTP(rec, req)
 
-	// Assert
+	// Assert - status 500
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
-}
 
-func TestServer_ConfigDefaults(t *testing.T) {
-	// Arrange & Act
-	srv := proxy.NewServer(proxy.Config{
-		Addr: ":8080",
-	})
-
-	// Assert - verify defaults are applied
-	config := srv.Config()
-
-	if config.ReadTimeout == 0 {
-		t.Error("ReadTimeout should have a default value")
-	}
-	if config.WriteTimeout == 0 {
-		t.Error("WriteTimeout should have a default value")
-	}
-	if config.IdleTimeout == 0 {
-		t.Error("IdleTimeout should have a default value")
-	}
-	if config.PluginTimeout == 0 {
-		t.Error("PluginTimeout should have a default value")
-	}
-}
-
-func TestServer_ConfigTimeout_DefaultValues(t *testing.T) {
-	// Arrange & Act
-	srv := proxy.NewServer(proxy.Config{
-		Addr: ":8080",
-	})
-	config := srv.Config()
-
-	// Assert - verify safe defaults per Design Spec
-	tests := []struct {
-		name    string
-		got     time.Duration
-		wantMin time.Duration
-		wantMax time.Duration
-	}{
-		{"ReadTimeout", config.ReadTimeout, 1 * time.Second, 30 * time.Second},
-		{"WriteTimeout", config.WriteTimeout, 10 * time.Second, 60 * time.Second},
-		{"IdleTimeout", config.IdleTimeout, 30 * time.Second, 300 * time.Second},
-		{"PluginTimeout", config.PluginTimeout, 5 * time.Second, 30 * time.Second},
+	// Assert - JSON content type
+	contentType := rec.Header().Get("Content-Type")
+	if contentType != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", contentType, "application/json")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.got < tt.wantMin || tt.got > tt.wantMax {
-				t.Errorf("%s = %v, want between %v and %v", tt.name, tt.got, tt.wantMin, tt.wantMax)
-			}
-		})
+	// Assert - JSON body with generic error
+	var body map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode JSON body: %v", err)
+	}
+	if body["error"] != "Internal Server Error" {
+		t.Errorf("error = %q, want %q", body["error"], "Internal Server Error")
+	}
+	if body["status"] != float64(500) {
+		t.Errorf("status = %v, want %v", body["status"], 500)
 	}
 }
 
 func TestHealth_ContentType_JSON(t *testing.T) {
 	// Arrange
-	srv := proxy.NewServer(proxy.Config{Addr: ":0"})
+	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/_ops/health", nil)
@@ -190,7 +148,7 @@ func TestHealth_ContentType_JSON(t *testing.T) {
 
 func TestUnknownRoute_Returns404(t *testing.T) {
 	// Arrange
-	srv := proxy.NewServer(proxy.Config{Addr: ":0", AllowList: testAllowList()})
+	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/unknown/route", nil)
@@ -214,10 +172,7 @@ func TestProxy_TraceID_GeneratedWhenMissing(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		AllowList: testAllowList(),
-	})
+	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -241,10 +196,7 @@ func TestProxy_TraceID_PreservedFromRequest(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		AllowList: testAllowList(),
-	})
+	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -272,10 +224,7 @@ func TestProxy_ResponseSanitizer_StripsAuthHeaders(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		AllowList: testAllowList(),
-	})
+	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -308,10 +257,7 @@ func TestNewServer_NilPlugin_UsesNoopPlugin(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := proxy.NewServer(proxy.Config{
-		Addr:      ":0",
-		AllowList: testAllowList(),
-	})
+	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -337,7 +283,7 @@ func TestProxy_TargetURLWithPath_PreservesPath(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := proxy.NewServer(proxy.Config{Addr: ":0", AllowList: testAllowList()})
+	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
 	// Target URL with a specific path
@@ -387,7 +333,7 @@ func TestProxy_MethodPassthrough_ForwardsOriginalMethod(t *testing.T) {
 			}))
 			defer backend.Close()
 
-			srv := proxy.NewServer(proxy.Config{Addr: ":0", AllowList: testAllowList()})
+			srv := mustNewServer(t, testConfig())
 			handler := srv.Handler()
 
 			req := httptest.NewRequest(tt.method, "/proxy", nil)
@@ -636,23 +582,105 @@ func TestMiddlewareStack_LogsLatency(t *testing.T) {
 }
 
 // =============================================================================
-// TLS Configuration Tests
+// NewServer Validation Tests
 // =============================================================================
 
-func TestNewServer_DefaultTraceHeader(t *testing.T) {
+func TestNewServer_MissingRequiredFields_ReturnsError(t *testing.T) {
 	t.Parallel()
 
-	// Arrange - no TraceHeader provided
-	cfg := proxy.Config{
-		Addr: ":0",
+	tests := []struct {
+		name    string
+		cfg     proxy.Config
+		wantErr string
+	}{
+		{
+			name:    "missing Version",
+			cfg:     func() proxy.Config { c := testConfig(); c.Version = ""; return c }(),
+			wantErr: "version is required",
+		},
+		{
+			name:    "missing HeaderPrefix",
+			cfg:     func() proxy.Config { c := testConfig(); c.HeaderPrefix = ""; return c }(),
+			wantErr: "header prefix is required",
+		},
+		{
+			name:    "missing TraceHeader",
+			cfg:     func() proxy.Config { c := testConfig(); c.TraceHeader = ""; return c }(),
+			wantErr: "trace header is required",
+		},
+		{
+			name:    "nil TLS",
+			cfg:     func() proxy.Config { c := testConfig(); c.TLS = nil; return c }(),
+			wantErr: "TLS config is required",
+		},
+		{
+			name:    "zero ReadTimeout",
+			cfg:     func() proxy.Config { c := testConfig(); c.ReadTimeout = 0; return c }(),
+			wantErr: "read timeout must be positive",
+		},
+		{
+			name:    "zero WriteTimeout",
+			cfg:     func() proxy.Config { c := testConfig(); c.WriteTimeout = 0; return c }(),
+			wantErr: "write timeout must be positive",
+		},
+		{
+			name:    "zero IdleTimeout",
+			cfg:     func() proxy.Config { c := testConfig(); c.IdleTimeout = 0; return c }(),
+			wantErr: "idle timeout must be positive",
+		},
+		{
+			name:    "zero PluginTimeout",
+			cfg:     func() proxy.Config { c := testConfig(); c.PluginTimeout = 0; return c }(),
+			wantErr: "plugin timeout must be positive",
+		},
+		{
+			name:    "zero ConnectTimeout",
+			cfg:     func() proxy.Config { c := testConfig(); c.ConnectTimeout = 0; return c }(),
+			wantErr: "connect timeout must be positive",
+		},
+		{
+			name:    "zero KeepAliveTimeout",
+			cfg:     func() proxy.Config { c := testConfig(); c.KeepAliveTimeout = 0; return c }(),
+			wantErr: "keep-alive timeout must be positive",
+		},
+		{
+			name:    "zero ShutdownTimeout",
+			cfg:     func() proxy.Config { c := testConfig(); c.ShutdownTimeout = 0; return c }(),
+			wantErr: "shutdown timeout must be positive",
+		},
 	}
 
-	// Act
-	server := proxy.NewServer(cfg)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Assert - should default to "Connect-Request-ID"
-	if server.Config().TraceHeader != "Connect-Request-ID" {
-		t.Errorf("TraceHeader = %q, want %q", server.Config().TraceHeader, "Connect-Request-ID")
+			_, err := proxy.NewServer(tt.cfg)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %q, want to contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestNewServer_MultipleErrors_AllReported(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - config with multiple missing fields
+	_, err := proxy.NewServer(proxy.Config{})
+
+	// Assert - should return error with multiple issues
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	errStr := err.Error()
+	for _, want := range []string{"version", "header prefix", "trace header", "TLS"} {
+		if !strings.Contains(errStr, want) {
+			t.Errorf("error should mention %q, got: %s", want, errStr)
+		}
 	}
 }
 
@@ -660,13 +688,11 @@ func TestNewServer_CustomTraceHeader_Preserved(t *testing.T) {
 	t.Parallel()
 
 	// Arrange - custom TraceHeader provided
-	cfg := proxy.Config{
-		Addr:        ":0",
-		TraceHeader: "X-Correlation-ID",
-	}
+	cfg := testConfig()
+	cfg.TraceHeader = "X-Correlation-ID"
 
 	// Act
-	server := proxy.NewServer(cfg)
+	server := mustNewServer(t, cfg)
 
 	// Assert - custom value should be preserved
 	if server.Config().TraceHeader != "X-Correlation-ID" {
@@ -674,53 +700,20 @@ func TestNewServer_CustomTraceHeader_Preserved(t *testing.T) {
 	}
 }
 
-func TestNewServer_DefaultTLSConfig(t *testing.T) {
-	t.Parallel()
-
-	// Arrange - no TLS config provided
-	cfg := proxy.Config{
-		Addr:         ":8443",
-		HeaderPrefix: "X-Connect",
-	}
-
-	// Act
-	server := proxy.NewServer(cfg)
-
-	// Assert - TLS should be enabled with defaults
-	if server.Config().TLS == nil {
-		t.Fatal("TLS config should not be nil")
-	}
-	if !server.Config().TLS.Enabled {
-		t.Error("TLS.Enabled should be true by default")
-	}
-	if server.Config().TLS.CertFile != proxy.DefaultCertFile {
-		t.Errorf("TLS.CertFile = %q, want %q", server.Config().TLS.CertFile, proxy.DefaultCertFile)
-	}
-	if server.Config().TLS.KeyFile != proxy.DefaultKeyFile {
-		t.Errorf("TLS.KeyFile = %q, want %q", server.Config().TLS.KeyFile, proxy.DefaultKeyFile)
-	}
-	if server.Config().TLS.CAFile != proxy.DefaultCAFile {
-		t.Errorf("TLS.CAFile = %q, want %q", server.Config().TLS.CAFile, proxy.DefaultCAFile)
-	}
-}
-
 func TestNewServer_CustomTLSConfig(t *testing.T) {
 	t.Parallel()
 
 	// Arrange - custom TLS config
-	cfg := proxy.Config{
-		Addr:         ":8443",
-		HeaderPrefix: "X-Connect",
-		TLS: &proxy.TLSConfig{
-			Enabled:  false,
-			CertFile: "/custom/cert.pem",
-			KeyFile:  "/custom/key.pem",
-			CAFile:   "/custom/ca.pem",
-		},
+	cfg := testConfig()
+	cfg.TLS = &proxy.TLSConfig{
+		Enabled:  false,
+		CertFile: "/custom/cert.pem",
+		KeyFile:  "/custom/key.pem",
+		CAFile:   "/custom/ca.pem",
 	}
 
 	// Act
-	server := proxy.NewServer(cfg)
+	server := mustNewServer(t, cfg)
 
 	// Assert - custom values should be preserved
 	if server.Config().TLS.Enabled {
@@ -737,34 +730,6 @@ func TestNewServer_CustomTLSConfig(t *testing.T) {
 	}
 }
 
-func TestNewServer_PartialTLSConfig(t *testing.T) {
-	t.Parallel()
-
-	// Arrange - partial TLS config (only Enabled set, paths empty)
-	cfg := proxy.Config{
-		Addr:         ":8443",
-		HeaderPrefix: "X-Connect",
-		TLS: &proxy.TLSConfig{
-			Enabled: true,
-			// Other fields empty - should be filled with defaults
-		},
-	}
-
-	// Act
-	server := proxy.NewServer(cfg)
-
-	// Assert - empty strings should be filled with defaults
-	if server.Config().TLS.CertFile != proxy.DefaultCertFile {
-		t.Errorf("TLS.CertFile = %q, want default %q", server.Config().TLS.CertFile, proxy.DefaultCertFile)
-	}
-	if server.Config().TLS.KeyFile != proxy.DefaultKeyFile {
-		t.Errorf("TLS.KeyFile = %q, want default %q", server.Config().TLS.KeyFile, proxy.DefaultKeyFile)
-	}
-	if server.Config().TLS.CAFile != proxy.DefaultCAFile {
-		t.Errorf("TLS.CAFile = %q, want default %q", server.Config().TLS.CAFile, proxy.DefaultCAFile)
-	}
-}
-
 // =============================================================================
 // Server Start Tests
 // =============================================================================
@@ -773,16 +738,14 @@ func TestServer_StartTLS_MissingCAFile_ReturnsError(t *testing.T) {
 	t.Parallel()
 
 	// Arrange - TLS enabled but CA file doesn't exist
-	cfg := proxy.Config{
-		Addr: ":0",
-		TLS: &proxy.TLSConfig{
-			Enabled:  true,
-			CertFile: "/nonexistent/server.crt",
-			KeyFile:  "/nonexistent/server.key",
-			CAFile:   "/nonexistent/ca.crt",
-		},
+	cfg := testConfig()
+	cfg.TLS = &proxy.TLSConfig{
+		Enabled:  true,
+		CertFile: "/nonexistent/server.crt",
+		KeyFile:  "/nonexistent/server.key",
+		CAFile:   "/nonexistent/ca.crt",
 	}
-	server := proxy.NewServer(cfg)
+	server := mustNewServer(t, cfg)
 
 	// Act
 	err := server.Start()
@@ -806,16 +769,14 @@ func TestServer_StartTLS_MissingCertFile_ReturnsError(t *testing.T) {
 		t.Fatalf("failed to create temp CA file: %v", err)
 	}
 
-	cfg := proxy.Config{
-		Addr: ":0",
-		TLS: &proxy.TLSConfig{
-			Enabled:  true,
-			CertFile: "/nonexistent/server.crt",
-			KeyFile:  "/nonexistent/server.key",
-			CAFile:   caFile,
-		},
+	cfg := testConfig()
+	cfg.TLS = &proxy.TLSConfig{
+		Enabled:  true,
+		CertFile: "/nonexistent/server.crt",
+		KeyFile:  "/nonexistent/server.key",
+		CAFile:   caFile,
 	}
-	server := proxy.NewServer(cfg)
+	server := mustNewServer(t, cfg)
 
 	// Act
 	err := server.Start()
@@ -843,16 +804,14 @@ func TestServer_StartTLS_MissingKeyFile_ReturnsError(t *testing.T) {
 		t.Fatalf("failed to create temp cert file: %v", err)
 	}
 
-	cfg := proxy.Config{
-		Addr: ":0",
-		TLS: &proxy.TLSConfig{
-			Enabled:  true,
-			CertFile: certFile,
-			KeyFile:  "/nonexistent/server.key",
-			CAFile:   caFile,
-		},
+	cfg := testConfig()
+	cfg.TLS = &proxy.TLSConfig{
+		Enabled:  true,
+		CertFile: certFile,
+		KeyFile:  "/nonexistent/server.key",
+		CAFile:   caFile,
 	}
-	server := proxy.NewServer(cfg)
+	server := mustNewServer(t, cfg)
 
 	// Act
 	err := server.Start()
@@ -886,16 +845,14 @@ func TestServer_StartTLS_InvalidCerts_ReturnsError(t *testing.T) {
 		t.Fatalf("failed to create temp key file: %v", err)
 	}
 
-	cfg := proxy.Config{
-		Addr: ":0",
-		TLS: &proxy.TLSConfig{
-			Enabled:  true,
-			CertFile: certFile,
-			KeyFile:  keyFile,
-			CAFile:   caFile,
-		},
+	cfg := testConfig()
+	cfg.TLS = &proxy.TLSConfig{
+		Enabled:  true,
+		CertFile: certFile,
+		KeyFile:  keyFile,
+		CAFile:   caFile,
 	}
-	server := proxy.NewServer(cfg)
+	server := mustNewServer(t, cfg)
 
 	// Act
 	err := server.Start()
@@ -917,11 +874,7 @@ func TestProxy_InvalidTargetURL_Returns400(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
-	srv := proxy.NewServer(proxy.Config{
-		Addr:         ":0",
-		HeaderPrefix: "X-Connect",
-		AllowList:    testAllowList(),
-	})
+	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)

@@ -386,6 +386,10 @@ upstream:
   timeouts:
     connect: 5s            # Connection establishment timeout
     read: 30s              # Max time waiting for response headers
+    write: 30s             # Max time for writing the response
+    idle: 120s             # Keep-alive connection timeout
+    keep_alive: 30s        # TCP keep-alive probe interval
+    plugin: 10s            # Max time for plugin credential fetch
 
 observability:
   log_level: "info"        # debug, info, warn, error
