@@ -56,7 +56,8 @@ tmp/
 .github/reviews/latest-review.md
 .github/reviews/current-task.txt
 
-# Benchmark artifacts (baseline is committed, current is ephemeral)
+# Benchmark artifacts (generated locally via make bench / make bench-save)
+benchmark-baseline.txt
 benchmark-current.txt
 cpu.prof
 mem.prof

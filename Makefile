@@ -115,7 +115,7 @@ BENCHSTAT := $(shell go env GOPATH)/bin/benchstat
 .PHONY: bench
 bench: ## Run all benchmarks
 	@echo "Running benchmarks..."
-	go test -run='^$$' -bench=. -benchmem -count=5 ./... | tee benchmark-current.txt
+	go test -run='^$$' -bench=. -benchmem -count=6 ./... | tee benchmark-current.txt
 	@echo ""
 	@echo "Results saved to benchmark-current.txt"
 
@@ -126,7 +126,7 @@ bench-short: ## Run benchmarks with fewer iterations (quick check)
 .PHONY: bench-save
 bench-save: ## Save current benchmarks as baseline
 	@echo "Running benchmarks and saving as baseline..."
-	go test -run='^$$' -bench=. -benchmem -count=10 ./... > benchmark-baseline.txt
+	go test -run='^$$' -bench=. -benchmem -count=6 ./... > benchmark-baseline.txt
 	@echo "Baseline saved to benchmark-baseline.txt"
 
 .PHONY: bench-compare
@@ -140,7 +140,7 @@ bench-compare: ## Compare current benchmarks against baseline
 		go install golang.org/x/perf/cmd/benchstat@latest; \
 	fi
 	@echo "Running current benchmarks..."
-	@go test -run='^$$' -bench=. -benchmem -count=10 ./... > benchmark-current.txt
+	@go test -run='^$$' -bench=. -benchmem -count=6 ./... > benchmark-current.txt
 	@echo ""
 	@echo "=== Benchmark Comparison ==="
 	@$(BENCHSTAT) benchmark-baseline.txt benchmark-current.txt

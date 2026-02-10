@@ -4,8 +4,6 @@
 package proxy
 
 import (
-	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -32,7 +30,7 @@ func BenchmarkPanicRecoveryMiddleware(b *testing.B) {
 // BenchmarkRequestLoggingMiddleware benchmarks the request logging wrapper overhead.
 // Logs are silenced to measure middleware overhead without I/O bias.
 func BenchmarkRequestLoggingMiddleware(b *testing.B) {
-	silenceLogsMiddleware(b)
+	silenceLogs(b)
 
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -52,7 +50,7 @@ func BenchmarkRequestLoggingMiddleware(b *testing.B) {
 // BenchmarkMiddlewareStack benchmarks the combined middleware stack.
 // Target: < 50us total overhead (excluding upstream)
 func BenchmarkMiddlewareStack(b *testing.B) {
-	silenceLogsMiddleware(b)
+	silenceLogs(b)
 
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -72,7 +70,7 @@ func BenchmarkMiddlewareStack(b *testing.B) {
 
 // BenchmarkMiddlewareStack_Parallel tests concurrent middleware execution.
 func BenchmarkMiddlewareStack_Parallel(b *testing.B) {
-	silenceLogsMiddleware(b)
+	silenceLogs(b)
 
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -88,16 +86,5 @@ func BenchmarkMiddlewareStack_Parallel(b *testing.B) {
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 		}
-	})
-}
-
-// silenceLogsMiddleware redirects slog to io.Discard during benchmarks to avoid
-// log I/O biasing measurements. Restores the default logger via b.Cleanup.
-func silenceLogsMiddleware(b *testing.B) {
-	b.Helper()
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	b.Cleanup(func() {
-		slog.SetDefault(prev)
 	})
 }

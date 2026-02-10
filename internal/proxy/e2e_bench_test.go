@@ -6,8 +6,6 @@ package proxy
 import (
 	"context"
 	"encoding/base64"
-	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -43,17 +41,6 @@ func (p *benchPlugin) ModifyResponse(_ context.Context, _ sdk.TransactionContext
 
 // Verify benchPlugin implements sdk.Plugin at compile time.
 var _ sdk.Plugin = (*benchPlugin)(nil)
-
-// silenceLogs redirects slog to io.Discard during benchmarks to avoid log I/O
-// biasing measurements. Restores the default logger via b.Cleanup.
-func silenceLogs(b *testing.B) {
-	b.Helper()
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	b.Cleanup(func() {
-		slog.SetDefault(prev)
-	})
-}
 
 // BenchmarkFullRequestCycle_FastPath benchmarks the complete proxy request/response
 // cycle with a Fast Path plugin (returns credentials for injection).
@@ -233,6 +220,11 @@ func BenchmarkFullRequestCycle_Parallel(b *testing.B) {
 
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				b.Errorf("unexpected status: %d", rec.Code)
+				return
+			}
 		}
 	})
 }
