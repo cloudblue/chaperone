@@ -106,6 +106,55 @@ test-integration: ## Run integration tests
 	go test -v -tags=integration ./...
 
 # ============================================================================
+# Benchmarks (root module only; SDK has no hot-path code)
+# ============================================================================
+
+# benchstat for comparing benchmark runs (installed via go install)
+BENCHSTAT := $(shell go env GOPATH)/bin/benchstat
+
+.PHONY: bench
+bench: ## Run all benchmarks
+	@echo "Running benchmarks..."
+	go test -run='^$$' -bench=. -benchmem -count=6 ./... | tee benchmark-current.txt
+	@echo ""
+	@echo "Results saved to benchmark-current.txt"
+
+.PHONY: bench-short
+bench-short: ## Run benchmarks with fewer iterations (quick check)
+	go test -run='^$$' -bench=. -benchmem -count=1 ./...
+
+.PHONY: bench-save
+bench-save: ## Save current benchmarks as baseline
+	@echo "Running benchmarks and saving as baseline..."
+	go test -run='^$$' -bench=. -benchmem -count=6 ./... > benchmark-baseline.txt
+	@echo "Baseline saved to benchmark-baseline.txt"
+
+.PHONY: bench-compare
+bench-compare: ## Compare current benchmarks against baseline
+	@if [ ! -f benchmark-baseline.txt ]; then \
+		echo "No baseline found. Run 'make bench-save' first."; \
+		exit 1; \
+	fi
+	@if [ ! -x "$(BENCHSTAT)" ]; then \
+		echo "benchstat not installed. Installing..."; \
+		go install golang.org/x/perf/cmd/benchstat@latest; \
+	fi
+	@echo "Running current benchmarks..."
+	@go test -run='^$$' -bench=. -benchmem -count=6 ./... > benchmark-current.txt
+	@echo ""
+	@echo "=== Benchmark Comparison ==="
+	@$(BENCHSTAT) benchmark-baseline.txt benchmark-current.txt
+
+.PHONY: bench-profile
+bench-profile: ## Run benchmarks with CPU profiling (single package, -cpuprofile limitation)
+	@echo "Running benchmarks with CPU profiling..."
+	go test -run='^$$' -bench=. -benchmem -cpuprofile=cpu.prof -memprofile=mem.prof ./internal/proxy/
+	@echo ""
+	@echo "CPU profile: cpu.prof"
+	@echo "Memory profile: mem.prof"
+	@echo "Analyze with: go tool pprof cpu.prof"
+
+# ============================================================================
 # Docker
 # ============================================================================
 
@@ -244,6 +293,8 @@ GOLANGCI_LINT_VERSION := v2.8.0
 tools: ## Install development tools
 	@echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(shell go env GOPATH)/bin $(GOLANGCI_LINT_VERSION)
+	@echo "Installing benchstat..."
+	go install golang.org/x/perf/cmd/benchstat@latest
 
 # ============================================================================
 # Help
