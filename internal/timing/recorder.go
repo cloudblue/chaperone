@@ -8,7 +8,7 @@ package timing
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -61,6 +61,9 @@ func (r *Recorder) TotalDuration() time.Duration {
 // Header returns the Server-Timing header value.
 // Format: plugin;dur=X.XX, upstream;dur=X.XX, overhead;dur=X.XX
 // Durations are in milliseconds with 2 decimal places per W3C spec.
+//
+// Uses strconv.AppendFloat instead of fmt.Sprintf to avoid allocations
+// on every request in the hot path.
 func (r *Recorder) Header() string {
 	total := time.Since(r.start)
 	overhead := total - r.plugin - r.upstream
@@ -70,12 +73,15 @@ func (r *Recorder) Header() string {
 		overhead = 0
 	}
 
-	return fmt.Sprintf(
-		"plugin;dur=%.2f, upstream;dur=%.2f, overhead;dur=%.2f",
-		durationToMS(r.plugin),
-		durationToMS(r.upstream),
-		durationToMS(overhead),
-	)
+	// Pre-allocate ~80 bytes: "plugin;dur=XXXX.XX, upstream;dur=XXXX.XX, overhead;dur=XXXX.XX"
+	buf := make([]byte, 0, 80)
+	buf = append(buf, "plugin;dur="...)
+	buf = strconv.AppendFloat(buf, durationToMS(r.plugin), 'f', 2, 64)
+	buf = append(buf, ", upstream;dur="...)
+	buf = strconv.AppendFloat(buf, durationToMS(r.upstream), 'f', 2, 64)
+	buf = append(buf, ", overhead;dur="...)
+	buf = strconv.AppendFloat(buf, durationToMS(overhead), 'f', 2, 64)
+	return string(buf)
 }
 
 // durationToMS converts a time.Duration to milliseconds as a float64.

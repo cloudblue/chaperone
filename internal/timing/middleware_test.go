@@ -182,3 +182,60 @@ func TestTimingResponseWriter_Unwrap(t *testing.T) {
 		t.Error("Unwrap should return the underlying ResponseWriter")
 	}
 }
+
+func TestTimingResponseWriter_1xxPassthrough(t *testing.T) {
+	// 1xx informational responses (e.g., 100 Continue) must be forwarded
+	// without triggering the headerWritten guard, so that the final
+	// response can still inject the Server-Timing header.
+	recorder := New()
+	recorder.RecordPlugin(10 * time.Millisecond)
+
+	underlying := httptest.NewRecorder()
+	tw := &timingResponseWriter{
+		ResponseWriter: underlying,
+		recorder:       recorder,
+	}
+
+	// Send 1xx informational - should NOT set headerWritten
+	tw.WriteHeader(http.StatusContinue)
+	if tw.headerWritten {
+		t.Fatal("headerWritten should be false after 1xx response")
+	}
+
+	// Now send final response - should inject Server-Timing
+	tw.WriteHeader(http.StatusOK)
+	if !tw.headerWritten {
+		t.Fatal("headerWritten should be true after final response")
+	}
+
+	header := underlying.Header().Get("Server-Timing")
+	if header == "" {
+		t.Fatal("Server-Timing header should be present after 1xx + final response")
+	}
+	if !strings.Contains(header, "plugin;dur=10.00") {
+		t.Errorf("Header = %q, want to contain 'plugin;dur=10.00'", header)
+	}
+}
+
+func TestTimingResponseWriter_DuplicateWriteHeaderIgnored(t *testing.T) {
+	recorder := New()
+	underlying := httptest.NewRecorder()
+	tw := &timingResponseWriter{
+		ResponseWriter: underlying,
+		recorder:       recorder,
+	}
+
+	// First WriteHeader should succeed
+	tw.WriteHeader(http.StatusOK)
+	if !tw.headerWritten {
+		t.Fatal("headerWritten should be true after first WriteHeader")
+	}
+
+	// Second WriteHeader should be silently ignored (no panic, no duplicate header)
+	tw.WriteHeader(http.StatusInternalServerError)
+
+	// Status should remain 200 from the first call
+	if underlying.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d (first WriteHeader should win)", underlying.Code, http.StatusOK)
+	}
+}
