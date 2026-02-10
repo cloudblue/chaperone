@@ -13,7 +13,7 @@
 | 03 | Error Normalization | [x] | P0 | 01 | M |
 | 04 | Security Layer | [x] | P0 | 01 | M |
 | 05 | Observability (Logs) | [ ] | P0 | 01, 04 | M |
-| 06 | Resilience | [ ] | P0 | 01 | L |
+| 06 | Resilience | [x] | P0 | 01 | L |
 | 07 | Telemetry (Metrics) | [ ] | P1 | Phase 1 only | M |
 | 08 | Telemetry (Tracing) | [ ] | P1 | 07 | L |
 | 09 | Profiling | [~] | P1 | Phase 1 only | M |

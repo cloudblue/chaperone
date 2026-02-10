@@ -4,19 +4,27 @@
 package proxy
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"sync/atomic"
 	"time"
 )
 
+// panicCount tracks the total number of recovered panics.
+var panicCount atomic.Int64
+
 // WithPanicRecovery wraps a handler with panic recovery middleware.
-// If a panic occurs, it logs the stack trace and returns 500 Internal Server Error.
+// If a panic occurs, it logs the stack trace and returns a generic 500
+// Internal Server Error as JSON (no internal details are exposed to the client).
 // The server continues running after recovering from the panic.
 func WithPanicRecovery(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
+				panicCount.Add(1)
+
 				// Log the panic with stack trace (internal only, never expose to client)
 				slog.Error("panic recovered",
 					"error", err,
@@ -25,8 +33,13 @@ func WithPanicRecovery(next http.Handler) http.Handler {
 					"method", r.Method,
 				)
 
-				// Return generic error to client
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				// Return generic JSON error to client
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"error":  "Internal Server Error",
+					"status": http.StatusInternalServerError,
+				})
 			}
 		}()
 		next.ServeHTTP(w, r)

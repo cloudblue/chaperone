@@ -1,7 +1,7 @@
 ---
 agent: "agent"
 description: Process captured learnings and convert them into workflow updates
-tools: ['execute', 'read/readFile', 'edit/createFile', 'edit/editFiles', 'search', 'agent']
+tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 # Process Learnings

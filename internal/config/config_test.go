@@ -81,7 +81,7 @@ observability:
 	if paths, ok := cfg.Upstream.AllowList["api.vendor.com"]; !ok || len(paths) != 2 {
 		t.Errorf("Upstream.AllowList[api.vendor.com] = %v, want 2 paths", paths)
 	}
-	if cfg.Upstream.Timeouts.Connect != 10*time.Second {
+	if cfg.Upstream.Timeouts.Connect == nil || *cfg.Upstream.Timeouts.Connect != 10*time.Second {
 		t.Errorf("Upstream.Timeouts.Connect = %v, want 10s", cfg.Upstream.Timeouts.Connect)
 	}
 
@@ -133,7 +133,7 @@ upstream:
 	if cfg.Upstream.HeaderPrefix != DefaultHeaderPrefix {
 		t.Errorf("Upstream.HeaderPrefix = %q, want default %q", cfg.Upstream.HeaderPrefix, DefaultHeaderPrefix)
 	}
-	if cfg.Upstream.Timeouts.Connect != DefaultConnectTimeout {
+	if cfg.Upstream.Timeouts.Connect == nil || *cfg.Upstream.Timeouts.Connect != DefaultConnectTimeout {
 		t.Errorf("Upstream.Timeouts.Connect = %v, want default %v", cfg.Upstream.Timeouts.Connect, DefaultConnectTimeout)
 	}
 	if cfg.Observability.LogLevel != DefaultLogLevel {
@@ -217,7 +217,7 @@ upstream:
 	if cfg.Server.TLS.AutoRotate == nil || *cfg.Server.TLS.AutoRotate != false {
 		t.Errorf("Server.TLS.AutoRotate = %v, want env override false", cfg.Server.TLS.AutoRotate)
 	}
-	if cfg.Upstream.Timeouts.Connect != 15*time.Second {
+	if cfg.Upstream.Timeouts.Connect == nil || *cfg.Upstream.Timeouts.Connect != 15*time.Second {
 		t.Errorf("Upstream.Timeouts.Connect = %v, want env override 15s", cfg.Upstream.Timeouts.Connect)
 	}
 }
@@ -507,10 +507,11 @@ func TestValidate_ValidConfig_NoError(t *testing.T) {
 			TraceHeader:  "Connect-Request-ID",
 			AllowList:    map[string][]string{"api.example.com": {"/**"}},
 			Timeouts: TimeoutConfig{
-				Connect: 5 * time.Second,
-				Read:    30 * time.Second,
-				Write:   30 * time.Second,
-				Idle:    120 * time.Second,
+				Connect: durationPtr(5 * time.Second),
+				Read:    durationPtr(30 * time.Second),
+				Write:   durationPtr(30 * time.Second),
+				Idle:    durationPtr(120 * time.Second),
+				Plugin:  durationPtr(10 * time.Second),
 			},
 		},
 		Observability: ObservabilityConfig{
@@ -539,7 +540,7 @@ func TestValidate_NegativeTimeout_ReturnsError(t *testing.T) {
 		Upstream: UpstreamConfig{
 			AllowList: map[string][]string{"api.example.com": {"/**"}},
 			Timeouts: TimeoutConfig{
-				Connect: -5 * time.Second, // Invalid
+				Connect: durationPtr(-5 * time.Second), // Invalid
 			},
 		},
 	}
@@ -639,7 +640,7 @@ func TestValidate_SentinelErrors_WorkWithErrorsIs(t *testing.T) {
 				Upstream: UpstreamConfig{
 					AllowList: map[string][]string{"api.example.com": {"/**"}},
 					Timeouts: TimeoutConfig{
-						Connect: -1 * time.Second,
+						Connect: durationPtr(-1 * time.Second),
 					},
 				},
 			},
@@ -1244,10 +1245,11 @@ func TestValidate_AllNegativeTimeouts_ReturnsErrors(t *testing.T) {
 		Upstream: UpstreamConfig{
 			AllowList: map[string][]string{"api.example.com": {"/**"}},
 			Timeouts: TimeoutConfig{
-				Connect: -1 * time.Second,
-				Read:    -2 * time.Second,
-				Write:   -3 * time.Second,
-				Idle:    -4 * time.Second,
+				Connect: durationPtr(-1 * time.Second),
+				Read:    durationPtr(-2 * time.Second),
+				Write:   durationPtr(-3 * time.Second),
+				Idle:    durationPtr(-4 * time.Second),
+				Plugin:  durationPtr(-5 * time.Second),
 			},
 		},
 	}
@@ -1299,6 +1301,8 @@ upstream:
 	t.Setenv("CHAPERONE_UPSTREAM_TIMEOUTS_READ", "2s")
 	t.Setenv("CHAPERONE_UPSTREAM_TIMEOUTS_WRITE", "3s")
 	t.Setenv("CHAPERONE_UPSTREAM_TIMEOUTS_IDLE", "4s")
+	t.Setenv("CHAPERONE_UPSTREAM_TIMEOUTS_KEEP_ALIVE", "5s")
+	t.Setenv("CHAPERONE_UPSTREAM_TIMEOUTS_PLUGIN", "7s")
 	t.Setenv("CHAPERONE_OBSERVABILITY_LOG_LEVEL", "debug")
 	t.Setenv("CHAPERONE_OBSERVABILITY_ENABLE_PROFILING", "true")
 
@@ -1335,17 +1339,23 @@ upstream:
 	if cfg.Upstream.TraceHeader != "Env-Trace-ID" {
 		t.Errorf("TraceHeader = %q, want Env-Trace-ID", cfg.Upstream.TraceHeader)
 	}
-	if cfg.Upstream.Timeouts.Connect != 1*time.Second {
+	if cfg.Upstream.Timeouts.Connect == nil || *cfg.Upstream.Timeouts.Connect != 1*time.Second {
 		t.Errorf("Timeouts.Connect = %v, want 1s", cfg.Upstream.Timeouts.Connect)
 	}
-	if cfg.Upstream.Timeouts.Read != 2*time.Second {
+	if cfg.Upstream.Timeouts.Read == nil || *cfg.Upstream.Timeouts.Read != 2*time.Second {
 		t.Errorf("Timeouts.Read = %v, want 2s", cfg.Upstream.Timeouts.Read)
 	}
-	if cfg.Upstream.Timeouts.Write != 3*time.Second {
+	if cfg.Upstream.Timeouts.Write == nil || *cfg.Upstream.Timeouts.Write != 3*time.Second {
 		t.Errorf("Timeouts.Write = %v, want 3s", cfg.Upstream.Timeouts.Write)
 	}
-	if cfg.Upstream.Timeouts.Idle != 4*time.Second {
+	if cfg.Upstream.Timeouts.Idle == nil || *cfg.Upstream.Timeouts.Idle != 4*time.Second {
 		t.Errorf("Timeouts.Idle = %v, want 4s", cfg.Upstream.Timeouts.Idle)
+	}
+	if cfg.Upstream.Timeouts.KeepAlive == nil || *cfg.Upstream.Timeouts.KeepAlive != 5*time.Second {
+		t.Errorf("Timeouts.KeepAlive = %v, want 5s", cfg.Upstream.Timeouts.KeepAlive)
+	}
+	if cfg.Upstream.Timeouts.Plugin == nil || *cfg.Upstream.Timeouts.Plugin != 7*time.Second {
+		t.Errorf("Timeouts.Plugin = %v, want 7s", cfg.Upstream.Timeouts.Plugin)
 	}
 	if cfg.Observability.LogLevel != "debug" {
 		t.Errorf("LogLevel = %q, want debug", cfg.Observability.LogLevel)
@@ -1658,7 +1668,7 @@ func TestValidate_MultipleErrors_AllReported(t *testing.T) {
 		Upstream: UpstreamConfig{
 			AllowList: nil, // Missing
 			Timeouts: TimeoutConfig{
-				Connect: -1 * time.Second,
+				Connect: durationPtr(-1 * time.Second),
 			},
 		},
 		Observability: ObservabilityConfig{

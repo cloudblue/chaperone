@@ -21,6 +21,10 @@ type ServerConfig struct {
 	Addr string `yaml:"addr"`
 	// AdminAddr is the management/metrics port address (e.g., ":9090").
 	AdminAddr string `yaml:"admin_addr"`
+	// ShutdownTimeout is the maximum time to drain in-flight requests
+	// during graceful shutdown. Default: 30s.
+	// Pointer to distinguish "not set" (nil → use default) from "explicitly zero".
+	ShutdownTimeout *time.Duration `yaml:"shutdown_timeout"`
 	// TLS holds the mTLS configuration.
 	TLS TLSConfig `yaml:"tls"`
 }
@@ -58,15 +62,22 @@ type UpstreamConfig struct {
 }
 
 // TimeoutConfig holds the timeout configuration for upstream connections.
+// All fields are pointers to distinguish "not set" (nil → use default) from
+// "explicitly zero" (rejected by validation as a safety measure).
 type TimeoutConfig struct {
 	// Connect is the connection establishment timeout.
-	Connect time.Duration `yaml:"connect"`
+	Connect *time.Duration `yaml:"connect"`
 	// Read is the maximum time waiting for response headers.
-	Read time.Duration `yaml:"read"`
+	Read *time.Duration `yaml:"read"`
 	// Write is the maximum time for writing the response.
-	Write time.Duration `yaml:"write"`
+	Write *time.Duration `yaml:"write"`
 	// Idle is the keep-alive connection timeout.
-	Idle time.Duration `yaml:"idle"`
+	Idle *time.Duration `yaml:"idle"`
+	// KeepAlive is the interval between TCP keep-alive probes on idle
+	// upstream connections. Detects dead peers before the idle timeout fires.
+	KeepAlive *time.Duration `yaml:"keep_alive"`
+	// Plugin is the maximum time for a plugin to return credentials.
+	Plugin *time.Duration `yaml:"plugin"`
 }
 
 // ObservabilityConfig holds logging and profiling configuration.

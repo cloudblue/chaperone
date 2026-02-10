@@ -1,6 +1,6 @@
 # Task: Resilience
 
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 **Priority:** P0
 **Estimated Effort:** L
 
@@ -16,35 +16,35 @@ Implement configurable timeouts, graceful shutdown, and panic recovery middlewar
 
 ## Dependencies
 
-- [ ] `01-configuration.task.md` - Timeout values from config
+- [x] `01-configuration.task.md` - Timeout values from config
 
 ## Acceptance Criteria
 
 ### Timeouts
-- [ ] Configurable `connect` timeout (default: 5s) - upstream connection
-- [ ] Configurable `read` timeout (default: 30s) - response header wait
-- [ ] Configurable `write` timeout (default: 30s) - response write
-- [ ] Configurable `idle` timeout (default: 120s) - keep-alive connections
-- [ ] Context cancellation propagated to plugins (Design Spec §5.2.B)
-- [ ] Timeouts apply to both upstream and downstream connections
+- [x] Configurable `connect` timeout (default: 5s) - upstream connection
+- [x] Configurable `read` timeout (default: 30s) - response header wait
+- [x] Configurable `write` timeout (default: 30s) - response write
+- [x] Configurable `idle` timeout (default: 120s) - keep-alive connections
+- [x] Context cancellation propagated to plugins (Design Spec §5.2.B)
+- [x] Timeouts apply to both upstream and downstream connections
 
 ### Graceful Shutdown
-- [ ] Handle `SIGTERM` and `SIGINT` signals
-- [ ] Stop accepting new connections on shutdown signal
-- [ ] Allow in-flight requests to complete (configurable timeout, default: 30s)
-- [ ] Log shutdown initiation and completion
-- [ ] Exit cleanly after drain completes
+- [x] Handle `SIGTERM` and `SIGINT` signals
+- [x] Stop accepting new connections on shutdown signal
+- [x] Allow in-flight requests to complete (configurable timeout, default: 30s)
+- [x] Log shutdown initiation and completion
+- [x] Exit cleanly after drain completes
 
 ### Panic Recovery
-- [ ] Top-level recovery middleware catches panics in handlers AND plugins
-- [ ] Panic logged with stack trace (locally, for Distributor)
-- [ ] Return `500 Internal Server Error` to client (sanitized)
-- [ ] Server continues running after panic recovery
-- [ ] Panic count tracked (for future metrics integration)
+- [x] Top-level recovery middleware catches panics in handlers AND plugins
+- [x] Panic logged with stack trace (locally, for Distributor)
+- [x] Return `500 Internal Server Error` to client (generic JSON response)
+- [x] Server continues running after panic recovery
+- [x] Panic count tracked (for future metrics integration)
 
 ### General
-- [ ] Tests pass: `go test ./internal/...`
-- [ ] Lint passes: `make lint`
+- [x] Tests pass: `go test ./internal/...`
+- [x] Lint passes: `make lint`
 
 ## Implementation Hints
 
@@ -136,11 +136,9 @@ func RecoveryMiddleware(next http.Handler) http.Handler {
 
 ### Key Code Locations
 
-- `internal/proxy/server.go` - Server timeout configuration
-- `internal/proxy/shutdown.go` - Graceful shutdown logic
-- `internal/proxy/recovery.go` - Panic recovery middleware
-- `internal/proxy/client.go` - Upstream HTTP client with timeouts
-- `cmd/chaperone/main.go` - Signal handling and shutdown orchestration
+- `internal/proxy/server.go` - Server timeout configuration, connect timeout transport, graceful shutdown
+- `internal/proxy/middleware.go` - Panic recovery middleware (JSON 500, atomic counter, stack trace)
+- `cmd/chaperone/main.go` - Signal handling (`awaitShutdown`) and shutdown orchestration
 
 ### Gotchas
 
@@ -152,13 +150,14 @@ func RecoveryMiddleware(next http.Handler) http.Handler {
 
 ## Files to Create/Modify
 
-- [ ] `internal/proxy/server.go` - Add timeout configuration
-- [ ] `internal/proxy/shutdown.go` - Graceful shutdown
-- [ ] `internal/proxy/recovery.go` - Panic recovery middleware
-- [ ] `internal/proxy/client.go` - Upstream client with timeouts
-- [ ] `internal/proxy/recovery_test.go` - Recovery tests
-- [ ] `internal/proxy/shutdown_test.go` - Shutdown tests
-- [ ] `cmd/chaperone/main.go` - Signal handling
+- [x] `internal/proxy/server.go` - Add timeout configuration + connect timeout transport + graceful shutdown
+- [x] `internal/proxy/middleware.go` - Panic recovery (JSON 500, atomic counter, stack trace logging)
+- [x] `internal/proxy/recovery_test.go` - Recovery tests (6 tests)
+- [x] `internal/proxy/shutdown_test.go` - Shutdown + timeout tests (10 tests)
+- [x] `internal/config/config.go` - ShutdownTimeout field
+- [x] `internal/config/defaults.go` - DefaultShutdownTimeout constant
+- [x] `internal/config/loader.go` - Shutdown timeout defaults + env var override
+- [x] `cmd/chaperone/main.go` - Signal handling (`awaitShutdown`) + graceful shutdown
 
 ## Testing Strategy
 

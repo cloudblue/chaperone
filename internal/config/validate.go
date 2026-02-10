@@ -77,6 +77,10 @@ func validateServerConfig(cfg *ServerConfig) error {
 		errs = append(errs, err)
 	}
 
+	if cfg.ShutdownTimeout != nil && *cfg.ShutdownTimeout <= 0 {
+		errs = append(errs, fmt.Errorf("server.shutdown_timeout: %w", ErrInvalidTimeout))
+	}
+
 	if err := validateTLSConfig(&cfg.TLS); err != nil {
 		errs = append(errs, err)
 	}
@@ -191,20 +195,28 @@ func validateUpstreamConfig(cfg *UpstreamConfig) error {
 }
 
 // validateTimeouts validates timeout configuration values.
+// After applyDefaults, all pointers are non-nil. Explicit zero or negative
+// values are rejected — every timeout MUST be positive.
 func validateTimeouts(cfg *TimeoutConfig) error {
 	var errs []error
 
-	if cfg.Connect < 0 {
+	if cfg.Connect != nil && *cfg.Connect <= 0 {
 		errs = append(errs, fmt.Errorf("upstream.timeouts.connect: %w", ErrInvalidTimeout))
 	}
-	if cfg.Read < 0 {
+	if cfg.Read != nil && *cfg.Read <= 0 {
 		errs = append(errs, fmt.Errorf("upstream.timeouts.read: %w", ErrInvalidTimeout))
 	}
-	if cfg.Write < 0 {
+	if cfg.Write != nil && *cfg.Write <= 0 {
 		errs = append(errs, fmt.Errorf("upstream.timeouts.write: %w", ErrInvalidTimeout))
 	}
-	if cfg.Idle < 0 {
+	if cfg.Idle != nil && *cfg.Idle <= 0 {
 		errs = append(errs, fmt.Errorf("upstream.timeouts.idle: %w", ErrInvalidTimeout))
+	}
+	if cfg.KeepAlive != nil && *cfg.KeepAlive <= 0 {
+		errs = append(errs, fmt.Errorf("upstream.timeouts.keep_alive: %w", ErrInvalidTimeout))
+	}
+	if cfg.Plugin != nil && *cfg.Plugin <= 0 {
+		errs = append(errs, fmt.Errorf("upstream.timeouts.plugin: %w", ErrInvalidTimeout))
 	}
 
 	if len(errs) > 0 {

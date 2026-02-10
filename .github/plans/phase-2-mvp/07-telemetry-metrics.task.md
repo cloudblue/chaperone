@@ -27,6 +27,7 @@ Expose `/metrics` endpoint with Prometheus counters and histograms for operation
 - [ ] Histogram: `chaperone_request_duration_seconds{vendor_id}`
 - [ ] Histogram: `chaperone_upstream_duration_seconds{vendor_id}`
 - [ ] Gauge: `chaperone_active_connections`
+- [ ] Counter: `chaperone_panics_total` - expose the `panicCount` atomic from `internal/proxy/middleware.go` (added in Task 06)
 - [ ] Standard Go runtime metrics included (`go_*`)
 - [ ] Admin server runs independently (separate from main traffic port)
 - [ ] Tests pass: `go test ./internal/telemetry/...`

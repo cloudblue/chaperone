@@ -2,7 +2,7 @@
 agent: agent
 name: code-quality-review
 description: Independent review of staged changes before merge
-tools: ['execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
+tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 # Code Quality Review

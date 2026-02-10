@@ -5,10 +5,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/cloudblue/chaperone/internal/config"
 	"github.com/cloudblue/chaperone/internal/observability"
@@ -122,8 +126,8 @@ Examples:
 	// Register pprof handlers (dev builds only, when enabled via config)
 	telemetry.RegisterPprofHandlers(adminSrv.Mux(), cfg.Observability.EnableProfiling)
 
-	if err := adminSrv.Start(); err != nil {
-		slog.Error("failed to start admin server", "error", err)
+	if startErr := adminSrv.Start(); startErr != nil {
+		slog.Error("failed to start admin server", "error", startErr)
 		os.Exit(1)
 	}
 
@@ -137,19 +141,18 @@ Examples:
 	}
 
 	// Create and start server using config values.
-	//
-	// NOTE: This manual mapping from config.Config (nested, YAML-oriented) to
-	// proxy.Config (flat, runtime-oriented) is a drift risk. When adding new
-	// config fields, ensure they are wired through here. Consider replacing
-	// with a ProxyConfigFrom() conversion function (see Task 14).
 	tlsEnabled := *cfg.Server.TLS.Enabled
-	srv := proxy.NewServer(proxy.Config{
+	srv, err := proxy.NewServer(proxy.Config{
 		Addr:             cfg.Server.Addr,
 		Plugin:           plugin,
 		Version:          Version,
 		HeaderPrefix:     cfg.Upstream.HeaderPrefix,
 		TraceHeader:      cfg.Upstream.TraceHeader,
 		AllowList:        cfg.Upstream.AllowList,
+		ConnectTimeout:   *cfg.Upstream.Timeouts.Connect,
+		KeepAliveTimeout: *cfg.Upstream.Timeouts.KeepAlive,
+		ShutdownTimeout:  *cfg.Server.ShutdownTimeout,
+		PluginTimeout:    *cfg.Upstream.Timeouts.Plugin,
 		SensitiveHeaders: cfg.Observability.SensitiveHeaders,
 		TLS: &proxy.TLSConfig{
 			Enabled:  tlsEnabled,
@@ -157,19 +160,47 @@ Examples:
 			KeyFile:  cfg.Server.TLS.KeyFile,
 			CAFile:   cfg.Server.TLS.CAFile,
 		},
-		ReadTimeout:  cfg.Upstream.Timeouts.Read,
-		WriteTimeout: cfg.Upstream.Timeouts.Write,
-		IdleTimeout:  cfg.Upstream.Timeouts.Idle,
+		ReadTimeout:  *cfg.Upstream.Timeouts.Read,
+		WriteTimeout: *cfg.Upstream.Timeouts.Write,
+		IdleTimeout:  *cfg.Upstream.Timeouts.Idle,
 	})
-
-	if tlsEnabled {
-		slog.Info("server listening with mTLS (Mode A)", "addr", cfg.Server.Addr)
-	} else {
-		slog.Info("server listening without TLS (Mode B)", "addr", cfg.Server.Addr)
+	if err != nil {
+		slog.Error("invalid server configuration", "error", err)
+		os.Exit(1)
 	}
+
+	go awaitShutdown(srv, adminSrv, *cfg.Server.ShutdownTimeout)
+
 	if err := srv.Start(); err != nil {
 		slog.Error("server error", "error", err)
 		os.Exit(1)
+	}
+
+	slog.Info("server stopped")
+}
+
+// awaitShutdown blocks until SIGTERM or SIGINT is received, then initiates
+// a graceful shutdown of both the traffic and admin servers within the given
+// timeout. The traffic server is drained first (stops accepting new proxy
+// requests), then the admin server (health checks remain available during drain).
+func awaitShutdown(srv *proxy.Server, adminSrv *telemetry.AdminServer, timeout time.Duration) {
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+
+	sig := <-quit
+	slog.Info("received signal, initiating graceful shutdown",
+		"signal", sig.String(),
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Drain traffic server first (stops accepting new proxy requests).
+	srv.Shutdown(ctx)
+
+	// Then drain admin server (health checks were available during traffic drain).
+	if err := adminSrv.Shutdown(ctx); err != nil {
+		slog.Error("admin server shutdown error", "error", err)
 	}
 }
 
