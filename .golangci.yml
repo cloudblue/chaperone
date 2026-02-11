@@ -13,6 +13,7 @@ linters:
     - durationcheck # Check duration multiplication
     - errname # Check error naming conventions
     - errorlint # Find error wrapping issues
+    - forbidigo # Forbid fmt.Print*/log.Print* in production code
     - exhaustive # Check switch exhaustiveness
     - funlen # Limit function length
     - gochecknoinits # No init functions
@@ -57,6 +58,19 @@ linters:
         - performance
       disabled-checks:
         - hugeParam # Allow large structs as params
+
+    forbidigo:
+      # Use type info so patterns match fully-qualified names even with import aliases.
+      analyze-types: true
+      forbid:
+        - pattern: '^fmt\.Print(f|ln)?$'
+          msg: "Use log/slog for output in production code (fmt.Print* is only allowed in cmd/)."
+        - pattern: '^log\.Print(f|ln)?$'
+          msg: "Use log/slog instead of the log package."
+        - pattern: '^log\.Fatal(f|ln)?$'
+          msg: "Use log/slog instead of the log package."
+        - pattern: '^log\.Panic(f|ln)?$'
+          msg: "Use log/slog instead of the log package."
 
     gosec:
       excludes:
@@ -120,6 +134,11 @@ linters:
       - linters:
           - gochecknoinits
         path: main\.go
+
+      # Allow fmt.Print*/log.* in CLI entry points and test files
+      - linters:
+          - forbidigo
+        path: (cmd/|_test\.go)
 
       - linters:
           - revive

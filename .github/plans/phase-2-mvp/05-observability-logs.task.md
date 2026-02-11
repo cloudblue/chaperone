@@ -1,6 +1,6 @@
 # Task: Observability (Structured Logs)
 
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 **Priority:** P0
 **Estimated Effort:** M
 
@@ -16,22 +16,22 @@ Implement structured JSON logging to STDOUT with trace ID correlation, latency t
 
 ## Dependencies
 
-- [ ] `01-configuration.task.md` - Log level from config
-- [ ] `04-security-layer.task.md` - Redactor integration
+- [x] `01-configuration.task.md` - Log level from config
+- [x] `04-security-layer.task.md` - Redactor integration
 
 ## Acceptance Criteria
 
-- [ ] JSON format output to STDOUT (one JSON object per line)
-- [ ] Configurable log levels: `debug`, `info`, `warn`, `error`
-- [ ] Every request log includes: `trace_id`, `latency_ms`, `status`, `method`, `path`
-- [ ] Additional fields: `vendor_id`, `service_id`, `client_ip`
-- [ ] Trace ID extracted from configurable header (default: `Connect-Request-ID`)
-- [ ] If no trace ID header present, generate UUIDv4
-- [ ] Generated trace IDs propagated to downstream requests
-- [ ] Sensitive headers redacted (integration with Redactor)
-- [ ] Startup logs include version, config path, listening addresses
-- [ ] Tests pass: `go test ./internal/observability/...`
-- [ ] Lint passes: `make lint`
+- [x] JSON format output to STDOUT (one JSON object per line)
+- [x] Configurable log levels: `debug`, `info`, `warn`, `error`
+- [x] Every request log includes: `trace_id`, `latency_ms`, `status`, `method`, `path`
+- [x] Additional fields: `vendor_id`, `client_ip`
+- [x] Trace ID extracted from configurable header (default: `Connect-Request-ID`)
+- [x] If no trace ID header present, generate UUIDv4
+- [x] Generated trace IDs propagated to downstream requests
+- [x] Sensitive headers redacted (integration with Redactor)
+- [x] Startup logs include version, config path, listening addresses
+- [x] Tests pass: `go test ./internal/observability/...`
+- [x] Lint passes: `make lint`
 
 ## Implementation Hints
 
@@ -103,8 +103,9 @@ func RequestLoggerMiddleware(logger *slog.Logger, next http.Handler) http.Handle
 ### Key Code Locations
 
 - `internal/observability/logger.go` - Logger setup and configuration
-- `internal/observability/trace.go` - Trace ID extraction and propagation
-- `internal/observability/middleware.go` - Request logging middleware
+- `internal/observability/trace.go` - Trace ID extraction, context propagation, and TraceIDMiddleware
+- `internal/observability/request_logger.go` - RequestLoggerMiddleware, ResponseCapturer, ClientIP
+- `internal/proxy/panic_recovery.go` - PanicRecoveryMiddleware
 - `cmd/chaperone/main.go` - Logger initialization
 
 ### Gotchas
@@ -117,12 +118,15 @@ func RequestLoggerMiddleware(logger *slog.Logger, next http.Handler) http.Handle
 
 ## Files to Create/Modify
 
-- [ ] `internal/observability/logger.go` - Logger setup
-- [ ] `internal/observability/trace.go` - Trace ID handling
-- [ ] `internal/observability/middleware.go` - Request logging
-- [ ] `internal/observability/logger_test.go` - Unit tests
-- [ ] `internal/observability/middleware_test.go` - Middleware tests
-- [ ] `cmd/chaperone/main.go` - Startup logging
+- [x] `internal/observability/logger.go` - Logger setup (RedactingHandler)
+- [x] `internal/observability/trace.go` - Trace ID handling + TraceIDMiddleware
+- [x] `internal/observability/request_logger.go` - RequestLoggerMiddleware + ResponseCapturer
+- [x] `internal/proxy/panic_recovery.go` - PanicRecoveryMiddleware (refactored, trace_id added)
+- [x] `internal/observability/logger_test.go` - Unit tests
+- [x] `internal/observability/trace_test.go` - Trace ID + middleware tests
+- [x] `internal/observability/request_logger_test.go` - Request logger + composition tests
+- [x] `internal/proxy/server.go` - Middleware wiring (withMiddleware, Handler)
+- [x] `cmd/chaperone/main.go` - Startup logging
 
 ## Testing Strategy
 

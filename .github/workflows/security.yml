@@ -59,10 +59,16 @@ jobs:
         run: go install github.com/securego/gosec/v2/cmd/gosec@latest
 
       - name: Run gosec (root module)
-        run: gosec -exclude-dir=sdk ./...
+        # G706 (Log injection): All logging uses slog structured logging where
+        #   values are written as separate JSON key-value pairs, never interpolated
+        #   into message strings. Log injection is not possible.
+        #   Safety net: the "no-raw-logging" step below enforces that all
+        #   production code uses slog, not fmt.Print*/log.Print*.
+        run: gosec -exclude=G706 -exclude-dir=sdk ./...
 
       - name: Run gosec (SDK module)
         run: cd sdk && gosec ./...
+
   # TODO: Enable when repo is public (requires GitHub Advanced Security)
   # dependency-review:
   #   name: Dependency Review

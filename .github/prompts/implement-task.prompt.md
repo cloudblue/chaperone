@@ -2,7 +2,7 @@
 agent: "agent"
 name: implement-task
 description: Implement a task from the plans directory following TDD
-tools: ['execute/runInTerminal', 'read', 'edit/createFile', 'edit/editFiles', 'search', 'agent']
+tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 # Implement Task

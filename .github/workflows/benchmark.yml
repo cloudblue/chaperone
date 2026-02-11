@@ -42,9 +42,16 @@ jobs:
       - name: Run benchmarks on base
         run: |
           cd base
-          # Guard: skip comparison if base branch has no benchmarks
+          # Guard: skip comparison if base branch benchmarks don't compile or don't exist.
+          # This can happen when a merged PR changed an API signature but the bench
+          # file on the base branch still uses the old signature.
           if go test -list 'Benchmark.*' ./... 2>/dev/null | grep -q 'Benchmark'; then
-            go test -run='^$' -bench=. -benchmem -count=6 ./... > ../benchmark-base.txt
+            if go test -run='^$' -bench=. -benchmem -count=6 ./... > ../benchmark-base.txt 2>&1; then
+              echo "Base benchmarks completed successfully."
+            else
+              echo "⚠ Base branch benchmarks failed to run (likely API change). Skipping comparison."
+              echo "SKIP_COMPARE=true" >> $GITHUB_ENV
+            fi
           else
             echo "No benchmarks found on base branch. Skipping comparison."
             echo "SKIP_COMPARE=true" >> $GITHUB_ENV
