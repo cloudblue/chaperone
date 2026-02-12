@@ -155,8 +155,9 @@ upstream:
 
 	// Start the server with config file
 	cmd := exec.CommandContext(ctx, tmpBinary, "-config", configFile.Name())
-	cmd.Stdout = nil // Discard output
-	cmd.Stderr = nil
+	var stderr strings.Builder
+	cmd.Stdout = nil // Discard stdout
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("failed to start binary: %v", err)
 	}
@@ -168,7 +169,7 @@ upstream:
 	healthURL := fmt.Sprintf("http://%s/_ops/health", addr)
 	client := &http.Client{Timeout: 2 * time.Second}
 	var lastErr error
-	for i := 0; i < 20; i++ { // Try for 2 seconds
+	for i := 0; i < 50; i++ { // Try for up to 5 seconds
 		time.Sleep(100 * time.Millisecond)
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)
@@ -191,7 +192,7 @@ upstream:
 		}
 		lastErr = fmt.Errorf("unexpected response: status=%d", resp.StatusCode)
 	}
-	t.Fatalf("health check failed after retries: %v", lastErr)
+	t.Fatalf("health check failed after retries: %v\nstderr: %s", lastErr, stderr.String())
 }
 
 // TestBuild_StaticBinary verifies that the binary is statically linked

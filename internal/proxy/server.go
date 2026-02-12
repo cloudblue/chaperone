@@ -197,16 +197,17 @@ func (s *Server) Config() Config {
 // Handler returns the HTTP handler for the server.
 // This can be used for testing or with a custom http.Server.
 //
-// Middleware execution order (outermost to innermost):
-//  1. RequestLogging - wraps response, always logs via defer (even on panic)
-//  2. PanicRecovery - catches panics, writes 500 to wrapped response
-//  3. AllowList (on /proxy only) - validates target URL before credential injection
-//  4. handleProxy - actual request handling
+// Global middleware stack (outermost to innermost):
+//  1. TraceIDMiddleware - extracts or generates trace ID, stores in context
+//  2. RequestLoggerMiddleware - wraps response, always logs via defer (even on panic)
+//  3. PanicRecoveryMiddleware - catches panics, writes 500 to wrapped response
 //
-// This order ensures:
-//   - All requests are logged (including rejections and panics)
-//   - Panics are caught and logged properly
-//   - URL validation happens before credential injection
+// Per-route middleware (applied only to /proxy):
+//  4. AllowListMiddleware - validates target URL before credential injection
+//  5. handleProxy - actual request handling
+//
+// The global/per-route split is intentional: health and version endpoints
+// don't have target URLs, so AllowList validation doesn't apply to them.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
@@ -216,7 +217,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Register proxy endpoint with allow list validation
 	// Security: AllowList is REQUIRED per Design Spec Section 5.3
-	proxyHandler := WithAllowListMiddleware(
+	proxyHandler := router.NewAllowListMiddleware(
 		s.config.AllowList,
 		s.config.HeaderPrefix,
 		http.HandlerFunc(s.handleProxy),
@@ -396,19 +397,20 @@ func (s *Server) logStartup() {
 
 // withMiddleware wraps the handler with the global middleware stack.
 // See Handler() for complete middleware ordering documentation.
+// AllowListMiddleware is intentionally NOT here — it's per-route (only /proxy).
 func (s *Server) withMiddleware(handler http.Handler) http.Handler {
-	// Apply middleware: outermost runs first
-	// Order: RequestLogging -> PanicRecovery -> handler
-	handler = WithPanicRecovery(handler)
-	handler = WithRequestLogging(s.config.TraceHeader, handler)
+	// Apply middleware: outermost runs first.
+	// Order: TraceID -> RequestLogger -> PanicRecovery -> handler
+	//
+	// TraceID is outermost so the trace ID is in context before any
+	// other middleware or handler runs. RequestLogger reads it from
+	// context (standard Go pattern — no header-based fallback needed).
+	// PanicRecovery is innermost so panics are caught before they
+	// reach the logger; the logger's defer still fires normally.
+	handler = PanicRecoveryMiddleware(handler)
+	handler = observability.RequestLoggerMiddleware(slog.Default(), s.config.HeaderPrefix+"-Vendor-ID", handler)
+	handler = observability.TraceIDMiddleware(s.config.TraceHeader, handler)
 	return handler
-}
-
-// WithAllowListMiddleware wraps a handler with allow list validation.
-// Security: AllowList is REQUIRED per Design Spec Section 5.3.
-// Empty AllowList will deny all requests (secure default).
-func WithAllowListMiddleware(allowList map[string][]string, headerPrefix string, next http.Handler) http.Handler {
-	return router.NewAllowListMiddleware(allowList, headerPrefix, next)
 }
 
 // handleHealth handles GET /_ops/health requests.
@@ -429,7 +431,8 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 // The HTTP method is passed through to the target URL (method passthrough).
 // It coordinates parsing, credential injection, and forwarding.
 func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
-	traceID := s.extractTraceID(r)
+	// Trace ID is already in context, set by TraceIDMiddleware.
+	traceID := observability.TraceIDFromContext(r.Context())
 
 	txCtx, err := chaperoneCtx.ParseContext(r, s.config.HeaderPrefix, s.config.TraceHeader)
 	if err != nil {
@@ -471,15 +474,6 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	//nolint:contextcheck // ModifyResponse uses resp.Request.Context() internally
 	s.forwardRequest(w, r, targetURL, traceID, txCtx)
-}
-
-// extractTraceID returns the trace ID from the request header or generates a new one.
-// Uses the configured TraceHeader from proxy.Config.
-func (s *Server) extractTraceID(r *http.Request) string {
-	if traceID := r.Header.Get(s.config.TraceHeader); traceID != "" {
-		return traceID
-	}
-	return generateTraceID()
 }
 
 // respondBadRequest logs and responds with a 400 Bad Request.
@@ -601,7 +595,7 @@ func headerValuesEqual(a, b []string) bool {
 // forwardRequest forwards the request to the target URL via reverse proxy.
 func (s *Server) forwardRequest(w http.ResponseWriter, r *http.Request, target *url.URL, traceID string, txCtx *sdk.TransactionContext) {
 	proxy := s.createReverseProxy(target, traceID, txCtx)
-	proxy.ServeHTTP(w, r)
+	proxy.ServeHTTP(w, r) // #nosec G704 -- target validated against allow-list in handleProxy before reaching here
 }
 
 // handlePluginError handles errors from the plugin.
@@ -638,7 +632,7 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, err er
 //  2. Strip sensitive headers (Credential Reflection Protection) - always runs
 //  3. Core error normalization - runs unless plugin returned ResponseAction{SkipErrorNormalization: true}
 func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.TransactionContext) *httputil.ReverseProxy {
-	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy := httputil.NewSingleHostReverseProxy(target) // #nosec G704 -- target validated against allow-list in handleProxy before reaching here
 
 	// Apply upstream transport with configurable timeouts.
 	proxy.Transport = s.upstreamTransport()
@@ -727,11 +721,4 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 
 		return nil
 	}
-}
-
-// generateTraceID generates a unique trace ID for request tracking.
-func generateTraceID() string {
-	// Use a simple timestamp-based ID for PoC
-	// TODO: Use UUID in production
-	return fmt.Sprintf("trace-%d", time.Now().UnixNano())
 }

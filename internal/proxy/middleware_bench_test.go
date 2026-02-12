@@ -4,9 +4,12 @@
 package proxy
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/cloudblue/chaperone/internal/observability"
 )
 
 // BenchmarkPanicRecoveryMiddleware benchmarks the panic recovery wrapper overhead.
@@ -15,7 +18,7 @@ func BenchmarkPanicRecoveryMiddleware(b *testing.B) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := WithPanicRecovery(inner)
+	handler := PanicRecoveryMiddleware(inner)
 	req := httptest.NewRequest("GET", "/proxy", nil)
 
 	b.ReportAllocs()
@@ -35,7 +38,7 @@ func BenchmarkRequestLoggingMiddleware(b *testing.B) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := WithRequestLogging("Connect-Request-ID", inner)
+	handler := observability.RequestLoggerMiddleware(slog.Default(), "X-Connect-Vendor-ID", inner)
 	req := httptest.NewRequest("GET", "/proxy", nil)
 
 	b.ReportAllocs()
@@ -56,7 +59,10 @@ func BenchmarkMiddlewareStack(b *testing.B) {
 		w.WriteHeader(http.StatusOK)
 	})
 	// Stack middlewares as they would be in production
-	handler := WithPanicRecovery(WithRequestLogging("Connect-Request-ID", inner))
+	// Order: TraceID (outermost) → Logger → PanicRecovery → handler
+	handler := PanicRecoveryMiddleware(inner)
+	handler = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect-Vendor-ID", handler)
+	handler = observability.TraceIDMiddleware("Connect-Request-ID", handler)
 	req := httptest.NewRequest("GET", "/proxy", nil)
 
 	b.ReportAllocs()
@@ -75,7 +81,9 @@ func BenchmarkMiddlewareStack_Parallel(b *testing.B) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := WithPanicRecovery(WithRequestLogging("Connect-Request-ID", inner))
+	handler := PanicRecoveryMiddleware(inner)
+	handler = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect-Vendor-ID", handler)
+	handler = observability.TraceIDMiddleware("Connect-Request-ID", handler)
 
 	b.ReportAllocs()
 	b.ResetTimer()

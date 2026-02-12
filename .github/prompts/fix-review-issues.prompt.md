@@ -2,7 +2,7 @@
 agent: agent
 name: fix-review-issues
 description: Fix issues identified by code-quality-review
-tools: ['execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
+tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 # Fix Review Issues
