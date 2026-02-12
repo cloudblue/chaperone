@@ -26,7 +26,7 @@
 
 ## Project Status
 
-🚧 **Work in Progress** - This project is currently in the Proof of Concept (PoC) phase.
+🚧 **Work in Progress** - Phase 1 (PoC) is complete. Currently in **Phase 2 (MVP)**.
 
 ## Requirements
 
@@ -352,15 +352,31 @@ make docker-build
 # Run Docker container (HTTP mode for testing)
 make docker-run
 
-# Build and test Docker image (validates health endpoint)
+# Run the Docker Validation Suite (comprehensive end-to-end testing)
 make docker-test
 
 # Check Docker image size
 make docker-size
 
-# Clean up Docker image
+# Clean up Docker images (production, test, and echoserver)
 make docker-clean
 ```
+
+#### Docker Validation Suite
+
+`make docker-test` runs a comprehensive validation suite that builds both a test image (HTTP targets allowed) and a production image (HTTPS-only), spins up an isolated Docker network with an echo server, and verifies the full proxy lifecycle:
+
+| # | Category | Test | Validates |
+|---|----------|------|-----------|
+| 1–5 | **Setup & Health** | Network, echo server, proxy startup, health & version endpoints | Container boots correctly, admin endpoints respond |
+| 6–9 | **Proxy Round-Trip** | Bearer credential injection, path forwarding, HTTP method passthrough | Core proxy logic works end-to-end |
+| 10–12 | **Security & Compliance** | Non-root user, distroless base (no shell), image size < 50MB | Production hardening |
+| 13 | **Telemetry** | Prometheus `/metrics` endpoint format, `chaperone_requests_total` counter, `chaperone_request_duration_seconds` histogram | Metrics wiring and observability |
+| 14–15 | **Request Validation** | Missing target URL → 400, blocked host → 403 | Input validation and allow-list enforcement |
+| 16 | **Secure Defaults** | Production image rejects HTTP targets (400) | Build-time security flag (`ALLOW_INSECURE_TARGETS`) |
+| 17–18 | **Operational** | Graceful shutdown (SIGTERM → exit 0), malformed config rejection | Runtime resilience |
+
+All containers and networks are cleaned up automatically on exit.
 
 ## Architecture
 
