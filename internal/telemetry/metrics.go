@@ -84,6 +84,16 @@ var (
 			Help:      "Number of active connections",
 		},
 	)
+
+	// PanicsTotal counts total recovered panics.
+	// Exposes the panic count from WithPanicRecovery middleware as a Prometheus metric.
+	PanicsTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "chaperone",
+			Name:      "panics_total",
+			Help:      "Total number of recovered panics",
+		},
+	)
 )
 
 // DefaultVendorID is the label value used when the X-Connect-Vendor-ID header
@@ -147,7 +157,7 @@ func NormalizeVendorID(id string) string {
 	}
 	for i := 0; i < len(id); i++ {
 		c := id[i]
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '.' && c != '_' && c != '-' {
 			return DefaultVendorID
 		}
 	}

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/cloudblue/chaperone/internal/observability"
+	"github.com/cloudblue/chaperone/internal/telemetry"
 )
 
 // panicCount tracks the total number of recovered panics.
@@ -35,6 +36,7 @@ func PanicRecoveryMiddleware(next http.Handler) http.Handler {
 		defer func() {
 			if err := recover(); err != nil {
 				panicCount.Add(1)
+				telemetry.PanicsTotal.Inc()
 
 				// Log the panic with stack trace (internal only, never expose to client)
 				slog.Error("panic recovered",
