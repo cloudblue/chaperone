@@ -35,11 +35,6 @@ var APILatencyBuckets = []float64{
 //	This simplifies the code and matches the expected operational pattern
 //	where a single process serves metrics. For test isolation, use Reset()
 //	on metric vectors with t.Cleanup().
-//
-// Thread-safety note:
-//
-//	These tests must NOT use t.Parallel() because they share global
-//	Prometheus metrics. Test isolation is achieved via Reset() and t.Cleanup().
 var (
 	// RequestsTotal counts total requests processed.
 	// Labels: vendor_id, status_class, method
