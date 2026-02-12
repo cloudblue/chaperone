@@ -13,8 +13,8 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/cloudblue/chaperone/internal/observability"
 	"github.com/cloudblue/chaperone/internal/proxy"
 )
 
@@ -96,7 +96,7 @@ func TestPanicRecovery_CatchesPanic_Returns500(t *testing.T) {
 		panic("test panic")
 	})
 
-	handler := proxy.WithPanicRecovery(panicHandler)
+	handler := proxy.PanicRecoveryMiddleware(panicHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
@@ -352,79 +352,14 @@ func TestProxy_MethodPassthrough_ForwardsOriginalMethod(t *testing.T) {
 	}
 }
 
-func TestRequestLogging_LogsRequestWithLatency(t *testing.T) {
-	// Arrange
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusCreated)
-	})
-
-	logged := proxy.WithRequestLogging("Connect-Request-ID", handler)
-
-	req := httptest.NewRequest(http.MethodPost, "/test/path", nil)
-	req.Header.Set("Connect-Request-ID", "trace-abc")
-	rec := httptest.NewRecorder()
-
-	// Act
-	logged.ServeHTTP(rec, req)
-
-	// Assert - request should complete successfully
-	if rec.Code != http.StatusCreated {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusCreated)
-	}
-}
-
-func TestRequestLogging_UsesConnectRequestID_WhenNoTraceID(t *testing.T) {
-	// Arrange
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	logged := proxy.WithRequestLogging("Connect-Request-ID", handler)
-
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	req.Header.Set("Connect-Request-ID", "connect-trace-123")
-	rec := httptest.NewRecorder()
-
-	// Act
-	logged.ServeHTTP(rec, req)
-
-	// Assert
-	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-}
-
-// TestRequestLogging_CustomTraceHeader verifies that a custom trace header can be
-// configured per ADR-005 (Configurable Naming). This is essential for non-Connect
-// platforms that use different correlation ID headers.
-func TestRequestLogging_CustomTraceHeader(t *testing.T) {
-	// Arrange
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	// Configure custom trace header
-	logged := proxy.WithRequestLogging("X-Correlation-ID", handler)
-
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	req.Header.Set("X-Correlation-ID", "custom-correlation-456")
-	// Also set default header - should be ignored when custom is specified
-	req.Header.Set("Connect-Request-ID", "should-be-ignored")
-	rec := httptest.NewRecorder()
-
-	// Act
-	logged.ServeHTTP(rec, req)
-
-	// Assert - request should complete successfully
-	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-}
+// =============================================================================
+// Middleware Stack Tests (using production middleware via observability package)
+// =============================================================================
 
 // TestMiddlewareStack_PanicLogsCorrectStatus tests the critical interaction between
-// WithRequestLogging and WithPanicRecovery middlewares. When a handler panics:
-// 1. PanicRecovery catches the panic and writes 500 to the wrapped ResponseWriter
-// 2. RequestLogging's defer logs with the correct status (500, not default 200)
+// RequestLoggerMiddleware and PanicRecoveryMiddleware. When a handler panics:
+// 1. PanicRecovery catches the panic and writes 500 to the ResponseWriter
+// 2. RequestLoggerMiddleware's defer logs with the correct status (500, not 200)
 func TestMiddlewareStack_PanicLogsCorrectStatus(t *testing.T) {
 	// Arrange - capture log output
 	var logBuffer bytes.Buffer
@@ -438,9 +373,10 @@ func TestMiddlewareStack_PanicLogsCorrectStatus(t *testing.T) {
 		panic("intentional test panic")
 	})
 
-	// Apply middleware in the same order as production (logging wraps panic recovery)
-	handler := proxy.WithPanicRecovery(panicHandler)
-	handler = proxy.WithRequestLogging("Connect-Request-ID", handler)
+	// Apply middleware in production order: TraceID → Logger → PanicRecovery → handler
+	handler := proxy.PanicRecoveryMiddleware(panicHandler)
+	handler = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect-Vendor-ID", handler)
+	handler = observability.TraceIDMiddleware("Connect-Request-ID", handler)
 
 	req := httptest.NewRequest(http.MethodPost, "/test/panic", nil)
 	req.Header.Set("Connect-Request-ID", "panic-trace-123")
@@ -468,7 +404,7 @@ func TestMiddlewareStack_PanicLogsCorrectStatus(t *testing.T) {
 }
 
 // TestMiddlewareStack_NormalRequestLogsCorrectStatus verifies that normal requests
-// (no panic) still log the correct status code.
+// (no panic) log the correct status code through the real middleware stack.
 func TestMiddlewareStack_NormalRequestLogsCorrectStatus(t *testing.T) {
 	// Arrange - capture log output
 	var logBuffer bytes.Buffer
@@ -482,9 +418,10 @@ func TestMiddlewareStack_NormalRequestLogsCorrectStatus(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 	})
 
-	// Apply middleware in production order
-	wrapped := proxy.WithPanicRecovery(handler)
-	wrapped = proxy.WithRequestLogging("Connect-Request-ID", wrapped)
+	// Apply middleware in production order: TraceID → Logger → PanicRecovery → handler
+	wrapped := proxy.PanicRecoveryMiddleware(handler)
+	wrapped = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect-Vendor-ID", wrapped)
+	wrapped = observability.TraceIDMiddleware("Connect-Request-ID", wrapped)
 
 	req := httptest.NewRequest(http.MethodPost, "/resource", nil)
 	rec := httptest.NewRecorder()
@@ -504,9 +441,9 @@ func TestMiddlewareStack_NormalRequestLogsCorrectStatus(t *testing.T) {
 	}
 }
 
-// TestRequestLogging_DeferAlwaysRuns verifies that the logging defer runs
-// even when the handler panics (before panic recovery).
-func TestRequestLogging_DeferAlwaysRuns(t *testing.T) {
+// TestPanicRecovery_LogsTraceID verifies that when PanicRecovery is inside
+// TraceIDMiddleware, the panic log includes the trace ID from context.
+func TestPanicRecovery_LogsTraceID(t *testing.T) {
 	// Arrange - capture log output
 	var logBuffer bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logBuffer, nil))
@@ -514,70 +451,25 @@ func TestRequestLogging_DeferAlwaysRuns(t *testing.T) {
 	slog.SetDefault(logger)
 	defer slog.SetDefault(originalLogger)
 
-	// Handler that panics - without panic recovery, to test defer behavior
 	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		panic("test panic without recovery")
+		panic("trace-id panic test")
 	})
 
-	// Only RequestLogging, no PanicRecovery - the panic will propagate
-	handler := proxy.WithRequestLogging("Connect-Request-ID", panicHandler)
+	// Production order: TraceID → PanicRecovery → handler
+	handler := proxy.PanicRecoveryMiddleware(panicHandler)
+	handler = observability.TraceIDMiddleware("Connect-Request-ID", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/will-panic", nil)
-	rec := httptest.NewRecorder()
-
-	// Act - catch the propagating panic
-	panicked := false
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				panicked = true
-			}
-		}()
-		handler.ServeHTTP(rec, req)
-	}()
-
-	// Assert - panic should have propagated
-	if !panicked {
-		t.Error("expected panic to propagate")
-	}
-
-	// Assert - logging defer should still have run
-	logOutput := logBuffer.String()
-	if !strings.Contains(logOutput, "request completed") {
-		t.Errorf("logging defer should have run even with panic, got: %s", logOutput)
-	}
-	if !strings.Contains(logOutput, `"path":"/will-panic"`) {
-		t.Errorf("log should contain path, got: %s", logOutput)
-	}
-}
-
-// TestMiddlewareStack_LogsLatency verifies that latency is captured correctly.
-func TestMiddlewareStack_LogsLatency(t *testing.T) {
-	// Arrange - capture log output
-	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logBuffer, nil))
-	originalLogger := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(originalLogger)
-
-	// Handler that takes some time
-	slowHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(10 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-	})
-
-	handler := proxy.WithRequestLogging("Connect-Request-ID", slowHandler)
-
-	req := httptest.NewRequest(http.MethodGet, "/slow", nil)
+	req := httptest.NewRequest(http.MethodGet, "/panic-trace", nil)
+	req.Header.Set("Connect-Request-ID", "panic-with-trace-789")
 	rec := httptest.NewRecorder()
 
 	// Act
 	handler.ServeHTTP(rec, req)
 
-	// Assert - log should contain latency_ms field
+	// Assert - panic log should contain trace_id
 	logOutput := logBuffer.String()
-	if !strings.Contains(logOutput, `"latency_ms":`) {
-		t.Errorf("log should contain latency_ms, got: %s", logOutput)
+	if !strings.Contains(logOutput, `"trace_id":"panic-with-trace-789"`) {
+		t.Errorf("panic log should contain trace_id, got: %s", logOutput)
 	}
 }
 

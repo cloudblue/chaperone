@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1115,5 +1116,152 @@ func TestIntegration_ResponseSanitization_SlowPath_AutoDetectsInjectedHeaders(t 
 	}
 	if rec.Header().Get("X-Request-Id") != "req-789" {
 		t.Errorf("X-Request-Id should be preserved, got %q", rec.Header().Get("X-Request-Id"))
+	}
+}
+
+// =============================================================================
+// Middleware Stack Integration Tests
+// =============================================================================
+//
+// These tests exercise the REAL middleware stack via Handler() to catch
+// ordering regressions in withMiddleware(). They verify the end-to-end
+// interaction between TraceIDMiddleware, RequestLoggerMiddleware, and
+// PanicRecovery — not individual middlewares in isolation.
+
+// TestHandlerStack_TraceID_PropagatedToBackend verifies the full trace ID
+// lifecycle through the real middleware stack: TraceIDMiddleware generates a
+// UUID → stores it in context → handleProxy reads it → reverse proxy forwards
+// it to the vendor in the request header.
+func TestHandlerStack_TraceID_PropagatedToBackend(t *testing.T) {
+	// Arrange — backend captures the trace header it receives
+	var receivedTraceID string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedTraceID = r.Header.Get("Connect-Request-ID")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	srv := mustNewServer(t, testConfig())
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL)
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	req.Header.Set("Connect-Request-ID", "upstream-trace-abc")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert — backend MUST receive the exact trace ID from upstream
+	if receivedTraceID != "upstream-trace-abc" {
+		t.Errorf("backend received trace_id = %q, want %q", receivedTraceID, "upstream-trace-abc")
+	}
+}
+
+// TestHandlerStack_TraceID_GeneratedAndPropagated verifies that when no
+// trace header is provided, the middleware generates a UUIDv4 and propagates
+// it to the backend (not an empty string or timestamp-based ID).
+func TestHandlerStack_TraceID_GeneratedAndPropagated(t *testing.T) {
+	var receivedTraceID string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedTraceID = r.Header.Get("Connect-Request-ID")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	srv := mustNewServer(t, testConfig())
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL)
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	// No Connect-Request-ID header — should be generated
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert — backend must receive a generated UUIDv4 (36 chars: 8-4-4-4-12)
+	if receivedTraceID == "" {
+		t.Fatal("backend received empty trace_id, expected generated UUID")
+	}
+	if len(receivedTraceID) != 36 {
+		t.Errorf("generated trace_id length = %d, want 36 (UUIDv4): %q", len(receivedTraceID), receivedTraceID)
+	}
+	if strings.HasPrefix(receivedTraceID, "trace-") {
+		t.Errorf("trace_id should be UUIDv4, not timestamp-based: %q", receivedTraceID)
+	}
+}
+
+// TestHandlerStack_TraceID_ConsistentAcrossLogAndBackend verifies that the
+// trace ID logged by RequestLoggerMiddleware matches the one sent to the
+// backend — proving the context propagation chain works end-to-end.
+func TestHandlerStack_TraceID_ConsistentAcrossLogAndBackend(t *testing.T) {
+	var receivedTraceID string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedTraceID = r.Header.Get("Connect-Request-ID")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	// Capture log output
+	var logBuf strings.Builder
+	logger := slog.New(slog.NewJSONHandler(&logBuf, nil))
+	origLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(origLogger)
+
+	srv := mustNewServer(t, testConfig())
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL)
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	req.Header.Set("Connect-Request-ID", "consistency-check-123")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert — same trace ID in backend AND in log output
+	if receivedTraceID != "consistency-check-123" {
+		t.Errorf("backend trace_id = %q, want %q", receivedTraceID, "consistency-check-123")
+	}
+
+	logOutput := logBuf.String()
+	if !strings.Contains(logOutput, `"trace_id":"consistency-check-123"`) {
+		t.Errorf("log output should contain trace_id, got:\n%s", logOutput)
+	}
+}
+
+// TestHandlerStack_PanicRecovery_StillWorks verifies that panic recovery
+// works correctly through the full Handler() stack (not manually composed).
+// This catches ordering regressions where TraceIDMiddleware might break
+// the PanicRecovery → RequestLogger interaction.
+func TestHandlerStack_PanicRecovery_StillWorks(t *testing.T) {
+	// Use a plugin that panics to trigger recovery inside handleProxy
+	panickingPlugin := &mockPlugin{
+		getCredentialsFn: func(_ context.Context, _ sdk.TransactionContext, _ *http.Request) (*sdk.Credential, error) {
+			panic("plugin exploded")
+		},
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = panickingPlugin
+	srv := mustNewServer(t, cfg)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", "https://api.example.com/v1")
+	req.Header.Set("Connect-Request-ID", "panic-test-456")
+	rec := httptest.NewRecorder()
+
+	// Act — should NOT panic (recovered by middleware)
+	handler.ServeHTTP(rec, req)
+
+	// Assert — response should be 500, not a crash
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 }

@@ -515,7 +515,6 @@ Distributors can create their own build by importing the SDK and implementing th
 ```go
 // Provided by proxy-sdk
 type TransactionContext struct {
-    ServiceID      string                 // {HeaderPrefix}-Service-ID
     MarketplaceID  string                 // {HeaderPrefix}-Marketplace-ID
     VendorID       string                 // {HeaderPrefix}-Vendor-ID
     ProductID      string                 // {HeaderPrefix}-Product-ID
@@ -673,7 +672,7 @@ The Proxy is designed to be "Observable by Default" using Cloud-Native standards
     * **Standard:** Prometheus Text Format (Pull Model).
     * **Endpoint:** Exposed on the internal Management Port (`/metrics`).
     * **Key Indicators:**
-        * `proxy_requests_total{service_id="...", status="..."}`: Measures business volume and error rates per vendor.
+        * `proxy_requests_total{vendor_id="...", status="..."}`: Measures business volume and error rates per vendor.
         * `proxy_latency_seconds_bucket`: Histogram for calculating P95/P99 latency.
         * `proxy_step_duration_seconds`: Histogram broken down by step ("plugin", "upstream", "overhead"). This is the primary metric for blaming slow components.
 
@@ -693,7 +692,7 @@ The Proxy is designed to be "Observable by Default" using Cloud-Native standards
 
 * **5. Structured Logs (Audit & Debug):**
     * **Format:** JSON (Newlines) output to `STDOUT`/`STDERR`.
-    * **Content:** Every request emits a log line including `trace_id`, `latency`, `upstream_status`, `service_id`, and `client_ip`.
+    * **Content:** Every request emits a log line including `trace_id`, `latency`, `upstream_status`, `vendor_id`, and `client_ip`.
     * **Privacy:** The Core enforces a strict **Redaction List** (defined in Config). Headers like `Authorization` or `Cookie` are replaced with `[REDACTED]` before writing.
 
 > **Note on OpenTelemetry (OTel):** While this version utilizes the **Prometheus** standard for metrics (due to its universal support and simple pull-model), the design is conceptually aligned with OpenTelemetry.

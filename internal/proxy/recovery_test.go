@@ -6,6 +6,7 @@ package proxy_test
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +25,7 @@ func TestPanicRecovery_CatchesPanic_ReturnsJSON500(t *testing.T) {
 		panic("test panic")
 	})
 
-	handler := proxy.WithPanicRecovery(panicHandler)
+	handler := proxy.PanicRecoveryMiddleware(panicHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
@@ -60,7 +61,7 @@ func TestPanicRecovery_CatchesPanic_ReturnsJSON500(t *testing.T) {
 }
 
 func TestPanicRecovery_LogsStackTrace(t *testing.T) {
-	t.Parallel()
+	// NOT parallel: this test mutates slog.SetDefault() (a global).
 
 	// Arrange - capture log output
 	var logBuffer bytes.Buffer
@@ -73,7 +74,7 @@ func TestPanicRecovery_LogsStackTrace(t *testing.T) {
 		panic("stack trace test")
 	})
 
-	handler := proxy.WithPanicRecovery(panicHandler)
+	handler := proxy.PanicRecoveryMiddleware(panicHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
@@ -108,7 +109,7 @@ func TestPanicRecovery_ServerContinuesAfterPanic(t *testing.T) {
 		_, _ = w.Write([]byte("success"))
 	})
 
-	recovered := proxy.WithPanicRecovery(handler)
+	recovered := proxy.PanicRecoveryMiddleware(handler)
 
 	// Act - first request panics
 	req1 := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -132,14 +133,21 @@ func TestPanicRecovery_ServerContinuesAfterPanic(t *testing.T) {
 }
 
 func TestPanicRecovery_ConcurrentPanics(t *testing.T) {
-	t.Parallel()
+	// NOT parallel: the 50 goroutines call slog.Error() via the global
+	// default logger, which would race with any test that captures logs
+	// into a bytes.Buffer.
+
+	// Redirect logs to discard so panics don't race on shared buffers.
+	origLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	defer slog.SetDefault(origLogger)
 
 	// Arrange
 	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("concurrent panic")
 	})
 
-	handler := proxy.WithPanicRecovery(panicHandler)
+	handler := proxy.PanicRecoveryMiddleware(panicHandler)
 
 	// Act - send many concurrent requests that all panic
 	const numRequests = 50
@@ -176,7 +184,7 @@ func TestPanicRecovery_NoPanic_NormalResponse(t *testing.T) {
 		_, _ = w.Write([]byte("created"))
 	})
 
-	handler := proxy.WithPanicRecovery(normalHandler)
+	handler := proxy.PanicRecoveryMiddleware(normalHandler)
 
 	req := httptest.NewRequest(http.MethodPost, "/resource", nil)
 	rec := httptest.NewRecorder()
@@ -201,7 +209,7 @@ func TestPanicRecovery_ErrorTypePanic(t *testing.T) {
 		panic(http.ErrAbortHandler)
 	})
 
-	handler := proxy.WithPanicRecovery(panicHandler)
+	handler := proxy.PanicRecoveryMiddleware(panicHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
