@@ -95,7 +95,8 @@ This is a **multi-module monorepo** with independent versioning for Core and SDK
 
 ```
 chaperone/
-├── cmd/chaperone/          # Main application entry point
+├── chaperone.go            # Public API: Run(), Option types
+├── cmd/chaperone/          # Default CLI entry point (wraps chaperone.Run)
 ├── sdk/                    # Plugin SDK (separate Go module)
 │   ├── go.mod              # Versioned independently (sdk/v1.x.x)
 │   ├── plugin.go           # Plugin interfaces
@@ -108,6 +109,52 @@ chaperone/
 ├── plugins/reference/      # Default file-based plugin
 └── configs/                # Example configuration files
 ```
+
+### Building Custom Binaries (Distributor Workflow)
+
+Distributors create their own binary by importing the SDK and the core:
+
+```go
+package main
+
+import (
+    "context"
+    "os"
+    "os/signal"
+    "syscall"
+
+    "github.com/cloudblue/chaperone"
+    "github.com/cloudblue/chaperone/sdk"
+)
+
+// MyPlugin implements sdk.Plugin with your credential logic.
+type MyPlugin struct{}
+
+func (p *MyPlugin) GetCredentials(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+    // Your credential injection logic here
+    return &sdk.Credential{Headers: map[string]string{"Authorization": "Bearer " + token}}, nil
+}
+
+// ... implement SignCSR and ModifyResponse ...
+
+func main() {
+    ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+    defer stop()
+
+    if err := chaperone.Run(ctx, &MyPlugin{},
+        chaperone.WithConfigPath("/etc/chaperone.yaml"),
+        chaperone.WithVersion("1.0.0"),
+    ); err != nil {
+        os.Exit(1)
+    }
+}
+```
+
+Available options:
+- `WithConfigPath(path)` — Path to YAML config file
+- `WithVersion(version)` — Version string for `/_ops/version` endpoint
+- `WithBuildInfo(commit, date)` — Git metadata for startup logs
+- `WithLogger(writer)` — Custom log output (default: `os.Stdout`)
 
 ### For Plugin Developers
 

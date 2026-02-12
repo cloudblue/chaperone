@@ -1,4 +1,4 @@
-# Task: Documentation
+# Task 14: Documentation
 
 **Status:** [ ] Not Started
 **Priority:** P1
@@ -17,9 +17,10 @@ Publish Distributor Installation Guide, Configuration Reference, and basic Plugi
 
 ## Dependencies
 
-- [ ] `01-configuration.task.md` - Config structure must be finalized
-- [ ] `02-router-allowlist.task.md` - Allow-list syntax documented
-- [ ] `06-resilience.task.md` - Timeout configuration documented
+- [x] `01-configuration.task.md` - Config structure must be finalized
+- [x] `02-router-allowlist.task.md` - Allow-list syntax documented
+- [x] `06-resilience.task.md` - Timeout configuration documented
+- [ ] `13-module-preparation.task.md` - Public API must exist for Plugin Developer Guide
 - [ ] All implementation tasks substantially complete
 
 ## Acceptance Criteria

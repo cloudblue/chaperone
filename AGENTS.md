@@ -20,6 +20,8 @@ Before starting any work, read these files in order:
 
 ```
 chaperone/
+├── chaperone.go             # 🌐 Public API: Run(), Option types
+│
 ├── docs/                    # 📚 Authoritative documentation
 │   ├── DESIGN-SPECIFICATION.md  # Architecture, ADRs, interfaces
 │   └── ROADMAP.md               # Phased delivery plan
@@ -33,7 +35,7 @@ chaperone/
 │
 ├── internal/                # 🔒 Private implementation (proxy core)
 │
-├── cmd/chaperone/           # 🚀 Main binary entry point
+├── cmd/chaperone/           # 🚀 Default CLI (wraps chaperone.Run)
 │
 └── .github/                 # 🤖 AI Workflow System
     ├── copilot-instructions.md   # Coding conventions

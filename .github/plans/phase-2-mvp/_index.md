@@ -20,8 +20,8 @@
 | 10 | Performance Attribution | [x] | P1 | Phase 1 only | M |
 | 11 | Benchmark Testing | [ ] | P1 | 09 | M |
 | 12 | Load Testing | [ ] | P1 | 07, 11 | M |
-| 13 | Documentation | [ ] | P1 | 01-06 | M |
-| 14 | Module Preparation | [ ] | P1 | All | S |
+| 13 | Module Preparation | [~] | P1 | 01-06 | M |
+| 14 | Documentation | [ ] | P1 | 01-06, 13 | M |
 
 **Legend:** `[ ]` Not started | `[~]` In progress | `[x]` Completed | `[!]` Blocked
 
@@ -39,8 +39,8 @@ Sequential work on configuration, security, and resilience.
     ├── 04-security-layer
     │       └── 05-observability-logs
     └── 06-resilience
-            └── 13-documentation
-                    └── 14-module-preparation
+            └── 13-module-preparation
+                    └── 14-documentation
 ```
 
 ### Workstream B: Telemetry & Performance (Tasks 07-12)
@@ -81,10 +81,10 @@ Phase 1 (Complete) ────────────────────�
 │                         │                                             │       │   │
 │                         └──────────────────┬──────────────────────────┘       │   │
 │                                            ▼                                  │   │
-│                                     13-documentation                          │   │
+│                                   13-module-preparation                       │   │
 │                                            │                                  │   │
 │                                            ▼                                  │   │
-│                                   14-module-preparation                       │   │
+│                                     14-documentation                          │   │
 │                                                                               │   │
 └───────────────────────────────────────────────────────────────────────────────┘   │
                                                                                     │
@@ -121,8 +121,8 @@ Phase 1 (Complete) ────────────────────�
 | 10 | §9.3.D Performance Attribution (Server-Timing) |
 | 11 | §9.3.A Benchmark Testing |
 | 12 | §9.3.B Load Testing (k6) |
-| 13 | §6 Deployment, §7 Implementation Guide, §5.5 Config |
-| 14 | ADR-004 Split Modules, §5.4 Versioning |
+| 13 | ADR-004 Split Modules, §5.4 Versioning, §7 Implementation Guide |
+| 14 | §6 Deployment, §7 Implementation Guide, §5.5 Config |
 
 ## Sprint Planning Notes
 
@@ -134,7 +134,7 @@ Phase 1 (Complete) ────────────────────�
 |------|--------------|--------------|
 | 1 | Tasks 01, 02, 03 | Tasks 07, 09 (profiling in progress), 10 |
 | 2 | Tasks 04, 05, 06 | Tasks 08, 11, 12 |
-| Final | Tasks 13, 14 (joint) | Support |
+| Final | Task 13 (module prep), then 14 (docs) | Support |
 
 ## Progress Notes
 
@@ -147,6 +147,7 @@ Phase 1 (Complete) ────────────────────�
 ### In Progress
 
 - **Task 09 (Profiling)** - Started by coworker
+- **Task 13 (Module Preparation)** - Public API + remove replace directives
 
 ### Blockers
 

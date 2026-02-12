@@ -485,7 +485,8 @@ The Chaperone repository is organized as a multi-module monorepo:
 ```text
 /chaperone
   ├── go.mod                 <-- Core module: github.com/cloudblue/chaperone
-  ├── cmd/chaperone/         <-- Main entry point
+  ├── chaperone.go           <-- Public API: Run(), Option types
+  ├── cmd/chaperone/         <-- Default CLI entry point (wraps chaperone.Run)
   ├── sdk/                   <-- SDK module: github.com/cloudblue/chaperone/sdk
   │   ├── go.mod             <-- Versioned independently (sdk/v1.x.x)
   │   └── plugin.go          <-- Plugin interface definitions
@@ -496,14 +497,42 @@ The Chaperone repository is organized as a multi-module monorepo:
 
 **Distributor Custom Build:**
 
-Distributors can create their own build by importing the SDK and implementing the Plugin interface:
+Distributors create their own repository, import both the SDK (for plugin interfaces) and the Core (for `chaperone.Run`), and compile a single binary:
 
 ```text
 /my-proxy-build
-  ├── go.mod             <-- Deps: chaperone/sdk v1.0
-  ├── main.go            <-- Imports Core + registers custom Plugin
+  ├── go.mod             <-- Deps: chaperone v1.x, chaperone/sdk v1.x
+  ├── main.go            <-- Calls chaperone.Run() with custom Plugin
   └── plugins/
       └── my_vault.go    <-- Distributor Custom Logic (Vault, OAuth2, etc.)
+```
+
+**Distributor main.go Example:**
+
+```go
+package main
+
+import (
+    "context"
+    "os"
+    "os/signal"
+    "syscall"
+
+    "github.com/cloudblue/chaperone"
+    myplugin "github.com/acme/my-proxy-build/plugins"
+)
+
+func main() {
+    ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+    defer stop()
+
+    if err := chaperone.Run(ctx, myplugin.New(),
+        chaperone.WithConfigPath("/etc/chaperone.yaml"),
+        chaperone.WithVersion("1.0.0"),
+    ); err != nil {
+        os.Exit(1)
+    }
+}
 ```
 
 *(Note: The repository includes a default **reference plugin** (`plugins/reference/`) that reads credentials from a local JSON file. This plugin is suitable for testing and simple deployments.)*
