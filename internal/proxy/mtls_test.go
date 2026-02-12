@@ -38,7 +38,7 @@ func mtlsTestConfig() Config {
 
 // mustNewTestServer creates a Server from the given config for internal tests,
 // failing the test immediately if the config is invalid.
-func mustNewTestServer(t *testing.T, cfg Config) *Server {
+func mustNewTestServer(t testing.TB, cfg Config) *Server {
 	t.Helper()
 	srv, err := NewServer(cfg)
 	if err != nil {
