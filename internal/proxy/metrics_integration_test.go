@@ -17,25 +17,8 @@ import (
 	"github.com/cloudblue/chaperone/internal/telemetry"
 )
 
-// metricsTestConfig returns a valid Config for metrics integration tests.
-func metricsTestConfig() Config {
-	return Config{
-		Addr:             ":0",
-		Version:          "test",
-		HeaderPrefix:     "X-Connect",
-		TraceHeader:      "Connect-Request-ID",
-		TLS:              &TLSConfig{Enabled: false},
-		ReadTimeout:      5 * time.Second,
-		WriteTimeout:     30 * time.Second,
-		IdleTimeout:      120 * time.Second,
-		KeepAliveTimeout: 30 * time.Second,
-		PluginTimeout:    10 * time.Second,
-		ConnectTimeout:   5 * time.Second,
-		ShutdownTimeout:  30 * time.Second,
-	}
-}
-
-// NOTE: mustNewTestServer is defined in mtls_test.go (shared across internal tests).
+// NOTE: mtlsTestConfig and mustNewTestServer are defined in mtls_test.go
+// (shared across internal tests).
 
 // NOTE: These tests must NOT use t.Parallel() because they share global
 // Prometheus metrics. Test isolation is achieved via telemetry.ResetMetrics().
@@ -44,7 +27,7 @@ func TestHandler_HealthEndpoint_RecordsMetrics(t *testing.T) {
 	telemetry.ResetMetrics(t)
 
 	// Create server with allow list for test host
-	cfg := metricsTestConfig()
+	cfg := mtlsTestConfig()
 	cfg.AllowList = map[string][]string{"httpbin.org": {"/**"}}
 	srv := mustNewTestServer(t, cfg)
 
@@ -69,7 +52,7 @@ func TestHandler_HealthEndpoint_RecordsMetrics(t *testing.T) {
 func TestHandler_VendorHeader_ExtractsVendorID(t *testing.T) {
 	telemetry.ResetMetrics(t)
 
-	cfg := metricsTestConfig()
+	cfg := mtlsTestConfig()
 	cfg.AllowList = map[string][]string{"httpbin.org": {"/**"}}
 	srv := mustNewTestServer(t, cfg)
 
@@ -117,10 +100,52 @@ func TestAdminServer_MetricsEndpoint_ExposesCustomMetrics(t *testing.T) {
 	}
 }
 
+func TestAdminServer_MetricsEndpoint_ExposesPanicsTotal(t *testing.T) {
+	telemetry.ResetMetrics(t)
+
+	// Increment panics counter so it appears in output
+	telemetry.PanicsTotal.Inc()
+
+	adminSrv := telemetry.NewAdminServer("127.0.0.1:0")
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w := httptest.NewRecorder()
+	adminSrv.Mux().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected /metrics status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "chaperone_panics_total") {
+		t.Error("expected /metrics to contain chaperone_panics_total")
+	}
+}
+
+func TestPanicRecovery_IncrementsPanicsTotal(t *testing.T) {
+	// Capture the current value (counter cannot be reset)
+	before := testutil.ToFloat64(telemetry.PanicsTotal)
+
+	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("metrics test panic")
+	})
+
+	handler := PanicRecoveryMiddleware(panicHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	after := testutil.ToFloat64(telemetry.PanicsTotal)
+	if after-before != 1 {
+		t.Errorf("expected PanicsTotal to increase by 1, got increase of %v", after-before)
+	}
+}
+
 func TestHandler_ConcurrentRequests_ThreadSafe(t *testing.T) {
 	telemetry.ResetMetrics(t)
 
-	cfg := metricsTestConfig()
+	cfg := mtlsTestConfig()
 	cfg.AllowList = map[string][]string{}
 	srv := mustNewTestServer(t, cfg)
 
@@ -163,7 +188,7 @@ func TestHandler_UpstreamDuration_RecordsOnSuccess(t *testing.T) {
 		t.Fatalf("failed to parse upstream URL: %v", err)
 	}
 
-	cfg := metricsTestConfig()
+	cfg := mtlsTestConfig()
 	cfg.AllowList = map[string][]string{upstreamURL.Hostname(): {"/**"}}
 	srv := mustNewTestServer(t, cfg)
 
@@ -192,7 +217,7 @@ func TestHandler_UpstreamDuration_RecordsOnError(t *testing.T) {
 	telemetry.ResetMetrics(t)
 
 	// Target a non-existent server to trigger error path
-	cfg := metricsTestConfig()
+	cfg := mtlsTestConfig()
 	cfg.AllowList = map[string][]string{"127.0.0.1": {"/**"}}
 	srv := mustNewTestServer(t, cfg)
 

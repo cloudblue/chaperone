@@ -164,6 +164,19 @@ func TestDefaultVendorID(t *testing.T) {
 	}
 }
 
+func TestPanicsTotal_Increment(t *testing.T) {
+	// Capture the current value (counter cannot be reset)
+	before := testutil.ToFloat64(PanicsTotal)
+
+	PanicsTotal.Inc()
+	PanicsTotal.Inc()
+
+	after := testutil.ToFloat64(PanicsTotal)
+	if after-before != 2 {
+		t.Errorf("expected PanicsTotal to increase by 2, got increase of %v", after-before)
+	}
+}
+
 func TestAPILatencyBuckets(t *testing.T) {
 	// Verify buckets are reasonable for API latency
 	if len(APILatencyBuckets) == 0 {
