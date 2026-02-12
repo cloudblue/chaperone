@@ -1,6 +1,6 @@
 # Task: Telemetry (Prometheus Metrics)
 
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 **Priority:** P1
 **Estimated Effort:** M
 
@@ -17,21 +17,21 @@ Expose `/metrics` endpoint with Prometheus counters and histograms for operation
 ## Dependencies
 
 - [x] Phase 1 complete - Core proxy skeleton exists
-- [ ] **NO dependencies on Tasks 01-06** (enables parallel development)
+- [x] **NO dependencies on Tasks 01-06** (enables parallel development)
 
 ## Acceptance Criteria
 
-- [ ] `/metrics` endpoint exposed on admin port (default: `:9090`)
-- [ ] Prometheus text format output
-- [ ] Counter: `chaperone_requests_total{vendor_id, status_code, method}`
-- [ ] Histogram: `chaperone_request_duration_seconds{vendor_id}`
-- [ ] Histogram: `chaperone_upstream_duration_seconds{vendor_id}`
-- [ ] Gauge: `chaperone_active_connections`
-- [ ] Counter: `chaperone_panics_total` - expose the `panicCount` atomic from `internal/proxy/middleware.go` (added in Task 06)
-- [ ] Standard Go runtime metrics included (`go_*`)
-- [ ] Admin server runs independently (separate from main traffic port)
-- [ ] Tests pass: `go test ./internal/telemetry/...`
-- [ ] Lint passes: `make lint`
+- [x] `/metrics` endpoint exposed on admin port (default: `:9090`)
+- [x] Prometheus text format output
+- [x] Counter: `chaperone_requests_total{vendor_id, status_code, method}`
+- [x] Histogram: `chaperone_request_duration_seconds{vendor_id}`
+- [x] Histogram: `chaperone_upstream_duration_seconds{vendor_id}`
+- [x] Gauge: `chaperone_active_connections`
+- [x] Counter: `chaperone_panics_total` - expose the `panicCount` atomic from `internal/proxy/middleware.go` (added in Task 06)
+- [x] Standard Go runtime metrics included (`go_*`)
+- [x] Admin server runs independently (separate from main traffic port)
+- [x] Tests pass: `go test ./internal/telemetry/...`
+- [x] Lint passes: `make lint`
 
 ## Implementation Hints
 

@@ -12,6 +12,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // AdminServer serves admin endpoints (health, metrics, pprof).
@@ -31,6 +33,10 @@ func NewAdminServer(addr string) *AdminServer {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status": "alive"}`))
 	})
+
+	// Prometheus metrics endpoint
+	// Per Design Spec Section 5.1.C: /metrics on admin port
+	mux.Handle("GET /metrics", promhttp.Handler())
 
 	return &AdminServer{
 		addr: addr,

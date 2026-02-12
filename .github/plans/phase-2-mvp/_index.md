@@ -14,7 +14,7 @@
 | 04 | Security Layer | [x] | P0 | 01 | M |
 | 05 | Observability (Logs) | [x] | P0 | 01, 04 | M |
 | 06 | Resilience | [x] | P0 | 01 | L |
-| 07 | Telemetry (Metrics) | [ ] | P1 | Phase 1 only | M |
+| 07 | Telemetry (Metrics) | [x] | P1 | Phase 1 only | M |
 | 08 | Telemetry (Tracing) | [ ] | P1 | 07 | L |
 | 09 | Profiling | [~] | P1 | Phase 1 only | M |
 | 10 | Performance Attribution | [ ] | P1 | Phase 1 only | M |
@@ -94,7 +94,7 @@ Phase 1 (Complete) ────────────────────�
 │   ┌─────────────────┬─────────────────────┬─────────────────────┐
 │   │                 │                     │                     │
 │   ▼                 ▼                     ▼                     │
-│   07-metrics    09-profiling [~]    10-perf-attribution         │
+│   07-metrics [x]  09-profiling [~]    10-perf-attribution         │
 │   │                 │                                           │
 │   ▼                 ▼                                           │
 │   08-tracing    11-benchmarks                                   │

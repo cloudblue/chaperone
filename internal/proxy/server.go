@@ -25,6 +25,7 @@ import (
 	"github.com/cloudblue/chaperone/internal/observability"
 	"github.com/cloudblue/chaperone/internal/router"
 	"github.com/cloudblue/chaperone/internal/security"
+	"github.com/cloudblue/chaperone/internal/telemetry"
 	"github.com/cloudblue/chaperone/sdk"
 )
 
@@ -200,11 +201,12 @@ func (s *Server) Config() Config {
 // Global middleware stack (outermost to innermost):
 //  1. TraceIDMiddleware - extracts or generates trace ID, stores in context
 //  2. RequestLoggerMiddleware - wraps response, always logs via defer (even on panic)
-//  3. PanicRecoveryMiddleware - catches panics, writes 500 to wrapped response
+//  3. MetricsMiddleware - records Prometheus metrics (request count, duration, active connections)
+//  4. PanicRecoveryMiddleware - catches panics, writes 500 to wrapped response
 //
 // Per-route middleware (applied only to /proxy):
-//  4. AllowListMiddleware - validates target URL before credential injection
-//  5. handleProxy - actual request handling
+//  5. AllowListMiddleware - validates target URL before credential injection
+//  6. handleProxy - actual request handling
 //
 // The global/per-route split is intentional: health and version endpoints
 // don't have target URLs, so AllowList validation doesn't apply to them.
@@ -400,14 +402,9 @@ func (s *Server) logStartup() {
 // AllowListMiddleware is intentionally NOT here — it's per-route (only /proxy).
 func (s *Server) withMiddleware(handler http.Handler) http.Handler {
 	// Apply middleware: outermost runs first.
-	// Order: TraceID -> RequestLogger -> PanicRecovery -> handler
-	//
-	// TraceID is outermost so the trace ID is in context before any
-	// other middleware or handler runs. RequestLogger reads it from
-	// context (standard Go pattern — no header-based fallback needed).
-	// PanicRecovery is innermost so panics are caught before they
-	// reach the logger; the logger's defer still fires normally.
+	// Order: TraceID -> RequestLogger -> Metrics -> PanicRecovery -> handler
 	handler = PanicRecoveryMiddleware(handler)
+	handler = telemetry.MetricsMiddleware(s.config.HeaderPrefix, handler)
 	handler = observability.RequestLoggerMiddleware(slog.Default(), s.config.HeaderPrefix+"-Vendor-ID", handler)
 	handler = observability.TraceIDMiddleware(s.config.TraceHeader, handler)
 	return handler
@@ -594,7 +591,10 @@ func headerValuesEqual(a, b []string) bool {
 
 // forwardRequest forwards the request to the target URL via reverse proxy.
 func (s *Server) forwardRequest(w http.ResponseWriter, r *http.Request, target *url.URL, traceID string, txCtx *sdk.TransactionContext) {
-	proxy := s.createReverseProxy(target, traceID, txCtx)
+	// Record upstream timing if available
+	timing := telemetry.TimingFromContext(r.Context())
+
+	proxy := s.createReverseProxy(target, traceID, txCtx, timing)
 	proxy.ServeHTTP(w, r) // #nosec G704 -- target validated against allow-list in handleProxy before reaching here
 }
 
@@ -627,11 +627,9 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, err er
 }
 
 // createReverseProxy creates a configured reverse proxy for the target URL.
-// The response modification chain runs in this order:
-//  1. Plugin.ModifyResponse (if plugin exists) - returns *ResponseAction for Core instructions
-//  2. Strip sensitive headers (Credential Reflection Protection) - always runs
-//  3. Core error normalization - runs unless plugin returned ResponseAction{SkipErrorNormalization: true}
-func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.TransactionContext) *httputil.ReverseProxy {
+//
+//nolint:contextcheck // ErrorHandler signature is defined by httputil.ReverseProxy; context is accessed via r.Context()
+func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.TransactionContext, timing *telemetry.Timing) *httputil.ReverseProxy {
 	proxy := httputil.NewSingleHostReverseProxy(target) // #nosec G704 -- target validated against allow-list in handleProxy before reaching here
 
 	// Apply upstream transport with configurable timeouts.
@@ -640,6 +638,10 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 	// Customize the Director to set the correct host and path
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
+		// Store upstream start time in context to avoid race condition
+		// between Director and ModifyResponse (which may run on different goroutines)
+		*req = *req.WithContext(telemetry.WithUpstreamStart(req.Context(), time.Now()))
+
 		originalDirector(req)
 		req.Host = target.Host
 		req.URL.Scheme = target.Scheme
@@ -650,10 +652,11 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 	}
 
 	// Response modification chain: Plugin → Strip Headers → Error Normalization
-	proxy.ModifyResponse = s.buildModifyResponse(traceID, txCtx) //nolint:bodyclose // resp.Body is managed by httputil.ReverseProxy
+	proxy.ModifyResponse = s.buildModifyResponse(traceID, txCtx, timing) //nolint:bodyclose // resp.Body is managed by httputil.ReverseProxy
 
-	// Handle proxy errors
+	// Handle proxy errors - also record timing on error path
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		telemetry.RecordUpstreamDuration(r.Context(), timing)
 		slog.Error("proxy error", "trace_id", traceID, "error", err)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
 	}
@@ -669,26 +672,24 @@ func (s *Server) upstreamTransport() http.RoundTripper {
 }
 
 // buildModifyResponse creates the response modification closure that runs
-// the plugin → strip headers → error normalization chain.
-func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionContext) func(*http.Response) error {
+// the timing → plugin → strip headers → error normalization chain.
+func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionContext, timing *telemetry.Timing) func(*http.Response) error {
 	return func(resp *http.Response) error {
+		// Step 0: Record upstream duration from context (safe across goroutines)
+		telemetry.RecordUpstreamDuration(resp.Request.Context(), timing)
+
 		var action *sdk.ResponseAction
 
 		// Step 1: Plugin's ModifyResponse runs FIRST (allows Distributor customization)
 		if s.config.Plugin != nil {
-			// Use the request's context with a timeout for plugin execution
 			ctx, cancel := context.WithTimeout(resp.Request.Context(), s.config.PluginTimeout)
 			defer cancel()
 
 			var err error
 			action, err = s.config.Plugin.ModifyResponse(ctx, *txCtx, resp)
 			if err != nil {
-				slog.Warn("plugin ModifyResponse error",
-					"trace_id", traceID,
-					"error", err,
-				)
+				slog.Warn("plugin ModifyResponse error", "trace_id", traceID, "error", err)
 				// Continue with response processing even if plugin fails
-				// action remains nil, so Core applies safety net
 			}
 		}
 
@@ -712,13 +713,7 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 			}
 		}
 
-		// Log the response
-		slog.Info("upstream response",
-			"trace_id", traceID,
-			"status", resp.StatusCode,
-			"content_length", resp.ContentLength,
-		)
-
+		slog.Info("upstream response", "trace_id", traceID, "status", resp.StatusCode, "content_length", resp.ContentLength)
 		return nil
 	}
 }
