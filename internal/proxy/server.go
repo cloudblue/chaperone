@@ -26,6 +26,7 @@ import (
 	"github.com/cloudblue/chaperone/internal/router"
 	"github.com/cloudblue/chaperone/internal/security"
 	"github.com/cloudblue/chaperone/internal/telemetry"
+	"github.com/cloudblue/chaperone/internal/timing"
 	"github.com/cloudblue/chaperone/sdk"
 )
 
@@ -198,35 +199,53 @@ func (s *Server) Config() Config {
 // Handler returns the HTTP handler for the server.
 // This can be used for testing or with a custom http.Server.
 //
-// Global middleware stack (outermost to innermost):
+// Middleware execution order for /proxy (outermost to innermost):
 //  1. TraceIDMiddleware - extracts or generates trace ID, stores in context
 //  2. RequestLoggerMiddleware - wraps response, always logs via defer (even on panic)
 //  3. MetricsMiddleware - records Prometheus metrics (request count, duration, active connections)
-//  4. PanicRecoveryMiddleware - catches panics, writes 500 to wrapped response
+//  4. PanicRecoveryMiddleware (global) - safety net for all endpoints
 //
 // Per-route middleware (applied only to /proxy):
-//  5. AllowListMiddleware - validates target URL before credential injection
-//  6. handleProxy - actual request handling
+//  5. TimingMiddleware - creates recorder, wraps response to inject Server-Timing header
+//  6. PanicRecoveryMiddleware (per-route) - catches panics, writes 500 to timing-wrapped response
+//  7. AllowListMiddleware - validates target URL before credential injection
+//  8. handleProxy - actual request handling
 //
-// The global/per-route split is intentional: health and version endpoints
-// don't have target URLs, so AllowList validation doesn't apply to them.
+// TimingMiddleware is scoped to /proxy only — operational endpoints (/_ops/*) do not
+// emit Server-Timing headers, avoiding latency leakage on health checks
+// that may be exposed without mTLS.
+//
+// TimingMiddleware wraps PanicRecovery so that panic-induced 500 responses still flow
+// through the timingResponseWriter, ensuring Server-Timing is present on
+// all /proxy responses including panics.
+//
+// This order ensures:
+//   - All requests are logged (including rejections and panics)
+//   - Server-Timing header is present on all /proxy responses (including panics)
+//   - Panics are caught and logged properly
+//   - URL validation happens before credential injection
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Register operational endpoints (no allow list validation needed)
+	// Register operational endpoints (no timing, no panic recovery needed)
 	mux.HandleFunc("GET /_ops/health", s.handleHealth)
 	mux.HandleFunc("GET /_ops/version", s.handleVersion)
 
-	// Register proxy endpoint with allow list validation
+	// Register proxy endpoint: TimingMiddleware -> PanicRecovery -> AllowList -> handler
+	// TimingMiddleware wraps PanicRecovery so panic 500s still get Server-Timing headers.
 	// Security: AllowList is REQUIRED per Design Spec Section 5.3
-	proxyHandler := router.NewAllowListMiddleware(
-		s.config.AllowList,
-		s.config.HeaderPrefix,
-		http.HandlerFunc(s.handleProxy),
+	proxyHandler := timing.TimingMiddleware(
+		PanicRecoveryMiddleware(
+			router.NewAllowListMiddleware(
+				s.config.AllowList,
+				s.config.HeaderPrefix,
+				http.HandlerFunc(s.handleProxy),
+			),
+		),
 	)
 	mux.Handle("/proxy", proxyHandler)
 
-	// Apply global middleware stack (logging, panic recovery)
+	// Apply global middleware stack
 	handler := s.withMiddleware(mux)
 
 	return handler
@@ -400,6 +419,10 @@ func (s *Server) logStartup() {
 // withMiddleware wraps the handler with the global middleware stack.
 // See Handler() for complete middleware ordering documentation.
 // AllowListMiddleware is intentionally NOT here — it's per-route (only /proxy).
+//
+// Note: TimingMiddleware and a per-route PanicRecovery are applied to /proxy
+// in Handler() — they are NOT applied here. The global PanicRecovery below
+// protects /_ops endpoints and acts as a safety net for /proxy.
 func (s *Server) withMiddleware(handler http.Handler) http.Handler {
 	// Apply middleware: outermost runs first.
 	// Order: TraceID -> RequestLogger -> Metrics -> PanicRecovery -> handler
@@ -508,7 +531,15 @@ func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContex
 	ctx, cancel := context.WithTimeout(r.Context(), s.config.PluginTimeout)
 	defer cancel()
 
+	pluginStart := time.Now()
 	cred, err := s.config.Plugin.GetCredentials(ctx, *txCtx, r)
+	pluginDuration := time.Since(pluginStart)
+
+	// Store plugin duration in timing recorder (if present)
+	if recorder := timing.FromContext(r.Context()); recorder != nil {
+		recorder.RecordPlugin(pluginDuration)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -591,10 +622,11 @@ func headerValuesEqual(a, b []string) bool {
 
 // forwardRequest forwards the request to the target URL via reverse proxy.
 func (s *Server) forwardRequest(w http.ResponseWriter, r *http.Request, target *url.URL, traceID string, txCtx *sdk.TransactionContext) {
-	// Record upstream timing if available
-	timing := telemetry.TimingFromContext(r.Context())
+	// Record upstream timing for both telemetry metrics and Server-Timing header
+	telTiming := telemetry.TimingFromContext(r.Context())
+	upstreamStart := time.Now()
 
-	proxy := s.createReverseProxy(target, traceID, txCtx, timing)
+	proxy := s.createReverseProxy(target, traceID, txCtx, telTiming, upstreamStart)
 	proxy.ServeHTTP(w, r) // #nosec G704 -- target validated against allow-list in handleProxy before reaching here
 }
 
@@ -627,9 +659,17 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, err er
 }
 
 // createReverseProxy creates a configured reverse proxy for the target URL.
+// The response modification chain runs in this order:
+//  0. Record upstream duration (both telemetry metrics and Server-Timing recorder)
+//  1. Plugin.ModifyResponse (if plugin exists) - returns *ResponseAction for Core instructions
+//  2. Strip sensitive headers (Credential Reflection Protection) - always runs
+//  3. Core error normalization - runs unless plugin returned ResponseAction{SkipErrorNormalization: true}
+//
+// upstreamStart is captured in forwardRequest before proxy.ServeHTTP is called.
+// Exactly one of ModifyResponse or ErrorHandler fires per request — never both.
 //
 //nolint:contextcheck // ErrorHandler signature is defined by httputil.ReverseProxy; context is accessed via r.Context()
-func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.TransactionContext, timing *telemetry.Timing) *httputil.ReverseProxy {
+func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.TransactionContext, telTiming *telemetry.Timing, upstreamStart time.Time) *httputil.ReverseProxy {
 	proxy := httputil.NewSingleHostReverseProxy(target) // #nosec G704 -- target validated against allow-list in handleProxy before reaching here
 
 	// Apply upstream transport with configurable timeouts.
@@ -651,13 +691,24 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 		}
 	}
 
-	// Response modification chain: Plugin → Strip Headers → Error Normalization
-	proxy.ModifyResponse = s.buildModifyResponse(traceID, txCtx, timing) //nolint:bodyclose // resp.Body is managed by httputil.ReverseProxy
+	// Response modification chain: Timing → Plugin → Strip Headers → Error Normalization
+	proxy.ModifyResponse = s.buildModifyResponse(traceID, txCtx, telTiming, upstreamStart) //nolint:bodyclose // resp.Body is managed by httputil.ReverseProxy
 
-	// Handle proxy errors - also record timing on error path
+	// Handle proxy errors (upstream unreachable, connection refused, etc.)
+	// ErrorHandler fires instead of ModifyResponse when the upstream is unreachable.
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		telemetry.RecordUpstreamDuration(r.Context(), timing)
-		slog.Error("proxy error", "trace_id", traceID, "error", err)
+		// Record telemetry upstream duration
+		telemetry.RecordUpstreamDuration(r.Context(), telTiming)
+
+		// Record the failed upstream attempt duration for Server-Timing header.
+		if recorder := timing.FromContext(r.Context()); recorder != nil {
+			recorder.RecordUpstream(time.Since(upstreamStart))
+		}
+
+		slog.Error("proxy error",
+			"trace_id", traceID,
+			"error", err,
+		)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
 	}
 
@@ -673,10 +724,15 @@ func (s *Server) upstreamTransport() http.RoundTripper {
 
 // buildModifyResponse creates the response modification closure that runs
 // the timing → plugin → strip headers → error normalization chain.
-func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionContext, timing *telemetry.Timing) func(*http.Response) error {
+func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionContext, telTiming *telemetry.Timing, upstreamStart time.Time) func(*http.Response) error {
 	return func(resp *http.Response) error {
-		// Step 0: Record upstream duration from context (safe across goroutines)
-		telemetry.RecordUpstreamDuration(resp.Request.Context(), timing)
+		// Step 0a: Record upstream duration for telemetry metrics (safe across goroutines)
+		telemetry.RecordUpstreamDuration(resp.Request.Context(), telTiming)
+
+		// Step 0b: Record upstream duration for Server-Timing header
+		if recorder := timing.FromContext(resp.Request.Context()); recorder != nil {
+			recorder.RecordUpstream(time.Since(upstreamStart))
+		}
 
 		var action *sdk.ResponseAction
 

@@ -29,9 +29,17 @@ func NewResponseCapturer(w http.ResponseWriter) *ResponseCapturer {
 }
 
 // WriteHeader captures the status code and delegates to the inner writer.
-// Only the first call is forwarded; subsequent calls are silently ignored
-// to avoid Go's "superfluous response.WriteHeader call" warning.
+// 1xx informational responses (e.g., 100 Continue) are forwarded without
+// setting the guard, since httputil.ReverseProxy may send them before the
+// final response. Only the first final (2xx+) call is forwarded; subsequent
+// calls are silently ignored to avoid Go's "superfluous response.WriteHeader
+// call" warning.
 func (rc *ResponseCapturer) WriteHeader(code int) {
+	// Pass through 1xx informational responses without setting the guard.
+	if code >= 100 && code <= 199 {
+		rc.ResponseWriter.WriteHeader(code)
+		return
+	}
 	if rc.wroteHeader {
 		return
 	}

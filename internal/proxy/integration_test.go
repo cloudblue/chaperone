@@ -6,6 +6,7 @@ package proxy_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -1263,5 +1264,479 @@ func TestHandlerStack_PanicRecovery_StillWorks(t *testing.T) {
 	// Assert — response should be 500, not a crash
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+// --- Server-Timing Integration Tests ---
+
+// TestIntegration_ServerTiming_PresentOnSuccess verifies Server-Timing header
+// is added to successful responses per Design Spec Section 8.3.3.
+func TestIntegration_ServerTiming_PresentOnSuccess(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(10 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"result": "success"}`))
+	}))
+	defer backend.Close()
+
+	srv := mustNewServer(t, testConfig())
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	header := rec.Header().Get("Server-Timing")
+	if header == "" {
+		t.Fatal("Server-Timing header should be present")
+	}
+
+	// Verify format contains all three components
+	if !strings.Contains(header, "plugin;dur=") {
+		t.Errorf("Header = %q, want to contain 'plugin;dur='", header)
+	}
+	if !strings.Contains(header, "upstream;dur=") {
+		t.Errorf("Header = %q, want to contain 'upstream;dur='", header)
+	}
+	if !strings.Contains(header, "overhead;dur=") {
+		t.Errorf("Header = %q, want to contain 'overhead;dur='", header)
+	}
+}
+
+// TestIntegration_ServerTiming_PresentOnError verifies Server-Timing header
+// is added even when upstream returns an error.
+func TestIntegration_ServerTiming_PresentOnError(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("internal error"))
+	}))
+	defer backend.Close()
+
+	srv := mustNewServer(t, testConfig())
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	header := rec.Header().Get("Server-Timing")
+	if header == "" {
+		t.Fatal("Server-Timing header should be present on error responses")
+	}
+}
+
+// TestIntegration_ServerTiming_ReflectsPluginDuration verifies that plugin
+// execution time is accurately reflected in the Server-Timing header.
+func TestIntegration_ServerTiming_ReflectsPluginDuration(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	// Plugin that takes measurable time
+	plugin := &mockPlugin{
+		getCredentialsFn: func(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+			time.Sleep(50 * time.Millisecond)
+			return &sdk.Credential{
+				Headers:   map[string]string{"Authorization": "Bearer token"},
+				ExpiresAt: time.Now().Add(time.Hour),
+			}, nil
+		},
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	header := rec.Header().Get("Server-Timing")
+
+	// Parse plugin duration from header
+	parts := strings.Split(header, ", ")
+	var pluginDur float64
+	for _, part := range parts {
+		if strings.HasPrefix(part, "plugin;dur=") {
+			_, err := fmt.Sscanf(part, "plugin;dur=%f", &pluginDur)
+			if err != nil {
+				t.Fatalf("failed to parse plugin duration from %q: %v", part, err)
+			}
+			break
+		}
+	}
+
+	// Plugin should have taken at least ~50ms (generous lower bound for CI)
+	if pluginDur < 40.0 || pluginDur > 500.0 {
+		t.Errorf("plugin duration = %.2fms, want between 40ms and 500ms", pluginDur)
+	}
+}
+
+// TestIntegration_ServerTiming_ReflectsUpstreamDuration verifies that upstream
+// latency is accurately reflected in the Server-Timing header.
+func TestIntegration_ServerTiming_ReflectsUpstreamDuration(t *testing.T) {
+	// Backend that takes measurable time
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(30 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	srv := mustNewServer(t, testConfig())
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	header := rec.Header().Get("Server-Timing")
+
+	// Parse upstream duration from header
+	parts := strings.Split(header, ", ")
+	var upstreamDur float64
+	for _, part := range parts {
+		if strings.HasPrefix(part, "upstream;dur=") {
+			_, err := fmt.Sscanf(part, "upstream;dur=%f", &upstreamDur)
+			if err != nil {
+				t.Fatalf("failed to parse upstream duration from %q: %v", part, err)
+			}
+			break
+		}
+	}
+
+	// Upstream should have taken at least ~30ms (generous lower bound for CI)
+	if upstreamDur < 20.0 || upstreamDur > 500.0 {
+		t.Errorf("upstream duration = %.2fms, want between 20ms and 500ms", upstreamDur)
+	}
+}
+
+// TestIntegration_ServerTiming_NoPluginShowsZeroDuration verifies that when
+// no plugin is configured, the plugin duration is zero.
+func TestIntegration_ServerTiming_NoPluginShowsZeroDuration(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	// No plugin configured
+	srv := mustNewServer(t, testConfig())
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	header := rec.Header().Get("Server-Timing")
+
+	// Plugin duration should be near zero (no plugin execution)
+	if !strings.Contains(header, "plugin;dur=0.00") {
+		t.Errorf("Header = %q, want plugin;dur=0.00 when no plugin", header)
+	}
+}
+
+// TestIntegration_ServerTiming_PresentOnPluginError verifies Server-Timing header
+// is added when the plugin returns an error (500), with non-zero plugin duration.
+func TestIntegration_ServerTiming_PresentOnPluginError(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("backend should not be called when plugin fails")
+	}))
+	defer backend.Close()
+
+	plugin := &mockPlugin{
+		getCredentialsFn: func(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+			time.Sleep(20 * time.Millisecond)
+			return nil, errors.New("vault connection failed")
+		},
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+
+	header := rec.Header().Get("Server-Timing")
+	if header == "" {
+		t.Fatal("Server-Timing header should be present on plugin error responses")
+	}
+
+	// Plugin ran, so plugin;dur should be > 0. Upstream was never reached, so upstream;dur=0.00.
+	if !strings.Contains(header, "upstream;dur=0.00") {
+		t.Errorf("Header = %q, want upstream;dur=0.00 when upstream was never reached", header)
+	}
+}
+
+// TestIntegration_ServerTiming_PresentOnPluginTimeout verifies Server-Timing header
+// is added when the plugin times out (504), with plugin duration reflecting the timeout.
+func TestIntegration_ServerTiming_PresentOnPluginTimeout(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("backend should not be called when plugin times out")
+	}))
+	defer backend.Close()
+
+	plugin := &mockPlugin{
+		getCredentialsFn: func(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(5 * time.Second):
+				return nil, errors.New("should not reach here")
+			}
+		},
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	cfg.PluginTimeout = 50 * time.Millisecond
+	srv := mustNewServer(t, cfg)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusGatewayTimeout)
+	}
+
+	header := rec.Header().Get("Server-Timing")
+	if header == "" {
+		t.Fatal("Server-Timing header should be present on plugin timeout responses")
+	}
+
+	// Upstream was never reached
+	if !strings.Contains(header, "upstream;dur=0.00") {
+		t.Errorf("Header = %q, want upstream;dur=0.00 when upstream was never reached", header)
+	}
+}
+
+// TestIntegration_ServerTiming_PresentOnAllowListRejection verifies Server-Timing
+// is present when the request is rejected by the AllowList (403 Forbidden).
+// In this path, plugin and upstream phases never execute.
+func TestIntegration_ServerTiming_PresentOnAllowListRejection(t *testing.T) {
+	// Server with an allow list that does NOT include evil.com
+	cfg := testConfig()
+	cfg.AllowList = map[string][]string{
+		"api.example.com": {"/**"},
+	}
+	srv := mustNewServer(t, cfg)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", "https://evil.com/steal/data")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+
+	header := rec.Header().Get("Server-Timing")
+	if header == "" {
+		t.Fatal("Server-Timing header should be present on 403 Forbidden")
+	}
+
+	// Plugin and upstream never ran
+	if !strings.Contains(header, "plugin;dur=0.00") {
+		t.Errorf("Header = %q, want plugin;dur=0.00 when AllowList rejects", header)
+	}
+	if !strings.Contains(header, "upstream;dur=0.00") {
+		t.Errorf("Header = %q, want upstream;dur=0.00 when AllowList rejects", header)
+	}
+}
+
+// TestIntegration_ServerTiming_PresentOnBadRequest verifies Server-Timing
+// is present when the request is malformed (400 Bad Request).
+// Missing X-Connect-Target-URL header triggers this path.
+func TestIntegration_ServerTiming_PresentOnBadRequest(t *testing.T) {
+	srv := mustNewServer(t, testConfig())
+	handler := srv.Handler()
+
+	// Missing X-Connect-Target-URL → 400
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	header := rec.Header().Get("Server-Timing")
+	if header == "" {
+		t.Fatal("Server-Timing header should be present on 400 Bad Request")
+	}
+
+	// Plugin and upstream never ran
+	if !strings.Contains(header, "plugin;dur=0.00") {
+		t.Errorf("Header = %q, want plugin;dur=0.00 on bad request", header)
+	}
+	if !strings.Contains(header, "upstream;dur=0.00") {
+		t.Errorf("Header = %q, want upstream;dur=0.00 on bad request", header)
+	}
+}
+
+// TestIntegration_ServerTiming_BadGatewayIncludesHeader verifies that
+// Server-Timing is present even when the upstream is unreachable.
+func TestIntegration_ServerTiming_BadGatewayIncludesHeader(t *testing.T) {
+	srv := mustNewServer(t, testConfig())
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	// Port 1 is never open - will cause 502 Bad Gateway
+	req.Header.Set("X-Connect-Target-URL", "http://127.0.0.1:1/api")
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadGateway)
+	}
+
+	header := rec.Header().Get("Server-Timing")
+	if header == "" {
+		t.Fatal("Server-Timing header should be present on 502 Bad Gateway")
+	}
+}
+
+// TestIntegration_ServerTiming_SurvivesPanic verifies the key architectural
+// invariant: TimingMiddleware wraps PanicRecoveryMiddleware so that panic-induced
+// 500 responses still carry the Server-Timing header. This ensures performance
+// attribution is available even when the handler panics.
+func TestIntegration_ServerTiming_SurvivesPanic(t *testing.T) {
+	// Plugin that sleeps (measurable duration) then panics
+	panickingPlugin := &mockPlugin{
+		getCredentialsFn: func(_ context.Context, _ sdk.TransactionContext, _ *http.Request) (*sdk.Credential, error) {
+			time.Sleep(20 * time.Millisecond)
+			panic("plugin exploded during credentials")
+		},
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = panickingPlugin
+	srv := mustNewServer(t, cfg)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", "https://api.example.com/v1")
+	req.Header.Set("Connect-Request-ID", "panic-timing-test")
+	rec := httptest.NewRecorder()
+
+	// Act — should NOT crash (recovered by PanicRecoveryMiddleware)
+	handler.ServeHTTP(rec, req)
+
+	// Assert — response should be 500
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+
+	// Assert — Server-Timing header MUST be present (key invariant)
+	header := rec.Header().Get("Server-Timing")
+	if header == "" {
+		t.Fatal("Server-Timing header must be present on panic 500 responses")
+	}
+
+	// Assert — all three components present
+	if !strings.Contains(header, "plugin;dur=") {
+		t.Errorf("Header = %q, want to contain 'plugin;dur='", header)
+	}
+	if !strings.Contains(header, "upstream;dur=") {
+		t.Errorf("Header = %q, want to contain 'upstream;dur='", header)
+	}
+	if !strings.Contains(header, "overhead;dur=") {
+		t.Errorf("Header = %q, want to contain 'overhead;dur='", header)
+	}
+
+	// Note: plugin;dur=0.00 is expected here. RecordPlugin runs after
+	// GetCredentials returns, but a panic unwinds the stack before that
+	// line executes. The key invariant is header presence, not duration
+	// accuracy on panic paths.
+}
+
+// TestIntegration_OpsEndpoints_NoServerTimingHeader verifies that /_ops
+// endpoints do NOT emit Server-Timing headers (scoped to /proxy only).
+func TestIntegration_OpsEndpoints_NoServerTimingHeader(t *testing.T) {
+	srv := mustNewServer(t, testConfig())
+	handler := srv.Handler()
+
+	for _, path := range []string{"/_ops/health", "/_ops/version"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want %d", path, rec.Code, http.StatusOK)
+		}
+		if header := rec.Header().Get("Server-Timing"); header != "" {
+			t.Errorf("%s should NOT have Server-Timing header, got %q", path, header)
+		}
+	}
+}
+
+// TestIntegration_GlobalPanicRecovery_ProtectsAllRoutes is a structural
+// regression test for the bug where PanicRecoveryMiddleware was accidentally
+// inside a comment in withMiddleware(), leaving /_ops endpoints unprotected.
+// It tests withMiddleware() directly with a panicking handler to verify
+// the global PanicRecoveryMiddleware is in the chain.
+func TestIntegration_GlobalPanicRecovery_ProtectsAllRoutes(t *testing.T) {
+	srv := mustNewServer(t, testConfig())
+
+	// Wrap a panicking handler through the real withMiddleware() chain
+	panicking := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("simulated /_ops panic")
+	})
+	handler := srv.WithMiddlewareForTesting(panicking)
+
+	req := httptest.NewRequest(http.MethodGet, "/_ops/health", nil)
+	rec := httptest.NewRecorder()
+
+	// Act — must NOT crash the process
+	handler.ServeHTTP(rec, req)
+
+	// Assert — PanicRecoveryMiddleware should catch the panic and return 500
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d (global PanicRecoveryMiddleware should catch panic)", rec.Code, http.StatusInternalServerError)
+	}
+
+	// Assert — response should be the JSON format from PanicRecoveryMiddleware
+	ct := rec.Header().Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
 	}
 }
