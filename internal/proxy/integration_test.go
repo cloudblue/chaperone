@@ -1634,3 +1634,109 @@ func TestIntegration_ServerTiming_BadGatewayIncludesHeader(t *testing.T) {
 		t.Fatal("Server-Timing header should be present on 502 Bad Gateway")
 	}
 }
+
+// TestIntegration_ServerTiming_SurvivesPanic verifies the key architectural
+// invariant: TimingMiddleware wraps PanicRecoveryMiddleware so that panic-induced
+// 500 responses still carry the Server-Timing header. This ensures performance
+// attribution is available even when the handler panics.
+func TestIntegration_ServerTiming_SurvivesPanic(t *testing.T) {
+	// Plugin that sleeps (measurable duration) then panics
+	panickingPlugin := &mockPlugin{
+		getCredentialsFn: func(_ context.Context, _ sdk.TransactionContext, _ *http.Request) (*sdk.Credential, error) {
+			time.Sleep(20 * time.Millisecond)
+			panic("plugin exploded during credentials")
+		},
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = panickingPlugin
+	srv := mustNewServer(t, cfg)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", "https://api.example.com/v1")
+	req.Header.Set("Connect-Request-ID", "panic-timing-test")
+	rec := httptest.NewRecorder()
+
+	// Act — should NOT crash (recovered by PanicRecoveryMiddleware)
+	handler.ServeHTTP(rec, req)
+
+	// Assert — response should be 500
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+
+	// Assert — Server-Timing header MUST be present (key invariant)
+	header := rec.Header().Get("Server-Timing")
+	if header == "" {
+		t.Fatal("Server-Timing header must be present on panic 500 responses")
+	}
+
+	// Assert — all three components present
+	if !strings.Contains(header, "plugin;dur=") {
+		t.Errorf("Header = %q, want to contain 'plugin;dur='", header)
+	}
+	if !strings.Contains(header, "upstream;dur=") {
+		t.Errorf("Header = %q, want to contain 'upstream;dur='", header)
+	}
+	if !strings.Contains(header, "overhead;dur=") {
+		t.Errorf("Header = %q, want to contain 'overhead;dur='", header)
+	}
+
+	// Note: plugin;dur=0.00 is expected here. RecordPlugin runs after
+	// GetCredentials returns, but a panic unwinds the stack before that
+	// line executes. The key invariant is header presence, not duration
+	// accuracy on panic paths.
+}
+
+// TestIntegration_OpsEndpoints_NoServerTimingHeader verifies that /_ops
+// endpoints do NOT emit Server-Timing headers (scoped to /proxy only).
+func TestIntegration_OpsEndpoints_NoServerTimingHeader(t *testing.T) {
+	srv := mustNewServer(t, testConfig())
+	handler := srv.Handler()
+
+	for _, path := range []string{"/_ops/health", "/_ops/version"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want %d", path, rec.Code, http.StatusOK)
+		}
+		if header := rec.Header().Get("Server-Timing"); header != "" {
+			t.Errorf("%s should NOT have Server-Timing header, got %q", path, header)
+		}
+	}
+}
+
+// TestIntegration_GlobalPanicRecovery_ProtectsAllRoutes is a structural
+// regression test for the bug where PanicRecoveryMiddleware was accidentally
+// inside a comment in withMiddleware(), leaving /_ops endpoints unprotected.
+// It tests withMiddleware() directly with a panicking handler to verify
+// the global PanicRecoveryMiddleware is in the chain.
+func TestIntegration_GlobalPanicRecovery_ProtectsAllRoutes(t *testing.T) {
+	srv := mustNewServer(t, testConfig())
+
+	// Wrap a panicking handler through the real withMiddleware() chain
+	panicking := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("simulated /_ops panic")
+	})
+	handler := srv.WithMiddlewareForTesting(panicking)
+
+	req := httptest.NewRequest(http.MethodGet, "/_ops/health", nil)
+	rec := httptest.NewRecorder()
+
+	// Act — must NOT crash the process
+	handler.ServeHTTP(rec, req)
+
+	// Assert — PanicRecoveryMiddleware should catch the panic and return 500
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d (global PanicRecoveryMiddleware should catch panic)", rec.Code, http.StatusInternalServerError)
+	}
+
+	// Assert — response should be the JSON format from PanicRecoveryMiddleware
+	ct := rec.Header().Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
+	}
+}

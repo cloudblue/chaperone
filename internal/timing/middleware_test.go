@@ -11,13 +11,13 @@ import (
 	"time"
 )
 
-func TestWithTiming_AddsServerTimingHeader(t *testing.T) {
+func TestTimingMiddleware_AddsServerTimingHeader(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
 
-	wrapped := WithTiming(handler)
+	wrapped := TimingMiddleware(handler)
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
@@ -42,7 +42,7 @@ func TestWithTiming_AddsServerTimingHeader(t *testing.T) {
 	}
 }
 
-func TestWithTiming_RecorderInContext(t *testing.T) {
+func TestTimingMiddleware_RecorderInContext(t *testing.T) {
 	var retrievedRecorder *Recorder
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +50,7 @@ func TestWithTiming_RecorderInContext(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	wrapped := WithTiming(handler)
+	wrapped := TimingMiddleware(handler)
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
@@ -62,7 +62,7 @@ func TestWithTiming_RecorderInContext(t *testing.T) {
 	}
 }
 
-func TestWithTiming_RecordedDurationsReflectedInHeader(t *testing.T) {
+func TestTimingMiddleware_RecordedDurationsReflectedInHeader(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		recorder := FromContext(r.Context())
 		if recorder == nil {
@@ -73,7 +73,7 @@ func TestWithTiming_RecordedDurationsReflectedInHeader(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	wrapped := WithTiming(handler)
+	wrapped := TimingMiddleware(handler)
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
@@ -89,14 +89,14 @@ func TestWithTiming_RecordedDurationsReflectedInHeader(t *testing.T) {
 	}
 }
 
-func TestWithTiming_HeaderAddedOnError(t *testing.T) {
+func TestTimingMiddleware_HeaderAddedOnError(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		recorder := FromContext(r.Context())
 		recorder.RecordPlugin(50 * time.Millisecond)
 		http.Error(w, "Internal Error", http.StatusInternalServerError)
 	})
 
-	wrapped := WithTiming(handler)
+	wrapped := TimingMiddleware(handler)
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
@@ -116,7 +116,7 @@ func TestWithTiming_HeaderAddedOnError(t *testing.T) {
 	}
 }
 
-func TestWithTiming_SupportsStreaming(t *testing.T) {
+func TestTimingMiddleware_SupportsStreaming(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("chunk1"))
@@ -126,7 +126,7 @@ func TestWithTiming_SupportsStreaming(t *testing.T) {
 		w.Write([]byte("chunk2"))
 	})
 
-	wrapped := WithTiming(handler)
+	wrapped := TimingMiddleware(handler)
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
@@ -146,13 +146,13 @@ func TestWithTiming_SupportsStreaming(t *testing.T) {
 	}
 }
 
-func TestWithTiming_WriteWithoutExplicitWriteHeader(t *testing.T) {
+func TestTimingMiddleware_WriteWithoutExplicitWriteHeader(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Write without calling WriteHeader - should default to 200
 		w.Write([]byte("direct write"))
 	})
 
-	wrapped := WithTiming(handler)
+	wrapped := TimingMiddleware(handler)
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()

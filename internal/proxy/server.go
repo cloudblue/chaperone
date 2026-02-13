@@ -203,19 +203,19 @@ func (s *Server) Config() Config {
 //  1. TraceIDMiddleware - extracts or generates trace ID, stores in context
 //  2. RequestLoggerMiddleware - wraps response, always logs via defer (even on panic)
 //  3. MetricsMiddleware - records Prometheus metrics (request count, duration, active connections)
-//  4. PanicRecoveryMiddleware (global) - catches panics on /_ops endpoints
+//  4. PanicRecoveryMiddleware (global) - safety net for all endpoints
 //
 // Per-route middleware (applied only to /proxy):
-//  5. Timing - creates recorder, wraps response to inject Server-Timing header
+//  5. TimingMiddleware - creates recorder, wraps response to inject Server-Timing header
 //  6. PanicRecoveryMiddleware (per-route) - catches panics, writes 500 to timing-wrapped response
 //  7. AllowListMiddleware - validates target URL before credential injection
 //  8. handleProxy - actual request handling
 //
-// Timing is scoped to /proxy only — operational endpoints (/_ops/*) do not
+// TimingMiddleware is scoped to /proxy only — operational endpoints (/_ops/*) do not
 // emit Server-Timing headers, avoiding latency leakage on health checks
 // that may be exposed without mTLS.
 //
-// Timing wraps PanicRecovery so that panic-induced 500 responses still flow
+// TimingMiddleware wraps PanicRecovery so that panic-induced 500 responses still flow
 // through the timingResponseWriter, ensuring Server-Timing is present on
 // all /proxy responses including panics.
 //
@@ -231,10 +231,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /_ops/health", s.handleHealth)
 	mux.HandleFunc("GET /_ops/version", s.handleVersion)
 
-	// Register proxy endpoint: Timing -> PanicRecovery -> AllowList -> handler
-	// Timing wraps PanicRecovery so panic 500s still get Server-Timing headers.
+	// Register proxy endpoint: TimingMiddleware -> PanicRecovery -> AllowList -> handler
+	// TimingMiddleware wraps PanicRecovery so panic 500s still get Server-Timing headers.
 	// Security: AllowList is REQUIRED per Design Spec Section 5.3
-	proxyHandler := timing.WithTiming(
+	proxyHandler := timing.TimingMiddleware(
 		PanicRecoveryMiddleware(
 			router.NewAllowListMiddleware(
 				s.config.AllowList,
@@ -245,7 +245,7 @@ func (s *Server) Handler() http.Handler {
 	)
 	mux.Handle("/proxy", proxyHandler)
 
-	// Apply global middleware stack (logging only)
+	// Apply global middleware stack
 	handler := s.withMiddleware(mux)
 
 	return handler
@@ -420,16 +420,13 @@ func (s *Server) logStartup() {
 // See Handler() for complete middleware ordering documentation.
 // AllowListMiddleware is intentionally NOT here — it's per-route (only /proxy).
 //
-// Note: timing.WithTiming and a per-route PanicRecovery are applied to /proxy
+// Note: TimingMiddleware and a per-route PanicRecovery are applied to /proxy
 // in Handler() — they are NOT applied here. The global PanicRecovery below
 // protects /_ops endpoints and acts as a safety net for /proxy.
 func (s *Server) withMiddleware(handler http.Handler) http.Handler {
 	// Apply middleware: outermost runs first.
 	// Order: TraceID -> RequestLogger -> Metrics -> PanicRecovery -> handler
-	//
-	// Note: timing.WithTiming and a per-route PanicRecovery are applied to /proxy
-	// in Handler() — they are NOT applied here. The global PanicRecovery below
-	// protects /_ops endpoints and acts as a safety net for /proxy.	handler = PanicRecoveryMiddleware(handler)
+	handler = PanicRecoveryMiddleware(handler)
 	handler = telemetry.MetricsMiddleware(s.config.HeaderPrefix, handler)
 	handler = observability.RequestLoggerMiddleware(slog.Default(), s.config.HeaderPrefix+"-Vendor-ID", handler)
 	handler = observability.TraceIDMiddleware(s.config.TraceHeader, handler)
