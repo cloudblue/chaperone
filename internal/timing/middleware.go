@@ -61,10 +61,12 @@ func (w *timingResponseWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
 }
 
-// WithTiming wraps a handler to:
-// 1. Create a timing Recorder and store it in the request context
-// 2. Wrap the ResponseWriter to inject Server-Timing header on response
-func WithTiming(next http.Handler) http.Handler {
+// TimingMiddleware wraps a handler to:
+//  1. Create a timing Recorder and store it in the request context
+//  2. Wrap the ResponseWriter to inject Server-Timing header on response
+//
+//nolint:revive // stutters as timing.TimingMiddleware — intentional for project consistency
+func TimingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		recorder := New()
 		ctx := WithRecorder(r.Context(), recorder)
