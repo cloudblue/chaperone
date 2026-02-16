@@ -1,7 +1,7 @@
 ---
 agent: "agent"
 description: Bootstrap a new session with full project context
-tools: ['execute', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/readFile', 'search', 'web', 'agent']
+tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 # Bootstrap Session

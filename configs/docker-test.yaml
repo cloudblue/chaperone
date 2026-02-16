@@ -1,0 +1,22 @@
+# Copyright 2026 CloudBlue LLC
+# SPDX-License-Identifier: Apache-2.0
+
+# Configuration for `make docker-test` proxy round-trip validation.
+# Uses a private Docker network with a local echo server as the target.
+# No traffic leaves the host — credentials stay within the test network.
+
+server:
+  addr: ":8443"
+  admin_addr: ":9090"
+  tls:
+    enabled: false
+
+upstream:
+  header_prefix: "X-Connect"
+  allow_list:
+    # The echo server container is reachable via Docker DNS as "echoserver"
+    "echoserver":
+      - "/**"
+
+observability:
+  log_level: "warn"

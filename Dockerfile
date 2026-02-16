@@ -33,11 +33,17 @@ ARG VERSION=dev
 ARG GIT_COMMIT=unknown
 ARG BUILD_DATE=unknown
 
+# Security: ALLOW_INSECURE_TARGETS defaults to false (HTTPS-only).
+# Only docker-test overrides this to reach the local HTTP echo server.
+# Production builds MUST NOT set this to true.
+ARG ALLOW_INSECURE_TARGETS=false
+
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags "-s -w \
         -X main.Version=${VERSION} \
         -X main.GitCommit=${GIT_COMMIT} \
-        -X main.BuildDate=${BUILD_DATE}" \
+        -X main.BuildDate=${BUILD_DATE} \
+        -X 'github.com/cloudblue/chaperone/internal/proxy.allowInsecureTargets=${ALLOW_INSECURE_TARGETS}'" \
     -o chaperone ./cmd/chaperone
 
 # =============================================================================

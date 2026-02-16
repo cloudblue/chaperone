@@ -1,0 +1,33 @@
+# Copyright 2026 CloudBlue LLC
+# SPDX-License-Identifier: Apache-2.0
+
+# Minimal echo server for docker-test proxy round-trip validation.
+# Returns JSON with all received headers, method, path — used to verify
+# that Chaperone correctly injects credentials and forwards requests.
+#
+# Used by: make docker-test
+# NOT a production artifact.
+
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /build
+
+COPY go.mod ./
+COPY sdk/go.mod ./sdk/
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags "-s -w" \
+    -o echoserver ./test/cmd/echoserver
+
+FROM gcr.io/distroless/static:nonroot
+
+COPY --from=builder /build/echoserver /app/echoserver
+
+USER nonroot:nonroot
+EXPOSE 8080
+
+ENTRYPOINT ["/app/echoserver"]
+CMD ["-addr", ":8080"]
