@@ -326,6 +326,9 @@ Use `chaperone enroll` for production deployments:
 
 # Custom output directory
 ./chaperone enroll --domains proxy.example.com --out /etc/chaperone/certs
+
+# Overwrite existing key/CSR files
+./chaperone enroll --domains proxy.example.com --force
 ```
 
 This generates:
