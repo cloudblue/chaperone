@@ -387,6 +387,15 @@ func (s *Server) loadTLSConfig() (*tls.Config, error) {
 
 // logStartup logs the server startup configuration.
 func (s *Server) logStartup() {
+	// SECURITY: Warn loudly if insecure HTTP targets are allowed.
+	// This makes misconfigured production deployments immediately visible
+	// in logs and monitoring.
+	if AllowInsecureTargets() {
+		slog.Warn("INSECURE: HTTP target URLs are allowed — credentials may be sent over unencrypted connections",
+			"allow_insecure_targets", true,
+		)
+	}
+
 	if s.config.TLS.Enabled {
 		slog.Info("starting proxy server with mTLS (Mode A)",
 			"addr", s.config.Addr,
