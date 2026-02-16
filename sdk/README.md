@@ -85,6 +85,38 @@ Called by the proxy core when certificate rotation is needed. Forward the CSR to
 
 Post-process responses before returning to upstream. Use for stripping PII, normalizing errors, or logging.
 
+## Building Your Binary
+
+Once you've implemented the `Plugin` interface, build your custom binary using `chaperone.Run()`:
+
+```go
+package main
+
+import (
+    "context"
+    "os"
+    "os/signal"
+    "syscall"
+
+    "github.com/cloudblue/chaperone"
+    myplugin "github.com/acme/my-proxy/plugins"
+)
+
+func main() {
+    ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+    defer stop()
+
+    if err := chaperone.Run(ctx, myplugin.New(),
+        chaperone.WithConfigPath("/etc/chaperone.yaml"),
+        chaperone.WithVersion("1.0.0"),
+    ); err != nil {
+        os.Exit(1)
+    }
+}
+```
+
+See the [Chaperone README](../README.md#building-custom-binaries-distributor-workflow) for all available options.
+
 ## Module Versioning
 
 This SDK is versioned **independently** from the Chaperone core. You can safely upgrade the proxy core without modifying your plugin code, as long as the SDK major version (`v1`) remains stable.

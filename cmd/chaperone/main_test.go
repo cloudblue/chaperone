@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -366,31 +365,4 @@ func TestPluginInterface_CompileTimeCompliance(t *testing.T) {
 	var _ sdk.ResponseModifier = plugin
 
 	t.Log("Plugin implements all required interfaces (verified at compile time)")
-}
-
-// TestParseLogLevel tests the parseLogLevel helper function used by main().
-// This is the only config-related test in main_test.go since config.Load()
-// is thoroughly tested in internal/config/config_test.go.
-func TestParseLogLevel(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected slog.Level
-	}{
-		{"debug", slog.LevelDebug},
-		{"info", slog.LevelInfo},
-		{"warn", slog.LevelWarn},
-		{"error", slog.LevelError},
-		{"unknown", slog.LevelInfo}, // Default
-		{"", slog.LevelInfo},        // Empty defaults to info
-		{"DEBUG", slog.LevelInfo},   // Case-sensitive, falls to default
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := parseLogLevel(tt.input)
-			if result != tt.expected {
-				t.Errorf("parseLogLevel(%q) = %v, want %v", tt.input, result, tt.expected)
-			}
-		})
-	}
 }
