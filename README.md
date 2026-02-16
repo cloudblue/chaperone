@@ -119,6 +119,7 @@ package main
 
 import (
     "context"
+    "net/http"
     "os"
     "os/signal"
     "syscall"
@@ -132,7 +133,7 @@ type MyPlugin struct{}
 
 func (p *MyPlugin) GetCredentials(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
     // Your credential injection logic here
-    return &sdk.Credential{Headers: map[string]string{"Authorization": "Bearer " + token}}, nil
+    return &sdk.Credential{Headers: map[string]string{"Authorization": "Bearer my-token"}}, nil
 }
 
 // ... implement SignCSR and ModifyResponse ...
@@ -154,7 +155,7 @@ Available options:
 - `WithConfigPath(path)` — Path to YAML config file
 - `WithVersion(version)` — Version string for `/_ops/version` endpoint
 - `WithBuildInfo(commit, date)` — Git metadata for startup logs
-- `WithLogger(writer)` — Custom log output (default: `os.Stdout`)
+- `WithLogOutput(writer)` — Custom log output (default: `os.Stdout`)
 
 ### For Plugin Developers
 

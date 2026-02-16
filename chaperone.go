@@ -85,9 +85,9 @@ func WithBuildInfo(commit, buildDate string) Option {
 	}
 }
 
-// WithLogger sets the writer for log output. This is primarily useful for
-// testing. In production, logs are always written to os.Stdout.
-func WithLogger(w io.Writer) Option {
+// WithLogOutput sets the [io.Writer] for structured log output.
+// Defaults to [os.Stdout]. Override for testing or custom log routing.
+func WithLogOutput(w io.Writer) Option {
 	return func(c *runConfig) {
 		c.logOutput = w
 	}
@@ -102,6 +102,10 @@ func WithLogger(w io.Writer) Option {
 //
 // The plugin parameter implements [sdk.Plugin] to provide credential
 // injection logic. Pass nil to run without credential injection.
+//
+// Run calls [slog.SetDefault] to install a structured logger with
+// header redaction. Callers sharing the process should be aware that
+// this replaces the global logger.
 //
 // Run returns nil on clean shutdown (context cancelled) and a non-nil
 // error for configuration or startup failures.
@@ -155,11 +159,18 @@ func startProxy(ctx context.Context, plugin sdk.Plugin, rc *runConfig, cfg *conf
 		return fmt.Errorf("starting admin server: %w", startErr)
 	}
 
+	// Ensure the admin server is cleaned up on any error path.
+	// On the happy path awaitShutdown takes ownership; the flag
+	// prevents a redundant (albeit safe) double-shutdown.
+	var shutdownHandled bool
+	defer func() {
+		if !shutdownHandled {
+			shutdownAdminServer(adminSrv) //nolint:contextcheck // fresh context needed; caller's ctx is unrelated to cleanup
+		}
+	}()
+
 	srv, err := newProxyServer(plugin, rc, cfg)
 	if err != nil {
-		// Clean up the admin server we already started — as a library
-		// function, Run() must release its own resources before returning.
-		shutdownAdminServer(adminSrv) //nolint:contextcheck // fresh context needed; caller's ctx is unrelated to cleanup
 		return err
 	}
 
@@ -169,10 +180,11 @@ func startProxy(ctx context.Context, plugin sdk.Plugin, rc *runConfig, cfg *conf
 	go awaitShutdown(ctx, srv, adminSrv, *cfg.Server.ShutdownTimeout)
 
 	// Start blocks until the server stops.
-	if err := srv.Start(); err != nil { //nolint:contextcheck // proxy.Server.Start blocks on Serve, no context parameter
-		return fmt.Errorf("server error: %w", err)
+	if startErr := srv.Start(); startErr != nil { //nolint:contextcheck // proxy.Server.Start blocks on Serve, no context parameter
+		return fmt.Errorf("server error: %w", startErr)
 	}
 
+	shutdownHandled = true // awaitShutdown owns cleanup from here
 	slog.Info("server stopped")
 	return nil
 }

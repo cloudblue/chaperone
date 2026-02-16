@@ -135,9 +135,9 @@ func TestWithVersion_SetsVersion(t *testing.T) {
 	}
 }
 
-func TestWithLogger_SetsLogger(t *testing.T) {
+func TestWithLogOutput_SetsLogOutput(t *testing.T) {
 	cfg := &runConfig{}
-	opt := WithLogger(io.Discard)
+	opt := WithLogOutput(io.Discard)
 	opt(cfg)
 
 	if cfg.logOutput != io.Discard {
@@ -185,30 +185,6 @@ func TestParseLogLevel(t *testing.T) {
 	}
 }
 
-// --- Run() defaults tests ---
-
-func TestRun_DefaultVersion_IsDev(t *testing.T) {
-	rc := &runConfig{}
-	// Apply no options — verify defaults set in Run().
-	defaults := &runConfig{
-		version:   "dev",
-		logOutput: os.Stdout,
-	}
-	// We can't call Run() without a config, but we can verify the struct
-	// initialization by checking what Run sets before options are applied.
-	if defaults.version != "dev" {
-		t.Errorf("default version = %q, want %q", defaults.version, "dev")
-	}
-	if defaults.logOutput != os.Stdout {
-		t.Errorf("default logOutput should be os.Stdout")
-	}
-	// Verify options override defaults.
-	WithVersion("custom")(rc)
-	if rc.version != "custom" {
-		t.Errorf("WithVersion override failed: got %q", rc.version)
-	}
-}
-
 // --- Run() integration tests ---
 
 // stubPlugin is a minimal Plugin for testing that does no credential injection.
@@ -243,7 +219,7 @@ func TestRun_StartsServerAndRespondsToHealth(t *testing.T) {
 		errCh <- Run(ctx, &stubPlugin{},
 			WithConfigPath(configPath),
 			WithVersion("test-1.0.0"),
-			WithLogger(io.Discard),
+			WithLogOutput(io.Discard),
 		)
 	}()
 
@@ -303,7 +279,7 @@ func TestRun_NilPlugin_StartsWithoutCredentialInjection(t *testing.T) {
 	go func() {
 		errCh <- Run(ctx, nil,
 			WithConfigPath(configPath),
-			WithLogger(io.Discard),
+			WithLogOutput(io.Discard),
 		)
 	}()
 
@@ -347,7 +323,7 @@ func TestRun_InvalidConfigPath_ReturnsError(t *testing.T) {
 
 	err := Run(ctx, nil,
 		WithConfigPath("/nonexistent/config.yaml"),
-		WithLogger(io.Discard),
+		WithLogOutput(io.Discard),
 	)
 	if err == nil {
 		t.Fatal("Run() with invalid config path should return an error")
@@ -373,7 +349,7 @@ func TestRun_AdminServerRespondsToHealth(t *testing.T) {
 	go func() {
 		errCh <- Run(ctx, nil,
 			WithConfigPath(configPath),
-			WithLogger(io.Discard),
+			WithLogOutput(io.Discard),
 		)
 	}()
 
@@ -422,7 +398,7 @@ func TestRun_ContextCancellation_GracefulShutdown(t *testing.T) {
 	go func() {
 		errCh <- Run(ctx, nil,
 			WithConfigPath(configPath),
-			WithLogger(io.Discard),
+			WithLogOutput(io.Discard),
 		)
 	}()
 
@@ -469,7 +445,7 @@ func TestRun_WithBuildInfo_IncludesMetadataInLogs(t *testing.T) {
 			WithConfigPath(configPath),
 			WithVersion("2.0.0"),
 			WithBuildInfo("abc1234", "2026-02-13"),
-			WithLogger(&logBuf),
+			WithLogOutput(&logBuf),
 		)
 	}()
 
@@ -508,7 +484,7 @@ func TestRun_WithBuildInfo_OmittedWhenEmpty(t *testing.T) {
 	go func() {
 		errCh <- Run(ctx, nil,
 			WithConfigPath(configPath),
-			WithLogger(&logBuf),
+			WithLogOutput(&logBuf),
 		)
 	}()
 
@@ -567,5 +543,50 @@ func TestShutdownAdminServer_ReleasesPort(t *testing.T) {
 	} else {
 		l.Close()
 		t.Logf("admin port %s released after shutdownAdminServer — cleanup OK", adminAddr)
+	}
+}
+
+func TestRun_ProxyPortInUse_CleansUpAdminServer(t *testing.T) {
+	// Verify that when the proxy server fails to bind (port already in use),
+	// Run() cleans up the admin server instead of leaking it.
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	serverAddr := freeAddr(t)
+	adminAddr := freeAddr(t)
+	configPath := writeTestConfig(t, serverAddr, adminAddr)
+
+	// Occupy the proxy port so srv.Start() will fail with "address already in use".
+	lc := &net.ListenConfig{}
+	blocker, err := lc.Listen(context.Background(), "tcp", serverAddr)
+	if err != nil {
+		t.Fatalf("failed to occupy proxy port: %v", err)
+	}
+	defer blocker.Close()
+
+	// Run() should return an error because the proxy port is occupied.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runErr := Run(ctx, nil,
+		WithConfigPath(configPath),
+		WithLogOutput(io.Discard),
+	)
+	if runErr == nil {
+		t.Fatal("Run() should return an error when proxy port is in use")
+	}
+	if !strings.Contains(runErr.Error(), "server error") {
+		t.Errorf("error %q should mention 'server error'", runErr.Error())
+	}
+
+	// The admin port should be released — if the admin server leaked, this
+	// listen call would fail with "address already in use".
+	adminListener, listenErr := lc.Listen(context.Background(), "tcp", adminAddr)
+	if listenErr != nil {
+		t.Errorf("admin port %s still in use after Run() returned — admin server leaked: %v",
+			adminAddr, listenErr)
+	} else {
+		adminListener.Close()
 	}
 }
