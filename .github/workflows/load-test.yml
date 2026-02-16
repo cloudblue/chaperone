@@ -1,0 +1,65 @@
+# Copyright 2026 CloudBlue LLC
+# SPDX-License-Identifier: Apache-2.0
+
+name: Load Test
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: '1.25.7'
+  K6_VERSION: 'v0.56.0'
+
+jobs:
+  smoke:
+    name: Smoke Load Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install k6
+        run: |
+          curl -sL https://github.com/grafana/k6/releases/download/${{ env.K6_VERSION }}/k6-${{ env.K6_VERSION }}-linux-amd64.tar.gz | tar xz
+          sudo mv k6-${{ env.K6_VERSION }}-linux-amd64/k6 /usr/local/bin/
+
+      - name: Generate certificates
+        run: make gencerts
+
+      - name: Copy certificates for load tests
+        run: make gencerts-load
+
+      - name: Create CI config
+        run: |
+          cp configs/config.example.yaml config.yaml
+          sed -i '/allow_list:/a\    "localhost":\n      - "/**"' config.yaml
+
+      - name: Start target server
+        run: go run test/load/targetserver/main.go &
+
+      - name: Build and start chaperone
+        run: |
+          make build-dev
+          ./bin/chaperone &
+          sleep 2
+
+      - name: Run smoke load test
+        run: K6_INSECURE_SKIP_TLS_VERIFY=true k6 run --vus 10 --duration 1m -e K6_SCENARIO=smoke test/load/baseline.js
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-results
+          path: test/load/results/
+          retention-days: 30
