@@ -5,15 +5,18 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
-import { config, soakThresholds, getHeaders, errorRate, recordServerTiming } from './config.js';
+import { config, tlsAuth, soakThresholds, getHeaders, errorRate, recordServerTiming } from './config.js';
 
 export const options = {
+    tlsAuth,
+    insecureSkipTLSVerify: true,
     stages: [
         { duration: '5m', target: 200 },
         { duration: '4h', target: 200 },
         { duration: '5m', target: 0 },
     ],
     thresholds: soakThresholds,
+    summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
 };
 
 export default function () {
@@ -41,7 +44,8 @@ export function handleSummary(data) {
     console.log(`Duration: ${duration.toFixed(1)} minutes`);
     console.log(`Total requests: ${data.metrics.http_reqs.values.count}`);
     console.log(`Error rate: ${(data.metrics.http_req_failed.values.rate * 100).toFixed(4)}%`);
-    console.log(`P99 latency: ${data.metrics.http_req_duration.values['p(99)'].toFixed(2)}ms`);
+    const p99 = data.metrics.http_req_duration && data.metrics.http_req_duration.values['p(99)'];
+    console.log(`P99 latency: ${p99 != null ? p99.toFixed(2) + 'ms' : 'N/A'}`);
 
     return {
         'stdout': textSummary(data, { indent: ' ', enableColors: true }),

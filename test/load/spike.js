@@ -5,9 +5,11 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
-import { config, spikeThresholds, getHeaders, errorRate, recordServerTiming } from './config.js';
+import { config, tlsAuth, spikeThresholds, getHeaders, errorRate, recordServerTiming } from './config.js';
 
 export const options = {
+    tlsAuth,
+    insecureSkipTLSVerify: true,
     stages: [
         { duration: '1m', target: 100 },    // Normal load baseline
         { duration: '10s', target: 1000 },  // SPIKE! 10x traffic in 10s

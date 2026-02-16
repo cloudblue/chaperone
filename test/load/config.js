@@ -8,6 +8,15 @@ import { Rate, Trend } from 'k6/metrics';
 export const errorRate = new Rate('errors');
 export const proxyOverhead = new Trend('proxy_overhead_ms');
 
+// mTLS client certificates (required by Chaperone server)
+// Generated via: make gencerts && make gencerts-load
+export const tlsAuth = [
+    {
+        cert: open('./certs/client.crt'),
+        key: open('./certs/client.key'),
+    },
+];
+
 // Environment configuration with defaults
 export const config = {
     baseUrl: __ENV.PROXY_URL || 'https://localhost:8443',

@@ -5,16 +5,11 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
-import { config, baselineThresholds, getHeaders, errorRate, recordServerTiming } from './config.js';
+import { config, tlsAuth, baselineThresholds, getHeaders, errorRate, recordServerTiming } from './config.js';
 
 export const options = {
-    tlsAuth: [
-        {
-            cert: open('./certs/client.crt'),
-            key: open('./certs/client.key'),
-        },
-    ],
-    insecureSkipTLSVerify: false,
+    tlsAuth,
+    insecureSkipTLSVerify: true,
     stages: [
         { duration: '1m', target: 100 },
         { duration: '5m', target: 100 },

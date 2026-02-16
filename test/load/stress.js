@@ -4,9 +4,11 @@
 import http from 'k6/http';
 import { check } from 'k6';
 import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
-import { config, stressThresholds, getHeaders, errorRate, recordServerTiming } from './config.js';
+import { config, tlsAuth, stressThresholds, getHeaders, errorRate, recordServerTiming } from './config.js';
 
 export const options = {
+    tlsAuth,
+    insecureSkipTLSVerify: true,
     stages: [
         { duration: '2m', target: 100 },
         { duration: '2m', target: 500 },
@@ -17,6 +19,7 @@ export const options = {
         { duration: '2m', target: 0 },
     ],
     thresholds: stressThresholds,
+    summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
 };
 
 // No sleep() between iterations — intentionally maximizes RPS per VU
@@ -41,11 +44,12 @@ export default function () {
 
 export function handleSummary(data) {
     const maxVUs = data.metrics.vus_max ? data.metrics.vus_max.values.max : 'N/A';
+    const p99 = data.metrics.http_req_duration && data.metrics.http_req_duration.values['p(99)'];
     console.log('\n=== STRESS TEST RESULTS ===');
     console.log(`Max VUs tested: ${maxVUs}`);
     console.log(`Total requests: ${data.metrics.http_reqs.values.count}`);
     console.log(`Error rate: ${(data.metrics.http_req_failed.values.rate * 100).toFixed(2)}%`);
-    console.log(`P99 latency: ${data.metrics.http_req_duration.values['p(99)'].toFixed(2)}ms`);
+    console.log(`P99 latency: ${p99 != null ? p99.toFixed(2) + 'ms' : 'N/A'}`);
 
     return {
         'stdout': textSummary(data, { indent: ' ', enableColors: true }),

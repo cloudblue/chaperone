@@ -5,11 +5,13 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
-import { config, baselineThresholds, smokeThresholds, getHeaders, errorRate, recordServerTiming } from './config.js';
+import { config, tlsAuth, baselineThresholds, smokeThresholds, getHeaders, errorRate, recordServerTiming } from './config.js';
 
 const isSmoke = __ENV.K6_SCENARIO === 'smoke';
 
 export const options = {
+    tlsAuth,
+    insecureSkipTLSVerify: true,
     // When invoked as smoke (--vus/--duration override stages), use relaxed
     // thresholds that account for cold-start requests without a ramp-up phase.
     stages: isSmoke ? undefined : [

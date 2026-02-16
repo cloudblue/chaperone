@@ -284,48 +284,66 @@ check-k6:
 		exit 1; \
 	}
 
+.PHONY: load-target-start
+load-target-start: ## Start the target echo server for load testing (background)
+	@if lsof -i :9999 -sTCP:LISTEN -t >/dev/null 2>&1; then \
+		echo "Target server already running on :9999"; \
+	else \
+		echo "Starting target server on :9999..."; \
+		go run test/load/targetserver/main.go & \
+		sleep 1; \
+	fi
+
+.PHONY: load-target-stop
+load-target-stop: ## Stop the target echo server
+	@-pkill -f "targetserver/main.go" 2>/dev/null && echo "Target server stopped" || echo "Target server not running"
+
 .PHONY: load-test
 load-test: load-baseline ## Run load tests (alias for load-baseline)
 
 .PHONY: load-baseline
-load-baseline: check-k6 ## Run baseline load test (~6 min, 50 VUs)
+load-baseline: check-k6 gencerts-load load-target-start ## Run baseline load test (~6 min, 50 VUs)
 	@echo "Running baseline load test..."
 	@mkdir -p test/load/results
 	K6_INSECURE_SKIP_TLS_VERIFY=true k6 run test/load/baseline.js
 
 .PHONY: load-spike
-load-spike: check-k6 ## Run spike test (~5 min, 1000 VUs peak)
+load-spike: check-k6 gencerts-load load-target-start ## Run spike test (~5 min, 1000 VUs peak)
 	@echo "Running spike test..."
 	@mkdir -p test/load/results
 	K6_INSECURE_SKIP_TLS_VERIFY=true k6 run test/load/spike.js
 
 .PHONY: load-stress
-load-stress: check-k6 ## Run stress test (~17 min, 3000 VUs max)
+load-stress: check-k6 gencerts-load load-target-start ## Run stress test (~17 min, 3000 VUs max)
 	@echo "Running stress test (this takes ~17 minutes)..."
 	@mkdir -p test/load/results
 	K6_INSECURE_SKIP_TLS_VERIFY=true k6 run test/load/stress.js
 
 .PHONY: load-soak
-load-soak: check-k6 ## Run soak test (4+ hours, 200 VUs)
+load-soak: check-k6 gencerts-load load-target-start ## Run soak test (4+ hours, 200 VUs)
 	@echo "WARNING: Soak test runs for 4+ hours"
 	@read -p "Continue? [y/N] " confirm && [ "$$confirm" = "y" ]
 	@mkdir -p test/load/results
 	K6_INSECURE_SKIP_TLS_VERIFY=true k6 run test/load/soak.js
 
 .PHONY: load-mtls
-load-mtls: check-k6 gencerts-load ## Run mTLS load test (~7 min, 100 VUs)
+load-mtls: check-k6 gencerts-load load-target-start ## Run mTLS load test (~7 min, 100 VUs)
 	@echo "Running mTLS load test..."
 	@mkdir -p test/load/results
-	k6 run test/load/mtls.js
+	K6_INSECURE_SKIP_TLS_VERIFY=true k6 run test/load/mtls.js
 
 .PHONY: load-smoke
-load-smoke: check-k6 ## Run smoke test (1 min quick validation, overrides baseline stages)
+load-smoke: check-k6 gencerts-load load-target-start ## Run smoke test (1 min quick validation, overrides baseline stages)
 	@echo "Running smoke test (quick validation)..."
 	@mkdir -p test/load/results
 	K6_INSECURE_SKIP_TLS_VERIFY=true k6 run --vus 10 --duration 1m -e K6_SCENARIO=smoke test/load/baseline.js
 
 .PHONY: gencerts-load
-gencerts-load: gencerts ## Generate certificates for load testing
+gencerts-load: ## Copy certificates for load testing (run make gencerts first)
+	@if [ ! -f certs/client.crt ] || [ ! -f certs/client.key ] || [ ! -f certs/ca.crt ]; then \
+		echo "Error: certificates not found. Run 'make gencerts' first."; \
+		exit 1; \
+	fi
 	@echo "Copying certificates for load testing..."
 	@mkdir -p test/load/certs
 	@cp certs/client.crt certs/client.key certs/ca.crt test/load/certs/
