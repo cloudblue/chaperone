@@ -6,9 +6,9 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
+	"time"
 )
 
 func main() {
@@ -17,12 +17,23 @@ func main() {
 
 	body := []byte(`{"status":"ok"}`)
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(body)
+		_, _ = w.Write(body)
 	})
 
-	fmt.Printf("target server listening on %s\n", *addr)
-	log.Fatal(http.ListenAndServe(*addr, nil))
+	server := &http.Server{
+		Addr:         *addr,
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+		IdleTimeout:  30 * time.Second,
+	}
+
+	slog.Info("target server listening", "addr", *addr)
+	if err := server.ListenAndServe(); err != nil {
+		slog.Error("server failed", "error", err)
+	}
 }
