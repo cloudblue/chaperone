@@ -272,6 +272,75 @@ tools: ## Install development tools
 	go install golang.org/x/perf/cmd/benchstat@latest
 
 # ============================================================================
+# Load Testing (k6)
+# ============================================================================
+
+.PHONY: check-k6
+check-k6:
+	@command -v k6 >/dev/null 2>&1 || { \
+		echo "k6 is not installed. Install with:"; \
+		echo "  brew install k6       # macOS"; \
+		echo "  go install go.k6.io/k6@latest  # From source"; \
+		exit 1; \
+	}
+
+.PHONY: load-test
+load-test: load-baseline ## Run load tests (alias for load-baseline)
+
+.PHONY: load-baseline
+load-baseline: check-k6 ## Run baseline load test (~6 min, 50 VUs)
+	@echo "Running baseline load test..."
+	@mkdir -p test/load/results
+	K6_INSECURE_SKIP_TLS_VERIFY=true k6 run test/load/baseline.js
+
+.PHONY: load-spike
+load-spike: check-k6 ## Run spike test (~5 min, 1000 VUs peak)
+	@echo "Running spike test..."
+	@mkdir -p test/load/results
+	K6_INSECURE_SKIP_TLS_VERIFY=true k6 run test/load/spike.js
+
+.PHONY: load-stress
+load-stress: check-k6 ## Run stress test (~17 min, 3000 VUs max)
+	@echo "Running stress test (this takes ~17 minutes)..."
+	@mkdir -p test/load/results
+	K6_INSECURE_SKIP_TLS_VERIFY=true k6 run test/load/stress.js
+
+.PHONY: load-soak
+load-soak: check-k6 ## Run soak test (4+ hours, 200 VUs)
+	@echo "WARNING: Soak test runs for 4+ hours"
+	@read -p "Continue? [y/N] " confirm && [ "$$confirm" = "y" ]
+	@mkdir -p test/load/results
+	K6_INSECURE_SKIP_TLS_VERIFY=true k6 run test/load/soak.js
+
+.PHONY: load-mtls
+load-mtls: check-k6 gencerts-load ## Run mTLS load test (~7 min, 100 VUs)
+	@echo "Running mTLS load test..."
+	@mkdir -p test/load/results
+	k6 run test/load/mtls.js
+
+.PHONY: load-smoke
+load-smoke: check-k6 ## Run smoke test (1 min quick validation, overrides baseline stages)
+	@echo "Running smoke test (quick validation)..."
+	@mkdir -p test/load/results
+	K6_INSECURE_SKIP_TLS_VERIFY=true k6 run --vus 10 --duration 1m -e K6_SCENARIO=smoke test/load/baseline.js
+
+.PHONY: gencerts-load
+gencerts-load: gencerts ## Generate certificates for load testing
+	@echo "Copying certificates for load testing..."
+	@mkdir -p test/load/certs
+	@cp certs/client.crt certs/client.key certs/ca.crt test/load/certs/
+	@echo "Certificates copied to test/load/certs/"
+
+.PHONY: load-baseline-remote
+load-baseline-remote: check-k6 ## Run baseline against remote (requires PROXY_URL)
+	@if [ -z "$(PROXY_URL)" ]; then \
+		echo "Error: PROXY_URL not set. Usage: make load-baseline-remote PROXY_URL=https://staging:8443"; \
+		exit 1; \
+	fi
+	@mkdir -p test/load/results
+	k6 run -e PROXY_URL="$(PROXY_URL)" $(if $(TARGET_URL),-e TARGET_URL="$(TARGET_URL)") test/load/baseline.js
+
+# ============================================================================
 # Help
 # ============================================================================
 
