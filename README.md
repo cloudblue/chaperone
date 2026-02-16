@@ -32,6 +32,7 @@
 
 - Go 1.21 or higher
 - Docker (for containerized deployment)
+- jq (for `make docker-test` validation suite)
 
 ## Quick Start
 
