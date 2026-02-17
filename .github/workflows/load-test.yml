@@ -13,7 +13,7 @@ permissions:
 
 env:
   GO_VERSION: '1.25.7'
-  K6_VERSION: 'v0.56.0'
+  K6_VERSION: '0.56.0'
 
 jobs:
   smoke:
