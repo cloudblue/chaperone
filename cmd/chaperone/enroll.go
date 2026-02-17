@@ -4,14 +4,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 
-	"github.com/cloudblue/chaperone/internal/cli"
-	"github.com/cloudblue/chaperone/pkg/crypto"
+	"github.com/cloudblue/chaperone"
 )
 
 // enrollCmd handles the "enroll" subcommand for production CA enrollment.
@@ -21,8 +20,9 @@ import (
 func enrollCmd(args []string) {
 	fs := flag.NewFlagSet("enroll", flag.ExitOnError)
 	domainsFlag := fs.String("domains", "", "Domains/IPs for the server certificate (comma-separated, required)")
-	commonName := fs.String("cn", "chaperone", "Common Name for the certificate")
-	outputDir := fs.String("out", "certs", "Output directory for key and CSR files")
+	commonName := fs.String("cn", chaperone.DefaultCommonName, "Common Name for the certificate")
+	outputDir := fs.String("out", chaperone.DefaultOutputDir, "Output directory for key and CSR files")
+	force := fs.Bool("force", false, "Overwrite existing key and CSR files")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: chaperone enroll [options]
@@ -58,45 +58,24 @@ After running this command:
 		os.Exit(1)
 	}
 
-	// Parse domains into DNS names and IPs
-	dnsNames, ips := cli.ParseDomainsFlag(*domainsFlag)
-	if len(dnsNames) == 0 && len(ips) == 0 {
-		fmt.Fprintln(os.Stderr, "Error: no valid domains or IPs provided")
-		os.Exit(1)
-	}
-
-	// Create output directory
-	if err := os.MkdirAll(*outputDir, 0o750); err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating output directory: %v\n", err)
-		os.Exit(1)
-	}
-
 	fmt.Println("Generating key pair and CSR for production CA enrollment...")
 	fmt.Println()
 
-	// Generate CSR
-	csr, err := crypto.GenerateServerCSR(*commonName, dnsNames, ips)
+	result, err := chaperone.Enroll(context.Background(), chaperone.EnrollConfig{
+		Domains:    *domainsFlag,
+		CommonName: *commonName,
+		OutputDir:  *outputDir,
+		Force:      *force,
+	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error generating CSR: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Write files
-	files := map[string][]byte{
-		"server.key": csr.KeyPEM,
-		"server.csr": csr.CSRPEM,
-	}
+	fmt.Printf("  ✓ %s\n", result.KeyFile)
+	fmt.Printf("  ✓ %s\n", result.CSRFile)
 
-	for name, content := range files {
-		path := filepath.Join(*outputDir, name)
-		if err := os.WriteFile(path, content, 0o600); err != nil {
-			fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", path, err)
-			os.Exit(1)
-		}
-		fmt.Printf("  ✓ %s\n", path)
-	}
-
-	printEnrollmentInstructions(*outputDir, dnsNames, ips)
+	printEnrollmentInstructions(*outputDir, result.DNSNames, result.IPs)
 }
 
 // printEnrollmentInstructions prints the next steps after CSR generation.
