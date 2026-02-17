@@ -1,6 +1,6 @@
 # Task: Profiling Endpoints
 
-**Status:** [x] Complete
+**Status:** [x] Completed
 **Priority:** P1
 **Estimated Effort:** M
 
