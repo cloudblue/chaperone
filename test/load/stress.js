@@ -3,7 +3,7 @@
 
 import http from 'k6/http';
 import { check } from 'k6';
-import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
+import { textSummary } from './lib/k6-summary.js';
 import { config, tlsAuth, stressThresholds, getHeaders, errorRate, recordServerTiming } from './config.js';
 
 export const options = {
@@ -22,8 +22,10 @@ export const options = {
     summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
 };
 
-// No sleep() between iterations — intentionally maximizes RPS per VU
-// to find the system's breaking point under sustained pressure.
+// No sleep() between iterations — intentionally maximizes RPS per VU to find
+// the server's breaking point. This is consistent with k6 guidance: sleep is
+// unnecessary for throughput stress tests.
+// Before running: tune OS limits per https://grafana.com/docs/k6/latest/set-up/fine-tune-os/
 export default function () {
     const url = `${config.baseUrl}/proxy`;
     const params = {

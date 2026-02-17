@@ -286,17 +286,22 @@ check-k6:
 
 .PHONY: load-target-start
 load-target-start: ## Start the target echo server for load testing (background)
-	@if lsof -i :9999 -sTCP:LISTEN -t >/dev/null 2>&1; then \
-		echo "Target server already running on :9999"; \
+	@if [ -f .target-server.pid ] && kill -0 $$(cat .target-server.pid) 2>/dev/null; then \
+		echo "Target server already running on :9999 (PID $$(cat .target-server.pid))"; \
 	else \
 		echo "Starting target server on :9999..."; \
-		go run test/load/targetserver/main.go & \
+		go run test/load/targetserver/main.go & echo $$! > .target-server.pid; \
 		sleep 1; \
 	fi
 
 .PHONY: load-target-stop
 load-target-stop: ## Stop the target echo server
-	@-pkill -f "targetserver/main.go" 2>/dev/null && echo "Target server stopped" || echo "Target server not running"
+	@if [ -f .target-server.pid ]; then \
+		kill $$(cat .target-server.pid) 2>/dev/null && echo "Target server stopped" || echo "Target server not running"; \
+		rm -f .target-server.pid; \
+	else \
+		echo "No PID file found — target server not managed by make"; \
+	fi
 
 .PHONY: load-test
 load-test: load-baseline ## Run load tests (alias for load-baseline)
@@ -316,13 +321,18 @@ load-spike: check-k6 gencerts-load load-target-start ## Run spike test (~5 min, 
 .PHONY: load-stress
 load-stress: check-k6 gencerts-load load-target-start ## Run stress test (~17 min, 3000 VUs max)
 	@echo "Running stress test (this takes ~17 minutes)..."
+	@CURRENT_FD=$$(ulimit -n); if [ "$$CURRENT_FD" -lt 250000 ] 2>/dev/null; then \
+		echo "WARNING: fd limit is $$CURRENT_FD (k6 recommends 250000 for high-VU tests)"; \
+		echo "  Run: ulimit -n 250000"; \
+		echo "  See: https://grafana.com/docs/k6/latest/set-up/fine-tune-os/"; \
+	fi
 	@mkdir -p test/load/results
 	K6_INSECURE_SKIP_TLS_VERIFY=true k6 run test/load/stress.js
 
 .PHONY: load-soak
 load-soak: check-k6 gencerts-load load-target-start ## Run soak test (4+ hours, 200 VUs)
 	@echo "WARNING: Soak test runs for 4+ hours"
-	@read -p "Continue? [y/N] " confirm && [ "$$confirm" = "y" ]
+	@printf "Continue? [y/N] " && read confirm && [ "$$confirm" = "y" ]
 	@mkdir -p test/load/results
 	K6_INSECURE_SKIP_TLS_VERIFY=true k6 run test/load/soak.js
 

@@ -50,7 +50,7 @@ K6_INSECURE_SKIP_TLS_VERIFY=true make load-baseline
 make load-smoke      # 1 minute quick validation
 make load-baseline   # 5 minutes, 50 VUs
 make load-spike      # Traffic surge test
-make load-stress     # ~17 minutes, find limits
+make load-stress     # ~17 minutes, find limits (see ulimit note below)
 make load-soak       # 4+ hours endurance
 make load-mtls       # With client certificates
 ```
@@ -76,12 +76,33 @@ k6 run --out json=results.json test/load/baseline.js
 
 ## Performance Targets (SLOs)
 
-| Metric | Baseline | Spike | Stress | Soak |
-|--------|----------|-------|--------|------|
-| P50 latency | < 20ms | < 50ms | < 100ms | < 30ms |
-| P95 latency | < 50ms | < 200ms | < 500ms | < 75ms |
-| P99 latency | < 100ms | < 500ms | < 1s | < 200ms |
-| Error rate | < 0.1% | < 1% | < 5% | < 0.1% |
+| Metric | Smoke | Baseline | Spike | Stress | Soak |
+|--------|-------|----------|-------|--------|------|
+| P50 latency | < 50ms | < 20ms | < 50ms | < 100ms | < 30ms |
+| P95 latency | < 150ms | < 50ms | < 200ms | < 500ms | < 75ms |
+| P99 latency | < 300ms | < 100ms | < 500ms | < 1s | < 200ms |
+| Error rate | < 1% | < 0.1% | < 1% | < 5% | < 0.1% |
+
+## Stress Test Prerequisites
+
+The stress test ramps to 3000 VUs with no sleep between iterations. Before running,
+tune your OS to prevent client-side resource exhaustion from masking server limits.
+See [k6: Fine-tune OS](https://grafana.com/docs/k6/latest/set-up/fine-tune-os/) for
+the full guide.
+
+```bash
+# Linux
+sudo sysctl -w net.ipv4.ip_local_port_range="1024 65535"
+sudo sysctl -w net.ipv4.tcp_tw_reuse=1
+sudo sysctl -w net.ipv4.tcp_timestamps=1
+ulimit -n 250000
+
+# Then run
+make load-stress
+```
+
+Without this, you may see connection errors that reflect client fd/port exhaustion
+rather than actual server limits.
 
 ## Monitoring During Tests
 
@@ -105,6 +126,8 @@ test/load/
 ├── stress.js        # Stress test (find breaking point)
 ├── soak.js          # Soak test (endurance, 4+ hours)
 ├── mtls.js          # mTLS scenario with client certs
+├── lib/             # Vendored k6 libraries
+│   └── k6-summary.js
 ├── certs/           # Certificates (generated at runtime)
 │   ├── client.crt
 │   ├── client.key

@@ -4,7 +4,7 @@
 
 import http from 'k6/http';
 import { check, sleep } from 'k6';
-import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
+import { textSummary } from './lib/k6-summary.js';
 import { config, tlsAuth, baselineThresholds, smokeThresholds, getHeaders, errorRate, recordServerTiming } from './config.js';
 
 const isSmoke = __ENV.K6_SCENARIO === 'smoke';
