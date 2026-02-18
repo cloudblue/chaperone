@@ -1,7 +1,7 @@
 <div align="center">
   <img width="1920" height="829" alt="chaperone_banner" src="https://github.com/user-attachments/assets/a4fbfb21-5776-4a03-a5b2-91586fa0b0c4" />
   <p align="center">
-    <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go"></a>
+    <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go"></a>
     <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg">
     <img src="https://github.com/cloudblue/chaperone/actions/workflows/ci.yml/badge.svg?branch=master">
     <img src="https://github.com/cloudblue/chaperone/actions/workflows/security.yml/badge.svg?branch=master">
@@ -24,13 +24,25 @@
 - 📊 **Observable** - Structured logging and metrics support
 - 🐳 **Cloud Native** - Designed for containerized deployments
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Getting Started](docs/getting-started.md) | Tutorial: build, run, and send your first request |
+| [Deployment Guide](docs/guides/deployment.md) | Docker deployment, Kubernetes probes, production hardening |
+| [Configuration Reference](docs/reference/configuration.md) | All config options, env overrides, timeout tuning |
+| [Plugin Development Guide](docs/guides/plugin-development.md) | Build your own credential plugin |
+| [HTTP API Reference](docs/reference/http-api.md) | All endpoints — health, version, proxy, metrics |
+| [SDK Reference](docs/reference/sdk.md) | Plugin interfaces, types, public API |
+| [Troubleshooting](docs/guides/troubleshooting.md) | Common issues and solutions |
+
 ## Project Status
 
 🚧 **Work in Progress** - Phase 1 (PoC) is complete. Currently in **Phase 2 (MVP)**.
 
 ## Requirements
 
-- Go 1.21 or higher
+- Go 1.25 or higher
 - Docker (for containerized deployment)
 - jq (for `make docker-test` validation suite)
 
@@ -42,13 +54,24 @@
 # Build the image
 docker build -t chaperone:latest .
 
-# Run in HTTP mode (for testing)
-docker run -p 8443:8443 chaperone:latest
+# Run with the tutorial config (allows httpbin.org as target)
+docker run --rm -p 8443:8443 -p 9090:9090 \
+  -v $(pwd)/configs/getting-started.yaml:/app/config.yaml:ro \
+  chaperone:latest
 
-# Health check
-curl http://localhost:8443/_ops/health
+# In a new terminal — health check
+curl -s http://localhost:9090/_ops/health
 # {"status": "alive"}
+
+# Proxy a request through Chaperone to httpbin.org
+curl -s http://localhost:8443/proxy \
+  -H "X-Connect-Target-URL: https://httpbin.org/headers" \
+  -H "X-Connect-Vendor-ID: test-vendor"
 ```
+
+> **Note:** Chaperone requires an allow-list of permitted target hosts
+> (security-by-default). The tutorial config permits `httpbin.org` only.
+> See the [Getting Started](docs/getting-started.md) tutorial for the full walkthrough.
 
 ### With mTLS (Production)
 
@@ -120,6 +143,7 @@ package main
 
 import (
     "context"
+    "fmt"
     "net/http"
     "os"
     "os/signal"
@@ -137,7 +161,13 @@ func (p *MyPlugin) GetCredentials(ctx context.Context, tx sdk.TransactionContext
     return &sdk.Credential{Headers: map[string]string{"Authorization": "Bearer my-token"}}, nil
 }
 
-// ... implement SignCSR and ModifyResponse ...
+func (p *MyPlugin) SignCSR(ctx context.Context, csrPEM []byte) ([]byte, error) {
+    return nil, fmt.Errorf("certificate signing not implemented")
+}
+
+func (p *MyPlugin) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) (*sdk.ResponseAction, error) {
+    return nil, nil // Default behavior: Core applies error normalization
+}
 
 func main() {
     ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -158,12 +188,9 @@ Available options:
 - `WithBuildInfo(commit, date)` — Git metadata for startup logs
 - `WithLogOutput(writer)` — Custom log output (default: `os.Stdout`)
 
-### For Plugin Developers
-
-```bash
-# Import just the SDK in your project
-go get github.com/cloudblue/chaperone/sdk
-```
+For the complete guide including "Own Repo" and "Fork/Extend" workflows,
+testing, and common credential patterns, see the
+[Plugin Development Guide](docs/guides/plugin-development.md).
 
 ## Configuration
 
@@ -200,87 +227,24 @@ observability:
 
 ### Configuration Reference
 
-#### Server Configuration
+For the complete configuration specification with all options, defaults,
+environment variable overrides, and timeout tuning guidance, see the
+[Configuration Reference](docs/reference/configuration.md).
 
-| YAML Key | Environment Variable | Type | Default | Description |
-|----------|---------------------|------|---------|-------------|
-| `server.addr` | `CHAPERONE_SERVER_ADDR` | string | `:443` | Traffic port address |
-| `server.admin_addr` | `CHAPERONE_SERVER_ADMIN_ADDR` | string | `127.0.0.1:9090` | Admin/metrics port address |
-| `server.shutdown_timeout` | `CHAPERONE_SERVER_SHUTDOWN_TIMEOUT` | duration | `30s` | Max time to drain in-flight requests during graceful shutdown |
-| `server.tls.enabled` | `CHAPERONE_SERVER_TLS_ENABLED` | bool | `true` | Enable TLS/mTLS |
-| `server.tls.cert_file` | `CHAPERONE_SERVER_TLS_CERT_FILE` | string | `/certs/server.crt` | Path to server certificate (PEM) |
-| `server.tls.key_file` | `CHAPERONE_SERVER_TLS_KEY_FILE` | string | `/certs/server.key` | Path to server private key (PEM) |
-| `server.tls.ca_file` | `CHAPERONE_SERVER_TLS_CA_FILE` | string | `/certs/ca.crt` | Path to CA certificate for client verification (PEM) |
-| `server.tls.auto_rotate` | `CHAPERONE_SERVER_TLS_AUTO_ROTATE` | bool | `true` | Enable automatic certificate rotation |
+**Key configuration areas:**
 
-#### Upstream Configuration
+- **Server** — Traffic port, admin port, shutdown timeout, TLS certificates
+- **Upstream** — Header prefix, allow-list (default-deny), timeouts
+- **Observability** — Log level, profiling, sensitive header redaction
 
-| YAML Key | Environment Variable | Type | Default | Description |
-|----------|---------------------|------|---------|-------------|
-| `upstream.header_prefix` | `CHAPERONE_UPSTREAM_HEADER_PREFIX` | string | `X-Connect` | Prefix for context headers (ADR-005) |
-| `upstream.trace_header` | `CHAPERONE_UPSTREAM_TRACE_HEADER` | string | `Connect-Request-ID` | Correlation ID header name |
-| `upstream.allow_list` | - | map | **Required** | Host → path patterns allow-list |
-| `upstream.timeouts.connect` | `CHAPERONE_UPSTREAM_TIMEOUTS_CONNECT` | duration | `5s` | Connection establishment timeout |
-| `upstream.timeouts.read` | `CHAPERONE_UPSTREAM_TIMEOUTS_READ` | duration | `30s` | Response header timeout |
-| `upstream.timeouts.write` | `CHAPERONE_UPSTREAM_TIMEOUTS_WRITE` | duration | `30s` | Response write timeout |
-| `upstream.timeouts.idle` | `CHAPERONE_UPSTREAM_TIMEOUTS_IDLE` | duration | `120s` | Keep-alive connection timeout |
-| `upstream.timeouts.keep_alive` | `CHAPERONE_UPSTREAM_TIMEOUTS_KEEP_ALIVE` | duration | `30s` | TCP keep-alive probe interval |
-| `upstream.timeouts.plugin` | `CHAPERONE_UPSTREAM_TIMEOUTS_PLUGIN` | duration | `10s` | Max time for plugin credential fetch |
-
-**Allow-List Pattern Syntax:**
-- `*` - Single-level wildcard (matches within a path segment)
-- `**` - Multi-level recursive wildcard (matches across path segments)
-
-Example:
-```yaml
-upstream:
-  allow_list:
-    "api.vendor.com":
-      - "/v1/**"           # All paths under /v1/
-      - "/v2/products/*"   # Single level under /v2/products/
-    "payments.example.com":
-      - "/api/charge"      # Exact path only
-```
-
-#### Observability Configuration
-
-| YAML Key | Environment Variable | Type | Default | Description |
-|----------|---------------------|------|---------|-------------|
-| `observability.log_level` | `CHAPERONE_OBSERVABILITY_LOG_LEVEL` | string | `info` | Log level: `debug`, `info`, `warn`, `error` |
-| `observability.enable_profiling` | `CHAPERONE_OBSERVABILITY_ENABLE_PROFILING` | bool | `false` | Enable `/debug/pprof` on admin port |
-| `observability.sensitive_headers` | - | []string | See below | Headers to redact from logs |
-
-**Default Sensitive Headers (always redacted):**
-- `Authorization`
-- `Proxy-Authorization`
-- `Cookie`
-- `Set-Cookie`
-- `X-API-Key`
-- `X-Auth-Token`
-
-### Environment Variable Overrides
-
-Environment variables follow the pattern `CHAPERONE_<SECTION>_<KEY>` (uppercase, underscore separator):
+Environment variables override YAML values using the pattern
+`CHAPERONE_<SECTION>_<KEY>` (uppercase, underscore separator).
 
 ```bash
-# Override server address
 export CHAPERONE_SERVER_ADDR=":9443"
-
-# Override log level
 export CHAPERONE_OBSERVABILITY_LOG_LEVEL="debug"
-
-# Override TLS certificate paths
-export CHAPERONE_SERVER_TLS_CERT_FILE="/etc/certs/server.crt"
-export CHAPERONE_SERVER_TLS_KEY_FILE="/etc/certs/server.key"
-
-# Override timeouts
 export CHAPERONE_UPSTREAM_TIMEOUTS_CONNECT="10s"
-export CHAPERONE_UPSTREAM_TIMEOUTS_READ="60s"
-export CHAPERONE_UPSTREAM_TIMEOUTS_KEEP_ALIVE="15s"
-export CHAPERONE_UPSTREAM_TIMEOUTS_PLUGIN="15s"
 ```
-
-Environment variables **always override** YAML values (12-Factor App methodology).
 
 ## Certificate Management
 

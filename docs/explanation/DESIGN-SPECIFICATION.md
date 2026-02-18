@@ -197,12 +197,14 @@ The Proxy exposes specific endpoints for traffic provisioning and operational ma
 
 #### B. Operational Endpoints (Vendor Neutral)
 
-These endpoints allow the upstream client (Connect or generic) to verify the Proxy's status over the existing mTLS tunnel.
+These endpoints allow the upstream client (Connect or generic) to verify the Proxy's status over the existing mTLS tunnel. They are also available on the **Management Port** for unauthenticated Distributor access (health checks, version verification).
 
 * **Path:** `GET /_ops/health`
     * **Purpose:** Liveness probe. Returns `200 OK` (JSON: `{"status": "alive"}`) if the process is running and can accept traffic.
+    * **Ports:** Traffic port (mTLS) and Management port (unauthenticated).
 * **Path:** `GET /_ops/version`
     * **Purpose:** Returns the current Semantic Version of the Core and the SDK. Used by the client to negotiate protocol compatibility (N-2 support).
+    * **Ports:** Traffic port (mTLS) and Management port (unauthenticated).
 
 #### C. Internal Admin Endpoints (Distributor Ops)
 

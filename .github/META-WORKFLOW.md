@@ -278,7 +278,7 @@ Read `.github/plans/phase-1-poc/_index.md` for current progress.
 
 | Information Type | Authoritative Source | Other files should... |
 |------------------|---------------------|----------------------|
-| Architecture, ADRs | `docs/DESIGN-SPECIFICATION.md` | Reference "See Section X" |
+| Architecture, ADRs | `docs/explanation/DESIGN-SPECIFICATION.md` | Reference "See Section X" |
 | Phase tasks, progress | `docs/ROADMAP.md` | Say "Read ROADMAP.md" |
 | Go conventions | `.github/copilot-instructions.md` | Say "See copilot-instructions" |
 | Security rules | `.github/instructions/go-security.instructions.md` | Reference it |

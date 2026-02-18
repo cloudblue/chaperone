@@ -1,0 +1,26 @@
+# Copyright 2026 CloudBlue LLC
+# SPDX-License-Identifier: Apache-2.0
+
+# ⚠️  TUTORIAL ONLY — Do not use in production.
+#
+# This configuration is used by the Getting Started tutorial.
+# It permits requests to httpbin.org (a public testing service) so
+# you can see credential injection in action without any real vendor APIs.
+#
+# For production, copy configs/config.example.yaml and configure your
+# actual vendor hosts in the allow_list.
+
+server:
+  addr: ":8443"
+  admin_addr: ":9090"
+  tls:
+    enabled: false
+
+upstream:
+  header_prefix: "X-Connect"
+  allow_list:
+    "httpbin.org":
+      - "/**"
+
+observability:
+  log_level: "info"

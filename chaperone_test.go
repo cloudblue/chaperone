@@ -509,7 +509,7 @@ func TestShutdownAdminServer_ReleasesPort(t *testing.T) {
 	// and releases its port for reuse.
 	adminAddr := freeAddr(t)
 
-	adminSrv := telemetry.NewAdminServer(adminAddr)
+	adminSrv := telemetry.NewAdminServer(adminAddr, "test")
 	telemetry.RegisterPprofHandlers(adminSrv.Mux(), false)
 
 	if err := adminSrv.Start(); err != nil {

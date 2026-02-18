@@ -39,7 +39,7 @@ name: {{skill_name}}
 description: {{description}}
 metadata:
   project: chaperone
-  design-spec-sections: [list relevant sections from docs/DESIGN-SPECIFICATION.md]
+  design-spec-sections: [list relevant sections from docs/explanation/DESIGN-SPECIFICATION.md]
 ---
 
 # {{Skill Title}}
@@ -82,7 +82,7 @@ metadata:
 
 ## Related Resources
 
-- [DESIGN-SPECIFICATION.md](../../docs/DESIGN-SPECIFICATION.md)
+- [DESIGN-SPECIFICATION.md](../../docs/explanation/DESIGN-SPECIFICATION.md)
 - [ROADMAP.md](../../docs/ROADMAP.md)
 - [SDK README](../../sdk/README.md)
 ```

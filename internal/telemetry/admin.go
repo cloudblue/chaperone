@@ -7,6 +7,7 @@ package telemetry
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -16,7 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// AdminServer serves admin endpoints (health, metrics, pprof).
+// AdminServer serves admin endpoints (health, version, metrics, pprof).
 type AdminServer struct {
 	addr   string
 	mux    *http.ServeMux
@@ -24,7 +25,8 @@ type AdminServer struct {
 }
 
 // NewAdminServer creates a new admin server.
-func NewAdminServer(addr string) *AdminServer {
+// The version parameter is surfaced via the GET /_ops/version endpoint.
+func NewAdminServer(addr, version string) *AdminServer {
 	mux := http.NewServeMux()
 
 	// Health check (always available)
@@ -32,6 +34,13 @@ func NewAdminServer(addr string) *AdminServer {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status": "alive"}`))
+	})
+
+	// Version endpoint (also on traffic port via proxy server)
+	mux.HandleFunc("GET /_ops/version", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"version": version})
 	})
 
 	// Prometheus metrics endpoint

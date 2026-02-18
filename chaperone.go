@@ -98,7 +98,7 @@ func WithLogOutput(w io.Writer) Option {
 //
 // This is the primary entry point for Distributors building custom binaries.
 // It handles configuration loading, structured logging with redaction,
-// admin server (health, pprof), TLS/mTLS, and graceful shutdown.
+// admin server (health, version, pprof), TLS/mTLS, and graceful shutdown.
 //
 // The plugin parameter implements [sdk.Plugin] to provide credential
 // injection logic. Pass nil to run without credential injection.
@@ -151,8 +151,8 @@ func configureLogging(rc *runConfig, cfg *config.Config) {
 func startProxy(ctx context.Context, plugin sdk.Plugin, rc *runConfig, cfg *config.Config) error {
 	logStartup(rc, cfg)
 
-	// Start admin server (health, pprof, metrics).
-	adminSrv := telemetry.NewAdminServer(cfg.Server.AdminAddr)
+	// Start admin server (health, version, pprof, metrics).
+	adminSrv := telemetry.NewAdminServer(cfg.Server.AdminAddr, rc.version)
 	telemetry.RegisterPprofHandlers(adminSrv.Mux(), cfg.Observability.EnableProfiling)
 
 	if startErr := adminSrv.Start(); startErr != nil { //nolint:contextcheck // AdminServer.Start binds a listener, no context needed
