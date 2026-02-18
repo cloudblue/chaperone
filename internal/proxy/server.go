@@ -9,6 +9,7 @@ package proxy
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -450,10 +451,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleVersion handles GET /_ops/version requests.
-func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprintf(w, `{"version": "%s"}`, s.config.Version)
+	_ = json.NewEncoder(w).Encode(map[string]string{"version": s.config.Version})
 }
 
 // handleProxy handles /proxy requests for all HTTP methods.

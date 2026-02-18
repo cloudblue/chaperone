@@ -38,7 +38,7 @@ func httpGet(t *testing.T, url string) *http.Response {
 }
 
 func TestAdminServer_Integration_StartShutdown(t *testing.T) {
-	srv := NewAdminServer("127.0.0.1:19090")
+	srv := NewAdminServer("127.0.0.1:19090", "1.0.0")
 
 	err := srv.Start()
 	if err != nil {
@@ -69,7 +69,7 @@ func TestAdminServer_Integration_WithPprof(t *testing.T) {
 	cleanup := SetAllowProfilingForTesting(true)
 	defer cleanup()
 
-	srv := NewAdminServer("127.0.0.1:19091")
+	srv := NewAdminServer("127.0.0.1:19091", "1.0.0")
 	RegisterPprofHandlers(srv.Mux(), true)
 
 	err := srv.Start()
@@ -93,7 +93,7 @@ func TestAdminServer_Integration_HeapProfile(t *testing.T) {
 	cleanup := SetAllowProfilingForTesting(true)
 	defer cleanup()
 
-	srv := NewAdminServer("127.0.0.1:19092")
+	srv := NewAdminServer("127.0.0.1:19092", "1.0.0")
 	RegisterPprofHandlers(srv.Mux(), true)
 
 	err := srv.Start()
@@ -113,7 +113,7 @@ func TestAdminServer_Integration_HeapProfile(t *testing.T) {
 }
 
 func TestAdminServer_Integration_PprofDisabled(t *testing.T) {
-	srv := NewAdminServer("127.0.0.1:19093")
+	srv := NewAdminServer("127.0.0.1:19093", "1.0.0")
 	// Note: NOT registering pprof handlers
 
 	err := srv.Start()
@@ -143,7 +143,7 @@ func TestAdminServer_Integration_GoroutineProfile(t *testing.T) {
 	cleanup := SetAllowProfilingForTesting(true)
 	defer cleanup()
 
-	srv := NewAdminServer("127.0.0.1:19094")
+	srv := NewAdminServer("127.0.0.1:19094", "1.0.0")
 	RegisterPprofHandlers(srv.Mux(), true)
 
 	err := srv.Start()
