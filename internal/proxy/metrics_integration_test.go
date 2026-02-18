@@ -78,7 +78,7 @@ func TestAdminServer_MetricsEndpoint_ExposesCustomMetrics(t *testing.T) {
 	telemetry.RequestDuration.WithLabelValues("test").Observe(0.1)
 
 	// Create admin server and verify /metrics is exposed
-	adminSrv := telemetry.NewAdminServer("127.0.0.1:0")
+	adminSrv := telemetry.NewAdminServer("127.0.0.1:0", "test")
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
@@ -106,7 +106,7 @@ func TestAdminServer_MetricsEndpoint_ExposesPanicsTotal(t *testing.T) {
 	// Increment panics counter so it appears in output
 	telemetry.PanicsTotal.Inc()
 
-	adminSrv := telemetry.NewAdminServer("127.0.0.1:0")
+	adminSrv := telemetry.NewAdminServer("127.0.0.1:0", "test")
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()

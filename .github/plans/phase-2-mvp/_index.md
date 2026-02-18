@@ -22,7 +22,7 @@
 | 12 | Load Testing | [x] | P1 | 07, 11 | M |
 | 13 | Module Preparation | [x] | P1 | 01-06 | M |
 | 14 | Enroll Public API | [x] | P1 | 13 | S |
-| 15 | Documentation | [ ] | P1 | 01-06, 13, 14 | M |
+| 15 | Documentation | [x] | P1 | 01-06, 13, 14 | M |
 
 **Legend:** `[ ]` Not started | `[~]` In progress | `[x]` Completed | `[!]` Blocked
 

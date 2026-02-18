@@ -41,7 +41,7 @@ Check that all dependency tasks are marked as completed:
 Use a subagent to extract relevant implementation details:
 
 ```
-Spawn subagent to read docs/DESIGN-SPECIFICATION.md sections [from task].
+Spawn subagent to read docs/explanation/DESIGN-SPECIFICATION.md sections [from task].
 Return:
 1. Interface definitions (exact code)
 2. Struct fields required

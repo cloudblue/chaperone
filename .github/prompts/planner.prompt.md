@@ -24,14 +24,14 @@ Where the argument is the phase number (1, 2, 3, or 4).
 Read the authoritative sources:
 
 1. `docs/ROADMAP.md` - Get the task list for the requested phase
-2. `docs/DESIGN-SPECIFICATION.md` - Get implementation details
+2. `docs/explanation/DESIGN-SPECIFICATION.md` - Get implementation details
 
 ### Step 2: Analyze Phase Requirements
 
 Use a subagent to deeply analyze the Design Spec:
 
 ```
-Subagent task: "Analyze docs/DESIGN-SPECIFICATION.md for Phase {{phase}} implementation.
+Subagent task: "Analyze docs/explanation/DESIGN-SPECIFICATION.md for Phase {{phase}} implementation.
 
 For each item in Phase {{phase}} of the ROADMAP, identify:
 1. Which Design Spec sections are relevant
