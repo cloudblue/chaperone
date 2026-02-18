@@ -1,0 +1,33 @@
+# Copyright 2026 CloudBlue LLC
+# SPDX-License-Identifier: Apache-2.0
+
+# CI-only configuration for load testing.
+# Self-contained — does not depend on config.example.yaml.
+
+server:
+  addr: ":8443"
+  admin_addr: ":9090"
+  shutdown_timeout: 10s
+  tls:
+    enabled: true
+    cert_file: "certs/server.crt"
+    key_file: "certs/server.key"
+    ca_file: "certs/ca.crt"
+
+upstream:
+  header_prefix: "X-Connect"
+  trace_header: "Connect-Request-ID"
+  allow_list:
+    "localhost":
+      - "/**"
+  timeouts:
+    connect: 5s
+    read: 30s
+    write: 30s
+    idle: 120s
+    keep_alive: 30s
+    plugin: 10s
+
+observability:
+  log_level: "warn"
+  enable_profiling: false
