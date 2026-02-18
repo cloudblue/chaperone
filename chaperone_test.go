@@ -582,16 +582,7 @@ func TestRun_ProxyPortInUse_CleansUpAdminServer(t *testing.T) {
 
 	// The admin port should be released — if the admin server leaked, this
 	// listen call would fail with "address already in use".
-	// Retry briefly to tolerate OS-level socket release delays on loaded CI runners.
-	var adminListener net.Listener
-	var listenErr error
-	for range 10 {
-		adminListener, listenErr = lc.Listen(context.Background(), "tcp", adminAddr)
-		if listenErr == nil {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	adminListener, listenErr := lc.Listen(context.Background(), "tcp", adminAddr)
 	if listenErr != nil {
 		t.Errorf("admin port %s still in use after Run() returned — admin server leaked: %v",
 			adminAddr, listenErr)
