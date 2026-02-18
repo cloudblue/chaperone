@@ -1,6 +1,6 @@
 # Task: Load Testing
 
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 **Priority:** P1
 **Estimated Effort:** M
 
@@ -16,23 +16,26 @@ Implement k6-based load testing infrastructure to validate system behavior under
 
 ## Dependencies
 
-- [ ] `07-telemetry-metrics.task.md` - Prometheus metrics to monitor during load tests
-- [ ] `11-benchmark-testing.task.md` - Establishes baseline performance expectations
+- [x] `07-telemetry-metrics.task.md` - Prometheus metrics to monitor during load tests
+- [x] `11-benchmark-testing.task.md` - Establishes baseline performance expectations
 
 ## Acceptance Criteria
 
-- [ ] k6 installed and documented
-- [ ] `test/load/` directory structure created
-- [ ] Baseline scenario script implemented
-- [ ] Spike test scenario implemented
-- [ ] Stress test scenario implemented
-- [ ] Soak test scenario implemented (documented as manual)
-- [ ] mTLS scenario with test certificates
-- [ ] Thresholds match Chaperone SLOs
-- [ ] Makefile targets: `load-test`, `load-baseline`, `load-spike`, `load-stress`
-- [ ] README documents how to run tests
-- [ ] Tests pass: `go test ./...`
-- [ ] Lint passes: `make lint`
+- [x] k6 installed and documented
+- [x] `test/load/` directory structure created
+- [x] Baseline scenario script implemented
+- [x] Spike test scenario implemented
+- [x] Stress test scenario implemented
+- [x] Soak test scenario implemented (documented as manual)
+- [x] mTLS scenario with test certificates
+- [x] All tests use shared mTLS client certs (chaperone always requires mTLS)
+- [x] Thresholds match Chaperone SLOs
+- [x] Makefile targets: `load-test`, `load-baseline`, `load-spike`, `load-stress`, `load-smoke`
+- [x] Target echo server auto-started by Makefile targets
+- [x] README documents how to run tests
+- [x] CI workflow runs smoke test on PRs
+- [x] Tests pass: `go test ./...`
+- [x] Lint passes: `make lint`
 
 ## Load Testing vs Benchmark Testing
 
@@ -594,23 +597,27 @@ echo "POST https://localhost:8443/proxy" | \
 
 ### k6 Scripts (Create)
 
-- [ ] `test/load/README.md` - How to run load tests
-- [ ] `test/load/baseline.js` - Normal traffic baseline
-- [ ] `test/load/spike.js` - Traffic spike scenario
-- [ ] `test/load/stress.js` - Find breaking point
-- [ ] `test/load/soak.js` - Long-running endurance
-- [ ] `test/load/mtls.js` - mTLS client cert test
+- [x] `test/load/README.md` - How to run load tests
+- [x] `test/load/config.js` - Shared configuration, thresholds, mTLS certs
+- [x] `test/load/baseline.js` - Normal traffic baseline
+- [x] `test/load/spike.js` - Traffic spike scenario
+- [x] `test/load/stress.js` - Find breaking point
+- [x] `test/load/soak.js` - Long-running endurance
+- [x] `test/load/mtls.js` - mTLS client cert test
 
-### Test Certificates (Create)
+### Target Server (Create)
 
-- [ ] `test/load/certs/client.crt` - Test client certificate
-- [ ] `test/load/certs/client.key` - Test client key
+- [x] `test/load/targetserver/main.go` - Minimal Go echo server for load testing
+
+### Test Certificates (Runtime)
+
+- [x] `test/load/certs/` - Copied from `certs/` by `make gencerts-load` (gitignored)
 
 ### Infrastructure (Create/Modify)
 
-- [ ] `Makefile` - Add load-* targets
-- [ ] `.github/workflows/load-test.yml` - Optional nightly CI job
-- [ ] `deployments/docker-compose.load-test.yml` - Optional containerized setup
+- [x] `Makefile` - Add load-* targets, target server, gencerts-load
+- [x] `.github/workflows/load-test.yml` - Smoke test on PRs
+- [x] `.gitignore` - Ignore `test/load/results/`
 
 ## File Organization
 

@@ -1,0 +1,68 @@
+# Copyright 2026 CloudBlue LLC
+# SPDX-License-Identifier: Apache-2.0
+
+name: Load Test
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: '1.25.7'
+  K6_VERSION: '0.56.0'
+
+jobs:
+  smoke:
+    name: Smoke Load Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: ${{ env.K6_VERSION }}
+
+      - name: Generate certificates
+        run: make gencerts
+
+      - name: Copy certificates for load tests
+        run: make gencerts-load
+
+      - name: Start target server
+        run: |
+          go run test/load/targetserver/main.go &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9999/ >/dev/null 2>&1; then
+              echo "Target server ready"
+              break
+            fi
+            echo "Waiting for target server... ($i/30)"
+            sleep 1
+          done
+
+      - name: Build and start chaperone
+        run: |
+          make build-dev
+          ./bin/chaperone -config configs/ci-load-test.yaml &
+          for i in $(seq 1 30); do
+            if curl -sf --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key https://localhost:8443/_ops/health >/dev/null 2>&1; then
+              echo "Chaperone ready"
+              break
+            fi
+            echo "Waiting for chaperone... ($i/30)"
+            sleep 1
+          done
+
+      - name: Run smoke load test
+        run: K6_INSECURE_SKIP_TLS_VERIFY=true k6 run --vus 10 --duration 1m -e K6_SCENARIO=smoke test/load/baseline.js

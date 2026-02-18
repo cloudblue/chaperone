@@ -19,7 +19,7 @@
 | 09 | Profiling | [x] | P1 | Phase 1 only | M |
 | 10 | Performance Attribution | [x] | P1 | Phase 1 only | M |
 | 11 | Benchmark Testing | [x] | P1 | 09 | M |
-| 12 | Load Testing | [ ] | P1 | 07, 11 | M |
+| 12 | Load Testing | [x] | P1 | 07, 11 | M |
 | 13 | Module Preparation | [x] | P1 | 01-06 | M |
 | 14 | Enroll Public API | [x] | P1 | 13 | S |
 | 15 | Documentation | [ ] | P1 | 01-06, 13, 14 | M |

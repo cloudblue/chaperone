@@ -21,6 +21,7 @@ type AdminServer struct {
 	addr   string
 	mux    *http.ServeMux
 	server *http.Server
+	done   chan struct{} // closed when the Serve goroutine exits
 }
 
 // NewAdminServer creates a new admin server.
@@ -73,7 +74,9 @@ func (s *AdminServer) Start() error {
 		IdleTimeout:  120 * time.Second,
 	}
 
+	s.done = make(chan struct{})
 	go func() {
+		defer close(s.done)
 		if err := s.server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			slog.Error("admin server error", "error", err)
 		}
@@ -83,10 +86,15 @@ func (s *AdminServer) Start() error {
 	return nil
 }
 
-// Shutdown gracefully shuts down the admin server.
+// Shutdown gracefully shuts down the admin server and waits for the
+// Serve goroutine to fully exit, ensuring the listening port is released.
 func (s *AdminServer) Shutdown(ctx context.Context) error {
 	if s == nil || s.server == nil {
 		return nil
 	}
-	return s.server.Shutdown(ctx)
+	err := s.server.Shutdown(ctx)
+	if s.done != nil {
+		<-s.done
+	}
+	return err
 }

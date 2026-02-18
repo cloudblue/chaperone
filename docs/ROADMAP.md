@@ -34,7 +34,7 @@ We define three key milestones to validate the architecture and reach production
 * [ ] **Profiling:** Add the optional `/debug/pprof` endpoint (protected by config).
 * [ ] **Performance Attribution:** Implement the `Server-Timing` header logic to visualize "Plugin vs. Upstream" latency.
 * [ ] **Benchmark Testing:** Go native benchmarks for hot path components, memory efficiency, and TLS performance.
-* [ ] **Load Testing:** k6 scripts for stress testing with defined scenarios and success criteria.
+* [x] **Load Testing:** k6 scripts for stress testing with defined scenarios and success criteria.
 
 ### Finalization
 * [ ] **Documentation:** Publish Distributor Installation Guide, Configuration Reference, and basic Plugin Developer docs.
