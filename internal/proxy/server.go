@@ -629,6 +629,15 @@ func headerValuesEqual(a, b []string) bool {
 	return true
 }
 
+// stripContextHeaders removes the exact set of internal context headers
+// (defined by context.HeaderSuffixes()) from the outgoing request. These carry
+// transaction metadata that must not be forwarded to the vendor/ISV target.
+func (s *Server) stripContextHeaders(req *http.Request) {
+	for _, suffix := range chaperoneCtx.HeaderSuffixes() {
+		req.Header.Del(s.config.HeaderPrefix + suffix)
+	}
+}
+
 // forwardRequest forwards the request to the target URL via reverse proxy.
 func (s *Server) forwardRequest(w http.ResponseWriter, r *http.Request, target *url.URL, traceID string, txCtx *sdk.TransactionContext) {
 	// Record upstream timing for both telemetry metrics and Server-Timing header
@@ -684,7 +693,7 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 	// Apply upstream transport with configurable timeouts.
 	proxy.Transport = s.upstreamTransport()
 
-	// Customize the Director to set the correct host and path
+	// Customize the Director to set the correct host/path and strip context headers.
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		// Store upstream start time in context to avoid race condition
@@ -698,6 +707,10 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 		if target.Path != "" && target.Path != "/" {
 			req.URL.Path = target.Path
 		}
+
+		// SECURITY: Strip context headers before forwarding (Design Spec §5.3).
+		// Trace header is preserved (§8.3) — it uses a different naming convention.
+		s.stripContextHeaders(req)
 	}
 
 	// Response modification chain: Timing → Plugin → Strip Headers → Error Normalization

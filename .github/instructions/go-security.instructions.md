@@ -152,6 +152,24 @@ func sanitizeResponse(resp *http.Response) {
 }
 ```
 
+### Strip Context Headers Before Forwarding
+
+Context headers (e.g., `X-Connect-Target-URL`, `X-Connect-Vendor-ID`) carry
+internal metadata and must be stripped in the Director before forwarding.
+The exact header list is defined in `context.HeaderSuffixes()` — strip only
+those, not arbitrary prefix-matched headers. The trace header
+(`Connect-Request-ID`) is preserved per Design Spec §8.3.
+
+```go
+// ✅ Correct: Strip exact headers from the canonical list
+for _, suffix := range chaperoneCtx.HeaderSuffixes() {
+    req.Header.Del(headerPrefix + suffix)
+}
+
+// ❌ Wrong: Prefix-match strips unrelated headers that happen to share the prefix
+// ❌ Wrong: Strip before plugin call (breaks Slow Path plugins)
+```
+
 When iterating a map to delete entries (e.g., ranging over `http.Header`),
 prefer a **two-pass collect-then-delete** pattern for clarity in
 security-critical code:
