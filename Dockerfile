@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Chaperone Egress Proxy - Multi-Stage Dockerfile
-# See: docs/explanation/DESIGN-SPECIFICATION.md Section 6.2.1
+# See: docs/guides/deployment.md
 
 # =============================================================================
 # Stage 1: Builder

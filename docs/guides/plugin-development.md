@@ -2,8 +2,7 @@
 
 How to build a custom Chaperone plugin that injects credentials into
 outgoing API requests. By the end of this guide, you'll have a working
-plugin that injects a custom header into every proxied request — and
-you'll see it happen live.
+plugin that injects a custom header into every proxied request.
 
 **Time:** ~30 minutes
 
@@ -29,50 +28,15 @@ you'll see it happen live.
 > tutorial first. It introduces the proxy, configuration, allow-lists,
 > and request flow — all concepts used here.
 
-## Architecture Overview
+Chaperone compiles your plugin directly into the proxy binary (static
+recompilation). You implement the
+[`sdk.Plugin`](../reference/sdk.md#plugin-composite-interface) interface,
+pass it to [`chaperone.Run()`](../reference/sdk.md#run), and the proxy
+handles TLS, routing, caching, logging, and response sanitization. See the
+[Design Specification](../explanation/DESIGN-SPECIFICATION.md) for the
+rationale behind this approach.
 
-Chaperone uses **static recompilation** for its plugin system. Instead of
-loading plugins at runtime (via shared libraries or RPC), your plugin code
-is compiled directly into the proxy binary. This approach provides:
-
-- **Zero overhead** — no network serialization, no IPC
-- **Full Go ecosystem** — use any Go library in your plugin
-- **Single binary** — one static binary to deploy, no runtime dependencies
-- **Type safety** — compile-time interface verification
-
-Your plugin implements the [`sdk.Plugin`](../reference/sdk.md#plugin-composite-interface)
-interface and is passed to [`chaperone.Run()`](../reference/sdk.md#run)
-at startup. The proxy handles everything else: TLS, routing, caching,
-logging, and response sanitization.
-
-## Understanding Credential Strategies
-
-Before writing code, it's important to understand how your plugin
-communicates credentials back to the proxy. Your plugin's
-[`GetCredentials`](../reference/sdk.md#credentialprovider) method supports
-two strategies:
-
-| Strategy | Return Value | When to Use |
-|----------|-------------|-------------|
-| **Fast Path** | [`*Credential`](../reference/sdk.md#credential) with headers + TTL | Static tokens, API keys, Bearer tokens |
-| **Slow Path** | `nil, nil` (mutate `req` directly) | HMAC body signing, request-dependent auth |
-
-**Fast Path** credentials are cached by the proxy using a hash of the
-[`TransactionContext`](../reference/sdk.md#transactioncontext). Subsequent
-requests with the same context are served from cache without calling your
-plugin again — until the [`Credential`'s](../reference/sdk.md#credential)
-`ExpiresAt` time passes. This is the most common strategy and what we'll
-use in this guide.
-
-**Slow Path** plugins run on every request. The proxy automatically detects
-headers added by your plugin (via pre/post snapshot diffing) and ensures
-they are redacted from logs and stripped from responses. Use this when the
-credential depends on the request body (e.g., HMAC signing). See the
-[HMAC Body Signing](#hmac-body-signing-slow-path) pattern for an example.
-
----
-
-## Build Your First Plugin
+## Build your first plugin
 
 This section walks you through creating a complete plugin project from
 scratch. You'll create your own Go module with a plugin that injects a
@@ -141,8 +105,16 @@ replace (
 
 ### Step 3: Write Your Plugin
 
-Create `plugins/myplugin.go`. This is the core of your custom proxy —
-the file where you implement credential injection logic:
+Create `plugins/myplugin.go`. The central method is `GetCredentials`,
+which supports two strategies:
+
+| Strategy | Return Value | When to Use |
+|----------|-------------|-------------|
+| **Fast Path** | `*Credential` with headers + TTL | Static tokens, API keys, Bearer tokens — cached by the proxy |
+| **Slow Path** | `nil, nil` (mutate `req` directly) | HMAC body signing, request-dependent auth — runs every request |
+
+This guide uses the Fast Path. See [HMAC Body Signing](#hmac-body-signing-slow-path)
+for a Slow Path example.
 
 ```go
 package plugins
@@ -382,45 +354,37 @@ Now that you have a working plugin, here's how to add more capabilities.
 #### Adding Enrollment Support
 
 For production mTLS deployments, your binary can generate Certificate
-Signing Requests (CSRs). Add an `enroll` subcommand to your `main.go`:
+Signing Requests (CSRs). Add enrollment support with a simple subcommand
+check in `main.go`:
 
 ```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "os"
-    "os/signal"
-    "syscall"
-
-    "github.com/cloudblue/chaperone"
-    myplugin "github.com/acme/my-proxy/plugins"
-)
-
 func main() {
     if len(os.Args) > 1 && os.Args[1] == "enroll" {
-        if err := runEnroll(); err != nil {
+        if err := runEnroll(os.Args[2:]); err != nil {
             fmt.Fprintf(os.Stderr, "enrollment failed: %v\n", err)
             os.Exit(1)
         }
         return
     }
 
+    // Normal proxy startup...
     ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
     defer stop()
 
-    if err := chaperone.Run(ctx, myplugin.New(),
-        chaperone.WithVersion("0.1.0"),
-    ); err != nil {
+    if err := chaperone.Run(ctx, myPlugin, /* options */); err != nil {
         os.Exit(1)
     }
 }
 
-func runEnroll() error {
+func runEnroll(args []string) error {
+    fs := flag.NewFlagSet("enroll", flag.ExitOnError)
+    domains := fs.String("domains", "", "Comma-separated DNS names and IPs")
+    outDir := fs.String("out", "./certs", "Output directory")
+    fs.Parse(args)
+
     result, err := chaperone.Enroll(context.Background(), chaperone.EnrollConfig{
-        Domains:   "proxy.example.com",
-        OutputDir: "./certs",
+        Domains:   *domains,
+        OutputDir: *outDir,
     })
     if err != nil {
         return err
@@ -431,9 +395,14 @@ func runEnroll() error {
 }
 ```
 
-Usage: `./my-proxy enroll` generates a key pair and CSR in `./certs/`.
-See [Certificate Management](certificate-management.md) for submitting
-the CSR to a CA.
+Then run:
+
+```bash
+./my-proxy enroll -domains proxy.example.com
+```
+
+See [Certificate Management](certificate-management.md) for the full
+enrollment workflow, including submitting the CSR to a CA.
 
 #### go.mod After Publication
 
@@ -563,7 +532,7 @@ import (
     "github.com/cloudblue/chaperone/sdk"
 )
 
-func TestGetCredentials_ReturnsToken(t *testing.T) {
+func TestGetCredentials_ReturnsCredential(t *testing.T) {
     p := plugins.New()
 
     tx := sdk.TransactionContext{
@@ -725,7 +694,7 @@ and `GetCredentials` return logic in your plugin.
 
 ### Bearer Token (Fast Path)
 
-**When to use:** The vendor API expects a `Authorization: Bearer <token>`
+**When to use:** The vendor API expects an `Authorization: Bearer <token>`
 header. The token comes from your credential store and can be cached.
 
 **How it works:** Look up the token by vendor ID, return it in a

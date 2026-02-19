@@ -1,16 +1,10 @@
-# Getting Started with Chaperone
+# Getting started with Chaperone
 
-This tutorial walks you through running Chaperone for the first time and
-making a proxied API request. By the end, you'll have a working proxy
-that injects credentials into outgoing requests.
+This tutorial walks you through running Chaperone and sending a proxied
+request. By the end, you'll see the proxy inject a credential into an
+outgoing request automatically.
 
 **Time:** ~10 minutes
-
-**What you'll learn:**
-- How to build and run Chaperone with Docker
-- How to verify the proxy is healthy
-- How to send a proxied request through Chaperone
-- How Chaperone injects credentials automatically
 
 ## Prerequisites
 
@@ -19,7 +13,7 @@ that injects credentials into outgoing requests.
 | **Docker** | 20.10+ | Running Chaperone |
 | **curl** | any | Sending test requests |
 
-## Step 1: Build the Docker Image
+## Step 1: Build the Docker image
 
 Clone the repository and build:
 
@@ -31,28 +25,48 @@ docker build -t chaperone:latest .
 
 ## Step 2: Start Chaperone
 
-Chaperone requires a configuration file with an **allow-list** of permitted
-target hosts — this is a security feature that prevents the proxy from being
-used to reach arbitrary destinations. A tutorial config is included that
-permits requests to `httpbin.org` (a public testing service):
+The repository includes tutorial configuration files in `configs/`:
 
-> **What's in `configs/getting-started.yaml`?**
->
-> ```yaml
-> server:
->   addr: ":8443"
->   admin_addr: ":9090"
->   tls:
->     enabled: false            # No mTLS for the tutorial
->
-> upstream:
->   allow_list:
->     "httpbin.org":
->       - "/**"                 # Allow all paths on httpbin.org
-> ```
->
-> In production, you'd replace `httpbin.org` with your real vendor API hosts
-> and enable TLS. See the [Configuration Reference](reference/configuration.md).
+<details>
+<summary>What's in the tutorial config?</summary>
+
+`configs/getting-started.yaml` defines the allow-list — which target
+hosts the proxy permits. For this tutorial, it allows `httpbin.org`
+(a public HTTP testing service):
+
+```yaml
+server:
+  addr: ":8443"
+  admin_addr: ":9090"
+  tls:
+    enabled: false            # No mTLS for the tutorial
+
+upstream:
+  allow_list:
+    "httpbin.org":
+      - "/**"                 # Allow all paths on httpbin.org
+```
+
+`configs/getting-started-credentials.json` maps vendor IDs to
+credentials. The reference plugin reads this file and injects the
+configured header when a matching request arrives:
+
+```json
+{
+  "vendors": {
+    "test-vendor": {
+      "auth_type": "api_key",
+      "header_name": "X-Injected-By",
+      "token": "chaperone-tutorial"
+    }
+  }
+}
+```
+
+In production, you'd replace these with real vendor hosts and enable TLS.
+See the [Configuration Reference](reference/configuration.md).
+
+</details>
 
 Start the container in the foreground so you can see the startup logs:
 
@@ -61,72 +75,48 @@ docker run --rm --name chaperone-tutorial \
   -p 8443:8443 \
   -p 9090:9090 \
   -v $(pwd)/configs/getting-started.yaml:/app/config.yaml:ro \
-  chaperone:latest
+  -v $(pwd)/configs/getting-started-credentials.json:/app/credentials.json:ro \
+  chaperone:latest -config /app/config.yaml -credentials /app/credentials.json
 ```
 
-Chaperone logs are JSON-formatted (structured logging for production use).
-Look for these key messages in the output:
+Chaperone logs are JSON-formatted. Look for these messages in the output:
 
-- **"starting chaperone"** — Startup with version and config summary
-- **"admin server started"** with `addr=:9090` — Admin endpoints are ready
-- **"starting proxy server in HTTP mode"** with `addr=:8443` — Proxy is accepting traffic
-- **"server listening"** — Ready for requests
-
-> You may also see warnings about no credentials file (expected for this
-> tutorial) and about config file permissions (safe to ignore in Docker).
+- `"starting chaperone"` — Startup with version and config summary
+- `"loaded reference plugin"` — Credentials file loaded
+- `"admin server started"` with `addr=:9090` — Admin endpoints ready
+- `"starting proxy server in HTTP mode (no mTLS) - FOR DEVELOPMENT ONLY"` with `addr=:8443` — Proxy accepting traffic (this is a warning because TLS is disabled — expected for the tutorial)
+- `"server listening"` — Ready for requests
 
 Leave this terminal running and **open a new terminal** for the next steps.
 
-Port mapping:
-- **8443** — Proxy traffic port (where you send requests)
-- **9090** — Admin port (health checks, metrics)
-
-## Step 3: Verify Health
+## Step 3: Verify health
 
 Check that the proxy is running:
 
 ```bash
-# Health check (admin port)
 curl -s http://localhost:9090/_ops/health
-# {"status": "alive"}
+```
 
-# Version check (admin port)
+```json
+{"status": "alive"}
+```
+
+The version endpoint is also available:
+
+```bash
 curl -s http://localhost:9090/_ops/version
-# {"version": "..."}
 ```
 
-Both endpoints are also available on the traffic port (8443).
+Both endpoints are available on the admin port (9090) and the traffic
+port (8443).
 
-## Step 4: Understand the Request Flow
+## Step 4: Send a proxied request
 
-When a platform sends a request through Chaperone, here's what happens:
+You tell Chaperone where to send a request using the `X-Connect-Target-URL`
+header, and which vendor's credentials to inject using `X-Connect-Vendor-ID`.
 
-```
-Platform → Chaperone → Vendor API
-              │
-              ├─ 1. Parse context headers (vendor ID, target URL, etc.)
-              ├─ 2. Validate target URL against allow-list
-              ├─ 3. Call plugin to get credentials
-              ├─ 4. Inject credentials into the request
-              ├─ 5. Forward to vendor API
-              └─ 6. Return response (with credentials stripped)
-```
-
-The platform sends context via headers (using the configurable prefix,
-default `X-Connect-`):
-
-| Header | Purpose |
-|--------|---------|
-| `X-Connect-Target-URL` | Where to forward the request |
-| `X-Connect-Vendor-ID` | Which vendor's credentials to use |
-| `X-Connect-Product-ID` | Product identifier |
-| `X-Connect-Marketplace-ID` | Marketplace identifier |
-| `X-Connect-Subscription-ID` | Subscription identifier |
-
-## Step 5: Send a Proxied Request
-
-Send a request through Chaperone to `httpbin.org/headers`, which echoes
-back all the request headers it received:
+Send a request through the proxy to `httpbin.org/headers`, which echoes
+back all request headers it received:
 
 ```bash
 curl -s http://localhost:8443/proxy \
@@ -134,30 +124,27 @@ curl -s http://localhost:8443/proxy \
   -H "X-Connect-Vendor-ID: test-vendor"
 ```
 
-You should get a JSON response with a `headers` object. Notice:
+In the JSON response, look at the `headers` object. You'll see:
 
-- **`Connect-Request-Id`** — Chaperone generates a unique trace ID for
-  every request, useful for correlating logs across services.
-- **`X-Connect-Target-Url`** and **`X-Connect-Vendor-Id`** — The context
-  headers you sent, which Chaperone forwarded to the target.
+- **`X-Injected-By: chaperone-tutorial`** — Chaperone's reference plugin
+  looked up `test-vendor` in the credentials file and injected this header.
+  The vendor received it; you didn't send it.
+- **`Connect-Request-Id`** — A trace ID generated by Chaperone for
+  correlating logs across services.
 
-In a real deployment with a credentials plugin configured, Chaperone
-would also inject authentication headers (e.g., `Authorization`) into
-the outgoing request — and then **strip them from the response** before
-returning it, so credentials never leak back to the calling platform.
-That's the core security value of the proxy. See the
-[Plugin Development Guide](guides/plugin-development.md) to build
-a plugin that provides credentials.
+Switch back to the terminal running Chaperone. The request log shows
+the trace ID, vendor ID, upstream status, and latency — but any
+sensitive header values are redacted.
 
-## Step 6: Clean Up
+## Step 5: Clean up
 
 Press `Ctrl+C` in the terminal running Chaperone to stop it.
 
-## Next Steps
+## Next steps
 
-Now that you've seen Chaperone in action:
+Now that you've seen Chaperone inject credentials into a proxied request:
 
-- **Build your plugin:** Follow the [Plugin Development Guide](guides/plugin-development.md) to inject real credentials
-- **Deploy for production:** Follow the [Deployment Guide](guides/deployment.md) for mTLS setup
-- **Set up certificates:** See [Certificate Management](guides/certificate-management.md)
-- **Configure routing:** Read the [Configuration Reference](reference/configuration.md)
+- **Build your plugin:** Follow the [Plugin Development Guide](guides/plugin-development.md) to replace the reference plugin with your own logic
+- **Deploy for production:** Follow the [Deployment Guide](guides/deployment.md) for mTLS and Docker hardening
+- **Set up certificates:** See [Certificate Management](guides/certificate-management.md) for production CA enrollment
+- **Configure routing:** Read the [Configuration Reference](reference/configuration.md) for allow-list syntax and timeouts

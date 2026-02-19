@@ -133,6 +133,8 @@ or passing through ISV validation errors.
 | `tx` | [`TransactionContext`](#transactioncontext) | Metadata for this request (same instance passed to `GetCredentials`). |
 | `resp` | [`*http.Response`][resp] | The vendor's HTTP response. Can be modified in place. Note: reading `resp.Body` buffers the entire response into memory. |
 
+> **Warning:** Reading `resp.Body` buffers the entire response into memory. For large vendor responses, consider streaming or limiting the read size.
+
 #### `ModifyResponse` Return Values
 
 | Return | Type | Description |
@@ -413,6 +415,30 @@ type EnrollResult struct {
 | `CSRFile` | `string` | Path to the generated Certificate Signing Request. |
 | `DNSNames` | `[]string` | DNS SANs included in the CSR. |
 | `IPs` | [`[]net.IP`][ip] | IP SANs included in the CSR. |
+
+---
+
+## Compliance Test Kit
+
+The `sdk/compliance` package provides a contract test suite for plugin
+implementations.
+
+```go
+import "github.com/cloudblue/chaperone/sdk/compliance"
+```
+
+### `VerifyContract`
+
+```go
+func VerifyContract(t *testing.T, p sdk.Plugin)
+```
+
+Runs contract tests against a plugin to verify it handles edge cases
+(empty context, cancelled context, nil CSR, nil response) without
+panicking, and that returned credentials have a valid `ExpiresAt`.
+
+See the [Plugin Development Guide](../guides/plugin-development.md) for
+usage in your test suite.
 
 ---
 

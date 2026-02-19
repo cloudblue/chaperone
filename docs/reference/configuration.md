@@ -12,7 +12,7 @@ Chaperone resolves the configuration file path in this order:
 2. **`CHAPERONE_CONFIG` environment variable** — `export CHAPERONE_CONFIG=/etc/chaperone.yaml`
 3. **`./config.yaml`** — current working directory (default)
 
-If no configuration file is found, Chaperone starts with built-in defaults.
+If no configuration file is found, Chaperone exits with an error.
 
 ## Environment Variable Overrides
 
@@ -129,6 +129,7 @@ observability:
 |-----|-------------|------|---------|-------------|
 | `log_level` | `CHAPERONE_OBSERVABILITY_LOG_LEVEL` | string | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `enable_profiling` | `CHAPERONE_OBSERVABILITY_ENABLE_PROFILING` | bool | `false` | Enable `/debug/pprof` endpoints on the admin port |
+| — | `CHAPERONE_OBSERVABILITY_ENABLE_BODY_LOGGING` | bool | `false` | Log request/response bodies at debug level. **Env-var only** — cannot be set in the YAML file (security safeguard). A startup warning is emitted when enabled. |
 | `sensitive_headers` | — | []string | See below | Additional headers to redact (merged with defaults) |
 
 #### Sensitive Headers
@@ -243,7 +244,7 @@ The file `configs/config.example.yaml` contains a fully annotated configuration:
 ```yaml
 server:
   addr: ":8443"               # Traffic port
-  admin_addr: ":9090"         # Admin port (health, metrics, pprof)
+  admin_addr: "127.0.0.1:9090"  # Admin port (localhost only for security)
   shutdown_timeout: 30s       # Graceful shutdown drain time
   tls:
     enabled: true             # Enable mTLS

@@ -8,8 +8,8 @@ exposes two server ports: a **traffic port** (mTLS-protected) and an
 
 | Port | Default | Auth | Purpose |
 |------|---------|------|---------|
-| Traffic | `:8443` | mTLS (client cert required) | Proxied API requests, health, version |
-| Admin | `:9090` | None (bind to localhost) | Health, version, metrics, profiling |
+| Traffic | `:443` | mTLS (client cert required) | Proxied API requests, health, version |
+| Admin | `127.0.0.1:9090` | None (bind to localhost) | Health, version, metrics, profiling |
 
 Both ports are configurable via `server.addr` and `server.admin_addr` in
 the [Configuration Reference](configuration.md).
@@ -128,28 +128,15 @@ curl --cacert certs/ca.crt \
 | `200–299` | Success (from vendor) |
 | `400` | Missing/invalid context headers, invalid target URL, or unsupported URL scheme |
 | `403` | Target host or path not in the allow-list |
-| `502` | Plugin error or upstream connection failure |
+| `500` | Plugin error (credential fetch failed) |
+| `502` | Upstream connection failure (vendor unreachable) |
 | `504` | Plugin timeout (`upstream.timeouts.plugin` exceeded) |
 
 **Response headers:**
 
 | Header | Description |
 |--------|-------------|
-| `Server-Timing` | Timing breakdown: `proxy`, `upstream`, `plugin` durations |
-| `Connect-Request-ID` | Trace ID for correlation |
-
-### Middleware Chain
-
-Requests to `/proxy` pass through the following middleware (in order):
-
-1. **TraceIDMiddleware** — Assigns/propagates correlation ID
-2. **RequestLoggerMiddleware** — Structured request/response logging
-3. **MetricsMiddleware** — Prometheus counter and histogram recording
-4. **PanicRecoveryMiddleware** (global) — Safety net for all routes
-5. **TimingMiddleware** — Records timing, injects `Server-Timing` header
-6. **PanicRecoveryMiddleware** (per-route) — Per-request panic recovery
-7. **AllowListMiddleware** — Validates target URL against allow-list
-8. **handleProxy** — Credential injection and request forwarding
+| `Server-Timing` | Timing breakdown: `plugin`, `upstream`, `overhead` durations (milliseconds) |
 
 ---
 
@@ -166,14 +153,19 @@ exposition format.
 GET /metrics HTTP/1.1
 ```
 
-**Key metrics:**
+**Metrics:**
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `chaperone_requests_total` | Counter | Total requests by status code and vendor |
-| `chaperone_request_duration_seconds` | Histogram | End-to-end request latency |
-| `chaperone_upstream_duration_seconds` | Histogram | Upstream (vendor API) latency |
-| `chaperone_plugin_duration_seconds` | Histogram | Plugin credential fetch latency |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `chaperone_requests_total` | Counter | `vendor_id`, `status_class`, `method` | Total requests processed |
+| `chaperone_request_duration_seconds` | Histogram | `vendor_id` | End-to-end request latency |
+| `chaperone_upstream_duration_seconds` | Histogram | `vendor_id` | Upstream (vendor API) latency |
+| `chaperone_active_connections` | Gauge | — | Number of in-flight requests |
+| `chaperone_panics_total` | Counter | — | Total recovered panics |
+
+`status_class` is bucketed (`2xx`, `3xx`, `4xx`, `5xx`). `vendor_id` is
+normalized to `[a-zA-Z0-9._-]` and truncated to 64 characters; invalid
+values are replaced with `unknown`.
 
 **Example:**
 
