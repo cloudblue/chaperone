@@ -13,17 +13,19 @@ Error: loading configuration: accessing config file ./config.yaml: stat ./config
 **Solution:** Ensure a configuration file exists at one of these locations
 (checked in order):
 
-1. Path specified via `-config` flag
-2. Path in `CHAPERONE_CONFIG` environment variable
-3. `./config.yaml` in the current directory
+1. `CHAPERONE_CONFIG` environment variable
+2. `./config.yaml` in the current directory
 
 ```bash
 # Verify the file exists
 ls -la config.yaml
 
-# Or specify explicitly
-./chaperone -config /path/to/config.yaml
+# Or specify via environment variable
+export CHAPERONE_CONFIG=/path/to/config.yaml
 ```
+
+> **Note:** The pre-built `cmd/chaperone` binary also accepts a `-config` flag
+> (highest priority). Custom plugin binaries use the resolution order above.
 
 ### TLS Certificate Errors
 
@@ -41,11 +43,9 @@ ls -la certs/server.crt certs/server.key certs/ca.crt
 # For development, generate test certificates
 make gencerts
 
-# For production, run enrollment
-./chaperone enroll --domains your.domain.com
+# For production, use your plugin's enrollment mechanism
+# (e.g., an enroll subcommand or external certificate provisioning)
 ```
-
-### Port Already in Use
 
 ```
 Error: server error: listen tcp :8443: bind: address already in use
@@ -143,40 +143,24 @@ For development, regenerate certificates:
 make gencerts
 ```
 
-For production, re-enroll with your CA:
-
-```bash
-./chaperone enroll --domains your.domain.com
-# Submit the new CSR to your CA
-```
+For production, re-enroll using your plugin's enrollment mechanism.
+See [Certificate Management](certificate-management.md) for details.
 
 ## Allow-List Denials
 
 ### 403 Forbidden Responses
 
-```json
-{"error": "host not allowed"}
-```
+Chaperone returns different error messages depending on the cause:
 
-**Possible causes:**
+| Error | Meaning |
+|-------|---------|
+| `{"error": "host not allowed"}` | The target URL's host is not in `upstream.allow_list` |
+| `{"error": "path not allowed"}` | The host matches but the path doesn't match any pattern |
+| `{"error": "no routes configured"}` | The allow-list is empty — no routes are configured |
+| `{"error": "invalid target URL"}` | The URL is malformed or uses an unsupported scheme |
 
-1. **Host not in allow-list** — The target URL's host is not listed in
-   `upstream.allow_list`.
-
-2. **Path not matched** — The path doesn't match any pattern for the host.
-
-3. **Case sensitivity** — Host matching is case-sensitive. Ensure the host
-   in `X-Connect-Target-URL` matches the allow-list key exactly.
-
-**Debugging steps:**
-
-```bash
-# Enable debug logging to see allow-list evaluation
-export CHAPERONE_OBSERVABILITY_LOG_LEVEL="debug"
-
-# Restart the proxy and retry the request
-# Look for log entries about allow-list matching
-```
+Allow-list denials are logged at `warn` level. Check your proxy logs for
+entries containing `"allow list validation failed"` with the specific error.
 
 **Common pattern mistakes:**
 
@@ -200,6 +184,11 @@ allow_list:
 allow_list:
   "api.vendor.com":
     - "/api/charge"
+
+# ✅ Domain glob — matches api.vendor.com, payments.vendor.com, etc.
+allow_list:
+  "*.vendor.com":
+    - "/v1/**"
 ```
 
 ### Missing Target URL Header
@@ -214,6 +203,42 @@ header (or your configured `header_prefix` + `-Target-URL`):
 ```bash
 curl -H "X-Connect-Target-URL: https://api.vendor.com/v1/test" \
      https://localhost:8443/proxy
+```
+
+## Upstream Errors
+
+### 502 Bad Gateway
+
+```
+Bad Gateway
+```
+
+The proxy could not reach the vendor API. The server logs
+`"proxy error"` at ERROR level with the underlying cause.
+
+**Possible causes:**
+
+1. **Vendor unreachable** — DNS failure, connection refused, or network
+   partition.
+2. **Connect timeout** — The TCP connection timed out
+   (`upstream.timeouts.connect`).
+3. **TLS handshake failure** — The vendor's certificate is invalid or
+   expired.
+
+**Debugging steps:**
+
+```bash
+# Test connectivity to the vendor from the proxy host
+curl -I https://api.vendor.com/v1/health
+
+# Check DNS resolution
+dig api.vendor.com
+
+# If connect timeout is too short, increase it
+# config.yaml
+upstream:
+  timeouts:
+    connect: 10s
 ```
 
 ## Plugin Errors
@@ -338,7 +363,7 @@ curl -s http://localhost:9090/_ops/version
 # Prometheus metrics
 curl -s http://localhost:9090/metrics | head -20
 
-# CPU profile (requires observability.enable_profiling: true)
+# CPU profile (requires dev build + observability.enable_profiling: true)
 go tool pprof http://localhost:9090/debug/pprof/profile?seconds=30
 
 # Memory profile
@@ -347,6 +372,11 @@ go tool pprof http://localhost:9090/debug/pprof/heap
 # Goroutine dump
 curl http://localhost:9090/debug/pprof/goroutine?debug=2
 ```
+
+> **Note:** Profiling requires both a build-time flag (`allowProfiling=true`)
+> and  runtime config (`enable_profiling: true`). See the
+> [HTTP API Reference](../reference/http-api.md#profiling-endpoints-admin-port-only)
+> for details.
 
 ### Debug Logging
 

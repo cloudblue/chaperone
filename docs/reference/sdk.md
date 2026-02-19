@@ -38,7 +38,7 @@ A Plugin must implement all three sub-interfaces:
 [CertificateSigner](#certificatesigner), and
 [ResponseModifier](#responsemodifier). For features you don't
 need, provide minimal stub implementations (see
-[Plugin Development Guide](../guides/plugin-development.md#stub-implementations)).
+[Plugin Development Guide](../guides/plugin-development.md)).
 
 ---
 
@@ -154,6 +154,7 @@ Extracted from inbound request headers and passed to your plugin:
 type TransactionContext struct {
     Data           map[string]any // Additional ISV-specific context (Base64-encoded JSON)
     TraceID        string         // Correlation ID for distributed tracing
+    EnvironmentID  string         // Environment identifier (e.g., "production", "test")
     MarketplaceID  string         // Marketplace identifier (e.g., "US", "EU")
     VendorID       string         // Vendor account ID
     ProductID      string         // Product SKU
@@ -168,6 +169,7 @@ type TransactionContext struct {
 |-------|------|-------------|
 | `Data` | `map[string]any` | Additional ISV-specific context. Deserialized from a Base64-encoded JSON header. |
 | `TraceID` | `string` | Correlation ID for distributed tracing. Auto-generated UUID if not present in the request. |
+| `EnvironmentID` | `string` | Environment identifier (e.g., `"production"`, `"test"`). |
 | `MarketplaceID` | `string` | Marketplace identifier (e.g., `"US"`, `"EU"`). |
 | `VendorID` | `string` | Vendor account ID. |
 | `ProductID` | `string` | Product SKU. |
@@ -182,6 +184,7 @@ These fields are extracted from headers using the configured prefix
 | Header | Field |
 |--------|-------|
 | `X-Connect-Vendor-ID` | `VendorID` |
+| `X-Connect-Environment-ID` | `EnvironmentID` |
 | `X-Connect-Product-ID` | `ProductID` |
 | `X-Connect-Marketplace-ID` | `MarketplaceID` |
 | `X-Connect-Subscription-ID` | `SubscriptionID` |

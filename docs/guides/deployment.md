@@ -1,10 +1,16 @@
 # Deployment Guide
 
 How to deploy Chaperone in your infrastructure using Docker. This guide
-covers building images, configuring containers, production hardening,
+covers building Docker images, running containers, production hardening,
 and Kubernetes integration.
 
-> **First time?** Start with the [Getting Started](../getting-started.md) tutorial.
+If you've followed the [Plugin Development Guide](plugin-development.md),
+you already have a working proxy binary. This guide shows how to package
+it into a production-ready container.
+
+> **First time?** Complete the [Getting Started](../getting-started.md)
+> tutorial and the [Plugin Development Guide](plugin-development.md)
+> before deploying.
 
 ## Prerequisites
 
@@ -12,146 +18,241 @@ and Kubernetes integration.
 |-------------|---------|---------|
 | **Go** | 1.25+ | Building custom binaries |
 | **Docker** | 20.10+ | Containerized deployment |
-| **Certificates** | ECDSA P-256 | mTLS server and CA certificates |
-| **Network access** | — | Outbound HTTPS to vendor APIs |
+| **A working plugin project** | — | From the [Plugin Development Guide](plugin-development.md) |
+
+For production mTLS deployments, you'll also need:
+
+| Requirement | Purpose |
+|-------------|---------|
+| **Server certificate + key** (ECDSA P-256) | mTLS termination |
+| **CA certificate** | Validating client certificates |
+| **Outbound HTTPS** | Reaching vendor APIs |
 
 ## How to Build the Docker Image
 
+### Default binary (reference plugin)
+
+If you want to run Chaperone with the built-in reference plugin (reads
+credentials from a JSON file), the repository already includes a
+production-ready Dockerfile:
+
 ```bash
+cd chaperone
 docker build -t chaperone:latest .
 ```
 
-If you have a custom plugin binary (see [Plugin Development](plugin-development.md)):
+This builds the `cmd/chaperone/main.go` entry point with the reference
+plugin. Suitable for testing or simple deployments where credentials
+come from a mounted JSON file.
+
+### Custom plugin binary
+
+If you built a custom plugin following the
+[Plugin Development Guide](plugin-development.md), you need a Dockerfile
+that compiles **your** code. This is the typical production scenario.
+
+Create `Dockerfile` in your plugin project root (`my-proxy/`):
 
 ```dockerfile
 FROM golang:1.25-alpine AS builder
 WORKDIR /build
 
-# Copy Chaperone snapshot (pre-publication only)
-COPY chaperone/ ./chaperone/
+# Copy your project and build.
+# Go downloads Chaperone modules automatically from the Go module proxy.
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" -o proxy .
 
-# Copy distributor project
-COPY my-proxy/ ./my-proxy/
-WORKDIR /build/my-proxy
-
-RUN CGO_ENABLED=0 GOOS=linux go build -o proxy .
-
+# --- Runtime stage ---
+# Distroless: no shell, no package manager, minimal attack surface.
 FROM gcr.io/distroless/static:nonroot
-COPY --from=builder /build/my-proxy/proxy /app/proxy
-COPY config.yaml /app/config.yaml
+COPY --from=builder /build/proxy /app/proxy
 USER nonroot:nonroot
 EXPOSE 8443 9090
 ENTRYPOINT ["/app/proxy"]
-CMD ["-config", "/app/config.yaml"]
 ```
+
+Build and run:
+
+```bash
+cd my-proxy
+docker build -t my-proxy:latest .
+```
+
+That's it — Go resolves `github.com/cloudblue/chaperone` and
+`github.com/cloudblue/chaperone/sdk` from the module proxy during the
+build. No local Chaperone source needed.
+
+#### Pre-publication: local Chaperone source
+
+If Chaperone modules are **not yet published** on a Go package registry
+(e.g., during early adoption), your `go.mod` uses `replace` directives
+that point to a local copy of the Chaperone source
+(see [Plugin Development Guide — Step 2](plugin-development.md#step-2-initialize-the-go-module)).
+The Dockerfile needs access to the Chaperone source alongside your
+project. Use Docker BuildKit's `--build-context` flag to pull it in
+without changing your working directory:
+
+```dockerfile
+FROM golang:1.25-alpine AS builder
+WORKDIR /build
+
+# Pull Chaperone source from the named build context (--build-context).
+# Needed because go.mod has: replace ... => ../chaperone
+COPY --from=chaperone / ./chaperone/
+
+# Copy your plugin project.
+COPY . ./my-proxy/
+WORKDIR /build/my-proxy
+
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" -o proxy .
+
+FROM gcr.io/distroless/static:nonroot
+COPY --from=builder /build/my-proxy/proxy /app/proxy
+USER nonroot:nonroot
+EXPOSE 8443 9090
+ENTRYPOINT ["/app/proxy"]
+```
+
+Build from your project directory, passing the Chaperone source as a
+named context:
+
+```bash
+cd my-proxy
+docker build -t my-proxy:latest \
+  --build-context chaperone=../chaperone \
+  .
+```
+
+> **Requires Docker BuildKit** (default since Docker 23+). If you're on
+> an older version, enable it with `DOCKER_BUILDKIT=1` or build from the
+> parent directory instead:
+> `cd ~/projects && docker build -t my-proxy:latest -f my-proxy/Dockerfile .`
+
+> **Once Chaperone is published**, remove the `replace` directives from
+> your `go.mod`, switch to the simpler Dockerfile above, and build
+> normally with `docker build -t my-proxy:latest .`.
 
 ## How to Configure for Deployment
 
-### Configuration File
+### Configuration file
 
-Copy the example configuration and customize it:
+Chaperone reads its configuration from a YAML file. The repository
+includes an example at `configs/config.example.yaml`. Copy it and
+customize:
 
 ```bash
 cp configs/config.example.yaml config.yaml
 ```
 
-At minimum, configure:
+At minimum, configure these three settings:
 
-1. **TLS certificates** — paths to your server cert, key, and CA
+1. **TLS certificates** — paths to your server cert, key, and CA bundle
 2. **Allow-list** — which vendor API hosts and paths are permitted
 3. **Log level** — `info` for production, `debug` for troubleshooting
 
 ```yaml
+server:
+  addr: ":8443"
+  admin_addr: ":9090"
+  tls:
+    enabled: true
+    cert_file: "/app/certs/server.crt"
+    key_file: "/app/certs/server.key"
+    ca_file: "/app/certs/ca.crt"
+
 upstream:
   allow_list:
+    "httpbin.org":
+      - "/**"
     "api.vendor.com":
       - "/v1/**"
       - "/v2/**"
+
+observability:
+  log_level: "info"
 ```
 
-See the [Configuration Reference](../reference/configuration.md) for all
+The allow-list controls which hosts and paths the proxy is allowed to
+reach. Requests to unlisted destinations get a `403 Forbidden`. See the
+[Configuration Reference](../reference/configuration.md) for all
 available options.
 
 ### Certificates
 
-Generate development certificates for testing:
+**For development/testing**, generate self-signed certificates:
 
 ```bash
+cd chaperone
 make gencerts
 ```
 
-For production, use CA enrollment. See [Certificate Management](certificate-management.md)
-for the complete certificate workflow.
+**For production**, use the enrollment flow to generate a CSR and have
+it signed by your CA. See
+[Certificate Management](certificate-management.md) for the complete
+workflow.
 
 ## How to Run with Docker
 
-### Basic Container Run
+### Start the container
+
+Run the container with your config and certificates mounted as volumes:
 
 ```bash
 docker run -d --name chaperone-proxy \
   -p 8443:8443 \
   -p 9090:9090 \
-  -v $(pwd)/certs:/app/certs:ro \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
+  -v $(pwd)/certs:/app/certs:ro \
+  -e CHAPERONE_CONFIG=/app/config.yaml \
   --read-only \
-  chaperone:latest
+  my-proxy:latest
 ```
 
-Port mapping:
-- **8443** — Proxy traffic port (mTLS)
-- **9090** — Admin port (health, version, metrics, pprof)
+What each flag does:
 
-Certificates and configuration are mounted as read-only (`:ro`).
-Combined with `--read-only`, the container has no writable paths.
+| Flag | Purpose |
+|------|---------|
+| `-d` | Run in the background (detached) |
+| `-p 8443:8443` | Expose the proxy traffic port |
+| `-p 9090:9090` | Expose the admin port (health, metrics) |
+| `-v ...config.yaml:ro` | Mount your config as read-only |
+| `-v ...certs:ro` | Mount certificates as read-only |
+| `-e CHAPERONE_CONFIG=...` | Tell the proxy where to find the config inside the container |
+| `--read-only` | Make the container filesystem read-only (security hardening) |
 
-### Health Checking
+> **For local testing without TLS**, use the same `config.yaml` from the
+> plugin tutorial (with `tls.enabled: false`) and skip the certs volume.
 
-The distroless image has **no shell** — there is no `curl`, `wget`, or `sh`
-inside the container. Use host-side or orchestrator probes instead.
+### Verify the container is running
 
-**From the host:**
+Check that the proxy started successfully:
 
 ```bash
-curl -s http://localhost:9090/_ops/health
-# {"status": "alive"}
-```
-
-**Docker health check (compose or CLI):**
-
-```yaml
-# docker-compose.yml
-services:
-  chaperone:
-    healthcheck:
-      test: ["CMD", "/app/chaperone", "-version"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-```
-
-> **Note:** The `-version` check only verifies the binary runs, not that the
-> server is accepting traffic. Since distroless has no shell or `curl`, this
-> is the best option within Compose. For production, use Kubernetes HTTP
-> probes (below) or external monitoring against the admin port.
-
-### Verification Steps
-
-After starting the container, verify all endpoints:
-
-```bash
-# 1. Health (admin port, no mTLS required)
+# 1. Health check (admin port — no mTLS required)
 curl -s http://localhost:9090/_ops/health
 # {"status": "alive"}
 
-# 2. Version (admin port, no mTLS required)
+# 2. Version info
 curl -s http://localhost:9090/_ops/version
-# {"version": "..."}
+# {"version": "0.1.0", ...}
+```
 
-# 3. Test proxy request (requires mTLS client cert)
+If TLS is disabled (local testing), test the proxy with the same curl
+from the [Plugin Development Guide](plugin-development.md#step-7-run-and-verify):
+
+```bash
+curl http://localhost:8443/proxy \
+  -H "X-Connect-Target-URL: https://httpbin.org/headers" \
+  -H "X-Connect-Vendor-ID: test-vendor"
+```
+
+If TLS is enabled (production), include the client certificate:
+
+```bash
 curl --cacert certs/ca.crt \
      --cert certs/client.crt \
      --key certs/client.key \
-     -H "X-Connect-Target-URL: https://api.vendor.com/v1/test" \
+     -H "X-Connect-Target-URL: https://httpbin.org/headers" \
      -H "X-Connect-Vendor-ID: test-vendor" \
      https://localhost:8443/proxy
 ```
@@ -159,13 +260,26 @@ curl --cacert certs/ca.crt \
 See the [HTTP API Reference](../reference/http-api.md) for full endpoint
 documentation.
 
+### Health checking in Docker
+
+The distroless runtime image has **no shell**, so Docker can't run
+health checks from inside the container. Use `curl` from the host
+against the admin port instead:
+
+```bash
+curl -sf http://localhost:9090/_ops/health
+```
+
+For automated health checking in production, use Kubernetes HTTP probes
+(below) or external monitoring tools.
+
 ## How to Deploy on Kubernetes
 
-### Health Probes
+### Health probes
 
-Both `/_ops/health` and `/_ops/version` are available on the traffic port
-(8443, requires mTLS) and the admin port (9090, no mTLS). Configure probes
-on the admin port:
+Chaperone exposes `/_ops/health` on both the traffic port (8443, requires
+mTLS) and the admin port (9090, no mTLS). Configure Kubernetes probes
+against the **admin port** so the kubelet doesn't need a client certificate:
 
 ```yaml
 livenessProbe:
@@ -182,15 +296,20 @@ readinessProbe:
   periodSeconds: 5
 ```
 
-### Production Hardening
+The liveness probe restarts the pod if the proxy stops responding.
+The readiness probe removes the pod from the Service endpoints until it's
+ready to accept traffic — useful during startup and rolling updates.
+
+### Production hardening
 
 The Dockerfile is hardened by default:
 
-- Runs as `nonroot:nonroot` (UID 65532)
-- Uses `gcr.io/distroless/static` — no shell, minimal attack surface
-- Mount certs and config as read-only (`:ro`)
-- Use `--read-only` for a read-only root filesystem
-- Final image is ~50 MB (static Go binary + distroless base)
+- **Non-root execution** — runs as `nonroot:nonroot` (UID 65532)
+- **Distroless base** — `gcr.io/distroless/static` has no shell, no
+  package manager, minimal attack surface
+- **Read-only mounts** — certificates and config mounted with `:ro`
+- **Read-only filesystem** — `--read-only` flag prevents any writes
+- **Small image** — ~50 MB total (static Go binary + distroless base)
 
 ## How to Scale with a Load Balancer
 
@@ -270,6 +389,9 @@ independently.
 
 ## How to Build from Source
 
+If you prefer running the binary directly (without Docker), build it
+from the Chaperone repository:
+
 ```bash
 # Clone the repository
 git clone https://github.com/cloudblue/chaperone.git
@@ -278,9 +400,13 @@ cd chaperone
 # Install development tools (golangci-lint)
 make tools
 
-# Build and run
+# Build and run with the reference plugin
 make run
 ```
+
+This builds `cmd/chaperone/main.go` and starts the proxy with the
+default configuration. For custom plugins, see the
+[Plugin Development Guide](plugin-development.md).
 
 ## Troubleshooting
 
