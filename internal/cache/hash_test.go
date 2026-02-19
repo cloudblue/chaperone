@@ -13,6 +13,7 @@ import (
 func TestHashContext_Deterministic_SameInputSameOutput(t *testing.T) {
 	ctx := &sdk.TransactionContext{
 		TargetURL:      "https://api.vendor.com/v1/resource",
+		EnvironmentID:  "production",
 		MarketplaceID:  "US",
 		VendorID:       "vendor-123",
 		ProductID:      "product-456",
@@ -48,6 +49,11 @@ func TestHashContext_DifferentInput_DifferentOutput(t *testing.T) {
 			name: "different TargetURL",
 			ctx1: &sdk.TransactionContext{TargetURL: "https://api1.com"},
 			ctx2: &sdk.TransactionContext{TargetURL: "https://api2.com"},
+		},
+		{
+			name: "different EnvironmentID",
+			ctx1: &sdk.TransactionContext{TargetURL: "https://api.com", EnvironmentID: "production"},
+			ctx2: &sdk.TransactionContext{TargetURL: "https://api.com", EnvironmentID: "staging"},
 		},
 		{
 			name: "different MarketplaceID",
@@ -126,6 +132,7 @@ func TestHashContext_NilContext_ReturnsEmptyHash(t *testing.T) {
 func TestHashContext_EmptyFields_Handled(t *testing.T) {
 	ctx := &sdk.TransactionContext{
 		TargetURL:      "",
+		EnvironmentID:  "",
 		MarketplaceID:  "",
 		VendorID:       "",
 		ProductID:      "",

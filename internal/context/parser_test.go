@@ -25,6 +25,7 @@ func TestParseContext_ValidHeaders_ReturnsContext(t *testing.T) {
 			name: "all standard headers with default prefix",
 			headers: map[string]string{
 				"X-Connect-Target-URL":      "https://api.vendor.com/v1/resource",
+				"X-Connect-Environment-ID":  "production",
 				"X-Connect-Marketplace-ID":  "US",
 				"X-Connect-Vendor-ID":       "vendor-123",
 				"X-Connect-Product-ID":      "product-456",
@@ -35,6 +36,7 @@ func TestParseContext_ValidHeaders_ReturnsContext(t *testing.T) {
 			prefix: "X-Connect",
 			want: &sdk.TransactionContext{
 				TargetURL:      "https://api.vendor.com/v1/resource",
+				EnvironmentID:  "production",
 				MarketplaceID:  "US",
 				VendorID:       "vendor-123",
 				ProductID:      "product-456",
@@ -383,6 +385,9 @@ func assertContextEqual(t *testing.T, want, got *sdk.TransactionContext) {
 
 	if got.TargetURL != want.TargetURL {
 		t.Errorf("TargetURL = %q, want %q", got.TargetURL, want.TargetURL)
+	}
+	if got.EnvironmentID != want.EnvironmentID {
+		t.Errorf("EnvironmentID = %q, want %q", got.EnvironmentID, want.EnvironmentID)
 	}
 	if got.MarketplaceID != want.MarketplaceID {
 		t.Errorf("MarketplaceID = %q, want %q", got.MarketplaceID, want.MarketplaceID)

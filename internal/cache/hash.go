@@ -30,6 +30,7 @@ var emptyHash = computeHash("<nil>")
 //
 // The following fields are included in the hash:
 //   - TargetURL
+//   - EnvironmentID
 //   - MarketplaceID
 //   - VendorID
 //   - ProductID
@@ -67,6 +68,7 @@ func buildCanonical(ctx *sdk.TransactionContext) (string, error) {
 	// Fixed field order for determinism - preallocate with known capacity
 	parts := []string{
 		"target:" + ctx.TargetURL,
+		"environment:" + ctx.EnvironmentID,
 		"marketplace:" + ctx.MarketplaceID,
 		"vendor:" + ctx.VendorID,
 		"product:" + ctx.ProductID,

@@ -19,6 +19,7 @@ func BenchmarkHashContext_Simple(b *testing.B) {
 	ctx := &sdk.TransactionContext{
 		TargetURL:      "https://api.vendor.com/v1/customers",
 		VendorID:       "microsoft",
+		EnvironmentID:  "production",
 		MarketplaceID:  "US",
 		ProductID:      "product-123",
 		SubscriptionID: "sub-456",
@@ -42,6 +43,7 @@ func BenchmarkHashContext_WithData(b *testing.B) {
 	ctx := &sdk.TransactionContext{
 		TargetURL:      "https://api.vendor.com/v1/customers",
 		VendorID:       "microsoft",
+		EnvironmentID:  "production",
 		MarketplaceID:  "US",
 		ProductID:      "product-123",
 		SubscriptionID: "sub-456",
@@ -85,6 +87,7 @@ func BenchmarkHashContext_Parallel(b *testing.B) {
 	ctx := &sdk.TransactionContext{
 		TargetURL:      "https://api.vendor.com/v1/customers",
 		VendorID:       "microsoft",
+		EnvironmentID:  "production",
 		MarketplaceID:  "US",
 		ProductID:      "product-123",
 		SubscriptionID: "sub-456",
