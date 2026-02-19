@@ -31,15 +31,8 @@ how-to guides, reference, and explanation.
 
 | Document | Description |
 |----------|-------------|
-| [Design Specification](explanation/DESIGN-SPECIFICATION.md) | Architecture, ADRs, security model, interface contracts |
+| [Design Specification](explanation/DESIGN-SPECIFICATION.md) | Architecture rationale, ADRs, security model, design trade-offs |
 | [Roadmap](ROADMAP.md) | Phased delivery plan (PoC → MVP → GA → Future) |
-
-## Quick Start
-
-1. **Try it:** Follow the [Getting Started](getting-started.md) tutorial
-2. **Deploy:** Use the [Deployment Guide](guides/deployment.md) for production setup
-3. **Configure:** Read the [Configuration Reference](reference/configuration.md)
-4. **Build your plugin:** Follow the [Plugin Development Guide](guides/plugin-development.md)
 
 ## Audience
 
