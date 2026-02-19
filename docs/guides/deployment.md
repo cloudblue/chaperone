@@ -101,19 +101,8 @@ Port mapping:
 - **8443** — Proxy traffic port (mTLS)
 - **9090** — Admin port (health, version, metrics, pprof)
 
-### Volume Mounts
-
-Mount certificates and configuration as read-only:
-
-```bash
-docker run -d --name chaperone-proxy \
-  -p 8443:8443 \
-  -p 9090:9090 \
-  -v /path/to/certs:/app/certs:ro \
-  -v /path/to/config.yaml:/app/config.yaml:ro \
-  --read-only \
-  chaperone:latest
-```
+Certificates and configuration are mounted as read-only (`:ro`).
+Combined with `--read-only`, the container has no writable paths.
 
 ### Health Checking
 
@@ -140,9 +129,10 @@ services:
       retries: 3
 ```
 
-> **Note:** Since distroless has no shell, standard `HEALTHCHECK` instructions
-> using `curl` will not work. Use the Kubernetes probes (below) or external
-> monitoring for production.
+> **Note:** The `-version` check only verifies the binary runs, not that the
+> server is accepting traffic. Since distroless has no shell or `curl`, this
+> is the best option within Compose. For production, use Kubernetes HTTP
+> probes (below) or external monitoring against the admin port.
 
 ### Verification Steps
 
@@ -163,7 +153,7 @@ curl --cacert certs/ca.crt \
      --key certs/client.key \
      -H "X-Connect-Target-URL: https://api.vendor.com/v1/test" \
      -H "X-Connect-Vendor-ID: test-vendor" \
-     https://localhost:8443/
+     https://localhost:8443/proxy
 ```
 
 See the [HTTP API Reference](../reference/http-api.md) for full endpoint
@@ -196,11 +186,87 @@ readinessProbe:
 
 The Dockerfile is hardened by default:
 
-- Runs as `nonroot:nonroot` (UID 65534)
+- Runs as `nonroot:nonroot` (UID 65532)
 - Uses `gcr.io/distroless/static` — no shell, minimal attack surface
 - Mount certs and config as read-only (`:ro`)
 - Use `--read-only` for a read-only root filesystem
 - Final image is ~50 MB (static Go binary + distroless base)
+
+## How to Scale with a Load Balancer
+
+Chaperone supports two deployment modes: **Mode A** (standalone mTLS
+termination) and **Mode B** (HTTP behind a load balancer that terminates
+mTLS). See the [Design Specification](../explanation/DESIGN-SPECIFICATION.md)
+for background on these modes.
+
+Each instance is stateless. The in-memory credential cache is a
+performance optimization, not critical state — a cache miss triggers
+plugin execution with no data loss. You can run multiple instances in an
+active/active configuration and scale by adding instances behind a load
+balancer.
+
+### Mode A: mTLS pass-through (L4 load balancer)
+
+When Chaperone terminates mTLS directly (Mode A), the load balancer
+must pass through TCP connections without terminating TLS. Use a
+**Layer 4** load balancer:
+
+- **AWS:** Network Load Balancer (NLB) with TCP listeners
+- **Kubernetes:** `Service` of type `LoadBalancer` or `NodePort` (not `Ingress` — standard Ingress terminates TLS)
+- **HAProxy:** `mode tcp` with `option tcplog`
+
+```
+Client (mTLS) ──TCP──▸ L4 Load Balancer ──TCP──▸ Chaperone instance 1
+                                          ──TCP──▸ Chaperone instance 2
+                                          ──TCP──▸ Chaperone instance N
+```
+
+Configure the load balancer health check against the admin port
+(`/_ops/health` on port 9090), not the traffic port — the admin port
+does not require mTLS.
+
+### Mode B: HTTP behind a reverse proxy (L7)
+
+Chaperone also runs in plain HTTP mode behind a reverse proxy or
+load balancer that terminates mTLS on behalf of the proxy. The core
+request flow (context extraction, credential injection, routing) is
+transport-agnostic.
+
+```yaml
+server:
+  addr: ":8080"
+  tls:
+    enabled: false
+```
+
+```
+Client (mTLS) ──TLS──▸ Nginx / ALB ──HTTP──▸ Chaperone :8080
+```
+
+In this mode, restrict network access so only the upstream reverse
+proxy can reach Chaperone — do not expose the HTTP port to the public
+internet.
+
+> **Note:** Production-grade identity forwarding for Mode B
+> (`X-Forwarded-Client-Cert` trust validation) is planned for a future
+> release. Mode B works when the network
+> boundary provides sufficient isolation.
+
+### Rolling updates
+
+Chaperone supports zero-downtime rolling updates. On `SIGTERM`, an
+instance stops accepting new connections and drains in-flight requests
+within `shutdown_timeout` (default 30s) before exiting. The update
+sequence:
+
+1. Start a new instance. It passes the health probe and joins the pool.
+2. Send `SIGTERM` to the old instance. The load balancer detects it as
+   unhealthy via `/_ops/health` and stops routing new traffic to it.
+3. The old instance finishes in-flight requests and exits.
+4. Repeat per instance.
+
+Since instances share no state, the orchestrator can cycle them
+independently.
 
 ## How to Build from Source
 

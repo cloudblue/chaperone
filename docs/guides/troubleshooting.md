@@ -7,7 +7,7 @@ Common issues and solutions when deploying and operating Chaperone.
 ### Missing Configuration File
 
 ```
-Error: loading configuration: open config.yaml: no such file or directory
+Error: loading configuration: accessing config file ./config.yaml: stat ./config.yaml: no such file or directory
 ```
 
 **Solution:** Ensure a configuration file exists at one of these locations
@@ -28,7 +28,7 @@ ls -la config.yaml
 ### TLS Certificate Errors
 
 ```
-Error: creating proxy server: loading TLS certificates: open /certs/server.crt: no such file or directory
+Error: loading configuration: configuration validation failed: server.tls.cert_file: TLS file not found: /certs/server.crt
 ```
 
 **Solution:** Ensure your certificate files exist at the paths specified
@@ -66,7 +66,7 @@ server:
 ### Invalid Configuration Values
 
 ```
-Error: loading configuration: validating config: server.shutdown_timeout must be positive
+Error: loading configuration: configuration validation failed: server.shutdown_timeout: timeout must be positive
 ```
 
 **Solution:** Check your configuration for invalid values. Duration values
@@ -155,7 +155,7 @@ For production, re-enroll with your CA:
 ### 403 Forbidden Responses
 
 ```json
-{"error": "target host not allowed", "status": 403}
+{"error": "host not allowed"}
 ```
 
 **Possible causes:**
@@ -205,7 +205,7 @@ allow_list:
 ### Missing Target URL Header
 
 ```json
-{"error": "missing target URL header", "status": 400}
+{"error": "missing Target-URL header"}
 ```
 
 **Solution:** Ensure the request includes the `X-Connect-Target-URL`
@@ -213,16 +213,14 @@ header (or your configured `header_prefix` + `-Target-URL`):
 
 ```bash
 curl -H "X-Connect-Target-URL: https://api.vendor.com/v1/test" \
-     https://localhost:8443/
+     https://localhost:8443/proxy
 ```
 
 ## Plugin Errors
 
 ### Plugin Timeout
 
-```
-Error: plugin credential fetch timed out after 10s
-```
+The server logs `"plugin timeout"` at ERROR level and returns an HTTP `504 Gateway Timeout` response with body `Gateway Timeout`.
 
 **Solution:** Your plugin's `GetCredentials` call is taking too long.
 
@@ -252,10 +250,10 @@ func (p *MyPlugin) GetCredentials(ctx context.Context, tx sdk.TransactionContext
 ### Plugin Panic Recovery
 
 If your plugin panics, Chaperone's recovery middleware catches it and
-returns a `502 Bad Gateway` response. The panic is logged:
+returns a `500 Internal Server Error` response. The panic is logged:
 
 ```
-level=ERROR msg="panic recovered in handler" panic="runtime error: index out of range"
+level=ERROR msg="panic recovered" error="runtime error: index out of range"
 ```
 
 **Solution:** Fix the panic in your plugin code. Check for nil pointer
@@ -288,7 +286,7 @@ return &sdk.Credential{
 Error: loading TLS certificates: open /app/certs/server.key: permission denied
 ```
 
-**Solution:** The container runs as `nonroot` (UID 65534). Ensure
+**Solution:** The container runs as `nonroot` (UID 65532). Ensure
 certificate files are readable:
 
 ```bash
@@ -302,14 +300,11 @@ docker run -v $(pwd)/certs:/app/certs:ro ...
 
 ### Container Networking
 
-If the proxy can't reach vendor APIs:
+If the proxy can't reach vendor APIs, debug from the host (the
+distroless container has no shell or network tools):
 
 ```bash
-# Check DNS resolution inside the container
-docker exec chaperone-proxy nslookup api.vendor.com
-# Note: nslookup won't work in distroless — use host debugging instead
-
-# From the host, verify connectivity
+# Verify DNS and connectivity from the host
 curl -I https://api.vendor.com/v1/health
 
 # Check Docker network settings
@@ -330,49 +325,20 @@ docker history chaperone:latest
 
 ## Diagnostic Tools
 
-### Health Endpoint
+Quick reference for diagnostic endpoints. See the
+[HTTP API Reference](../reference/http-api.md) for full documentation.
 
 ```bash
+# Health check
 curl -s http://localhost:9090/_ops/health
-# {"status": "alive"}
-```
 
-### Version Endpoint
-
-The version endpoint is available on both ports:
-
-```bash
-# Admin port (no mTLS required, recommended for quick checks)
+# Version
 curl -s http://localhost:9090/_ops/version
-# {"version": "1.0.0"}
 
-# Traffic port (requires mTLS in production)
-curl -s http://localhost:8443/_ops/version
-```
-
-### Prometheus Metrics
-
-```bash
+# Prometheus metrics
 curl -s http://localhost:9090/metrics | head -20
 
-# Key metrics to check:
-# chaperone_requests_total         — Request counter by status
-# chaperone_request_duration_seconds — Latency histogram
-```
-
-### Profiling (Development Builds Only)
-
-Profiling must be explicitly enabled in configuration:
-
-```yaml
-observability:
-  enable_profiling: true
-```
-
-Then access pprof endpoints:
-
-```bash
-# CPU profile
+# CPU profile (requires observability.enable_profiling: true)
 go tool pprof http://localhost:9090/debug/pprof/profile?seconds=30
 
 # Memory profile
@@ -389,12 +355,6 @@ Enable verbose logging to diagnose issues:
 ```bash
 export CHAPERONE_OBSERVABILITY_LOG_LEVEL="debug"
 ```
-
-This enables detailed log output including:
-- Allow-list evaluation results
-- Context header extraction
-- Plugin call timing
-- TLS handshake details
 
 > **Warning:** Debug logging may produce high volume output. Use only for
 > troubleshooting, not in production.

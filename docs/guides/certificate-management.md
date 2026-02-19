@@ -3,7 +3,7 @@
 How to generate, enroll, and manage TLS certificates for Chaperone.
 Covers development self-signed certificates and production CA enrollment.
 
-## Development Certificates
+## Generate Development Certificates
 
 For local development and testing, generate self-signed certificates:
 
@@ -20,7 +20,7 @@ To customize the server certificate SANs:
 make gencerts DOMAINS="myserver.local,192.168.1.100"
 ```
 
-## Production Certificates (CA Enrollment)
+## Enroll with a Production CA
 
 For production deployments, generate a CSR and submit it to your Certificate
 Authority (Connect Portal, HashiCorp Vault, internal PKI, etc.).
@@ -56,66 +56,16 @@ fmt.Printf("Key:  %s\n", result.KeyFile)
 fmt.Printf("CSR:  %s\n", result.CSRFile)
 ```
 
-**`EnrollConfig` fields:**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `Domains` | `string` | — (required) | Comma-separated DNS names and IPs for SANs |
-| `CommonName` | `string` | `"chaperone"` | Certificate Common Name |
-| `OutputDir` | `string` | `"certs"` | Directory for output files (created if absent) |
-
-**`EnrollResult` fields:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `KeyFile` | `string` | Path to the generated ECDSA P-256 private key |
-| `CSRFile` | `string` | Path to the generated Certificate Signing Request |
-| `DNSNames` | `[]string` | DNS SANs included in the CSR |
-| `IPs` | `[]net.IP` | IP SANs included in the CSR |
+See the SDK Reference for all
+[`EnrollConfig`](../reference/sdk.md#enrollconfig) fields (including
+`Force` for overwriting existing files) and
+[`EnrollResult`](../reference/sdk.md#enrollresult) fields.
 
 ### Wiring the `enroll` Subcommand in Your Binary
 
-Add enrollment support to your Distributor binary with a simple subcommand
-check in `main.go`:
-
-```go
-func main() {
-    if len(os.Args) > 1 && os.Args[1] == "enroll" {
-        if err := runEnroll(); err != nil {
-            fmt.Fprintf(os.Stderr, "enrollment failed: %v\n", err)
-            os.Exit(1)
-        }
-        return
-    }
-
-    // Normal proxy startup...
-    ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-    defer stop()
-
-    if err := chaperone.Run(ctx, myPlugin, /* options */); err != nil {
-        os.Exit(1)
-    }
-}
-
-func runEnroll() error {
-    result, err := chaperone.Enroll(context.Background(), chaperone.EnrollConfig{
-        Domains:    "proxy.example.com",
-        OutputDir:  "./certs",
-    })
-    if err != nil {
-        return err
-    }
-    fmt.Printf("Key:  %s\n", result.KeyFile)
-    fmt.Printf("CSR:  %s\n", result.CSRFile)
-    return nil
-}
-```
-
-Then run:
-
-```bash
-./my-proxy enroll --domains proxy.example.com
-```
+To add enrollment as a subcommand in your custom binary, see the
+[Plugin Development Guide](plugin-development.md#adding-enrollment-support)
+for a complete `main.go` example.
 
 ### Enrollment Workflow
 
