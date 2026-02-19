@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	chaperoneCtx "github.com/cloudblue/chaperone/internal/context"
 	"github.com/cloudblue/chaperone/internal/proxy"
 	"github.com/cloudblue/chaperone/sdk"
 )
@@ -1738,5 +1739,167 @@ func TestIntegration_GlobalPanicRecovery_ProtectsAllRoutes(t *testing.T) {
 	ct := rec.Header().Get("Content-Type")
 	if ct != "application/json" {
 		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
+	}
+}
+
+// TestIntegration_ContextHeaders_StrippedBeforeForwarding verifies that
+// internal context headers (X-Connect-*) are NOT forwarded to the target.
+// These headers carry Connect metadata (vendor ID, marketplace layout, etc.)
+// that must not leak to external vendors. Regression test for the
+// context-header-leaking bug.
+func TestIntegration_ContextHeaders_StrippedBeforeForwarding(t *testing.T) {
+	// Arrange - backend captures all received headers
+	receivedHeaders := make(http.Header)
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for k, v := range r.Header {
+			receivedHeaders[k] = v
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	cfg := testConfig()
+	cfg.Plugin = &mockPlugin{}
+	srv := mustNewServer(t, cfg)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/v1/resource")
+	req.Header.Set("X-Connect-Vendor-ID", "vendor-123")
+	req.Header.Set("X-Connect-Marketplace-ID", "MP-12345")
+	req.Header.Set("X-Connect-Product-ID", "PRD-67890")
+	req.Header.Set("X-Connect-Subscription-ID", "SUB-ABCDE")
+	req.Header.Set("X-Connect-Context-Data", "e30=") // base64 "{}"
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - request should succeed
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	// Assert - context headers must NOT be forwarded
+	for _, suffix := range chaperoneCtx.HeaderSuffixes() {
+		h := "X-Connect" + suffix
+		if val := receivedHeaders.Get(h); val != "" {
+			t.Errorf("context header %q leaked to target with value %q", h, val)
+		}
+	}
+}
+
+// TestIntegration_TraceHeader_PreservedOnForwarding verifies that the trace
+// header (Connect-Request-ID) is preserved when forwarding to the target.
+// Per Design Spec §8.3, this header enables cross-company distributed tracing.
+func TestIntegration_TraceHeader_PreservedOnForwarding(t *testing.T) {
+	// Arrange - backend captures the trace header
+	var receivedTraceID string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedTraceID = r.Header.Get("Connect-Request-ID")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	cfg := testConfig()
+	cfg.Plugin = &mockPlugin{}
+	srv := mustNewServer(t, cfg)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/v1/resource")
+	req.Header.Set("Connect-Request-ID", "trace-abc-123")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if receivedTraceID != "trace-abc-123" {
+		t.Errorf("trace header = %q, want %q", receivedTraceID, "trace-abc-123")
+	}
+}
+
+// TestIntegration_CustomPrefix_ContextHeadersStripped verifies that context
+// header stripping works with a custom header prefix (ADR-005: configurable naming).
+func TestIntegration_CustomPrefix_ContextHeadersStripped(t *testing.T) {
+	// Arrange - backend captures all received headers
+	receivedHeaders := make(http.Header)
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for k, v := range r.Header {
+			receivedHeaders[k] = v
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	cfg := testConfig()
+	cfg.HeaderPrefix = "X-MyPlatform"
+	cfg.Plugin = &mockPlugin{}
+	srv := mustNewServer(t, cfg)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-MyPlatform-Target-URL", backend.URL+"/v1/resource")
+	req.Header.Set("X-MyPlatform-Vendor-ID", "vendor-custom")
+	req.Header.Set("X-MyPlatform-Marketplace-ID", "MP-CUSTOM")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - request should succeed
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	// Assert - custom-prefixed context headers must NOT be forwarded
+	for _, suffix := range chaperoneCtx.HeaderSuffixes() {
+		h := "X-MyPlatform" + suffix
+		if val := receivedHeaders.Get(h); val != "" {
+			t.Errorf("context header %q leaked to target with value %q", h, val)
+		}
+	}
+}
+
+// TestIntegration_NonContextHeaders_PreservedOnForwarding verifies that
+// non-context headers (Content-Type, Accept, etc.) are preserved when
+// forwarding to the target. Only X-Connect-* headers should be stripped.
+func TestIntegration_NonContextHeaders_PreservedOnForwarding(t *testing.T) {
+	// Arrange - backend captures specific headers
+	var receivedContentType, receivedAccept string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedContentType = r.Header.Get("Content-Type")
+		receivedAccept = r.Header.Get("Accept")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	cfg := testConfig()
+	cfg.Plugin = &mockPlugin{}
+	srv := mustNewServer(t, cfg)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/proxy", strings.NewReader(`{"key":"value"}`))
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/v1/resource")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if receivedContentType != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", receivedContentType, "application/json")
+	}
+	if receivedAccept != "application/json" {
+		t.Errorf("Accept = %q, want %q", receivedAccept, "application/json")
 	}
 }

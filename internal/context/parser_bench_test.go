@@ -37,6 +37,7 @@ func BenchmarkParseContext_AllHeaders(b *testing.B) {
 	contextData := base64.StdEncoding.EncodeToString([]byte(`{"key":"value","nested":{"a":"b"}}`))
 	req := httptest.NewRequest("POST", "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://api.vendor.com/v1/customers")
+	req.Header.Set("X-Connect-Environment-ID", "production")
 	req.Header.Set("X-Connect-Marketplace-ID", "US")
 	req.Header.Set("X-Connect-Vendor-ID", "microsoft")
 	req.Header.Set("X-Connect-Product-ID", "product-123")

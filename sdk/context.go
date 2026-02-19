@@ -19,6 +19,9 @@ type TransactionContext struct {
 	// Extracted from the configured trace header (default: "Connect-Request-ID").
 	// If not present in the request, a UUID is generated.
 	TraceID string
+	// EnvironmentID identifies the runtime environment (e.g., "production", "test").
+	// Extracted from {HeaderPrefix}-Environment-ID.
+	EnvironmentID string
 	// MarketplaceID identifies the marketplace (e.g., "US", "EU").
 	// Extracted from {HeaderPrefix}-Marketplace-ID.
 	MarketplaceID string

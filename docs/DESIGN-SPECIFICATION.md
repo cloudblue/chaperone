@@ -225,6 +225,7 @@ The protocol between Connect and the Proxy is strictly typed using HTTP Headers.
 The Core Proxy parses these headers into a `TransactionContext` struct:
 
 * `X-Connect-Target-URL`: The full destination URL (e.g., `https://api.microsoft.com/v1/customers`).
+* `X-Connect-Environment-ID`: The runtime environment identifier (e.g., `production`, `test`).
 * `X-Connect-Marketplace-ID`: The specific marketplace ID (e.g., `US`, `EU`).
 * `X-Connect-Vendor-ID`: The ID of the vendor account owning the product.
 * `X-Connect-Product-ID`: The specific product SKU.
@@ -546,6 +547,7 @@ func main() {
 type TransactionContext struct {
     TraceID        string         // Correlation ID for distributed tracing
     TargetURL      string         // Full destination URL (validated against allow-list)
+    EnvironmentID  string         // {HeaderPrefix}-Environment-ID
     MarketplaceID  string         // {HeaderPrefix}-Marketplace-ID
     VendorID       string         // {HeaderPrefix}-Vendor-ID
     ProductID      string         // {HeaderPrefix}-Product-ID
