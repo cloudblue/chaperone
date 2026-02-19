@@ -161,8 +161,8 @@ func TestParseContext_MissingTargetURL_ReturnsError(t *testing.T) {
 				t.Fatalf("expected error, got nil with context: %+v", got)
 			}
 
-			if !errors.Is(err, ErrTargetURLRequired) {
-				t.Errorf("error type = %v, want %v", err, ErrTargetURLRequired)
+			if !errors.Is(err, ErrHeaderRequired) {
+				t.Errorf("error type = %v, want %v", err, ErrHeaderRequired)
 			}
 		})
 	}
