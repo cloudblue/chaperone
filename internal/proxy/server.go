@@ -79,6 +79,9 @@ type Config struct {
 	// from responses. These are merged with built-in defaults by NewServer.
 	SensitiveHeaders []string
 
+	// TracingEnabled controls whether OpenTelemetry tracing middleware is active.
+	TracingEnabled bool
+
 	// Timeouts
 	ReadTimeout      time.Duration
 	WriteTimeout     time.Duration
@@ -203,14 +206,15 @@ func (s *Server) Config() Config {
 // Middleware execution order for /proxy (outermost to innermost):
 //  1. TraceIDMiddleware - extracts or generates trace ID, stores in context
 //  2. RequestLoggerMiddleware - wraps response, always logs via defer (even on panic)
-//  3. MetricsMiddleware - records Prometheus metrics (request count, duration, active connections)
-//  4. PanicRecoveryMiddleware (global) - safety net for all endpoints
+//  3. TracingMiddleware - OpenTelemetry span creation and W3C propagation (when enabled)
+//  4. MetricsMiddleware - records Prometheus metrics (request count, duration, active connections)
+//  5. PanicRecoveryMiddleware (global) - safety net for all endpoints
 //
 // Per-route middleware (applied only to /proxy):
-//  5. TimingMiddleware - creates recorder, wraps response to inject Server-Timing header
-//  6. PanicRecoveryMiddleware (per-route) - catches panics, writes 500 to timing-wrapped response
-//  7. AllowListMiddleware - validates target URL before credential injection
-//  8. handleProxy - actual request handling
+//  6. TimingMiddleware - creates recorder, wraps response to inject Server-Timing header
+//  7. PanicRecoveryMiddleware (per-route) - catches panics, writes 500 to timing-wrapped response
+//  8. AllowListMiddleware - validates target URL before credential injection
+//  9. handleProxy - actual request handling
 //
 // TimingMiddleware is scoped to /proxy only — operational endpoints (/_ops/*) do not
 // emit Server-Timing headers, avoiding latency leakage on health checks
@@ -435,9 +439,16 @@ func (s *Server) logStartup() {
 // protects /_ops endpoints and acts as a safety net for /proxy.
 func (s *Server) withMiddleware(handler http.Handler) http.Handler {
 	// Apply middleware: outermost runs first.
-	// Order: TraceID -> RequestLogger -> Metrics -> PanicRecovery -> handler
+	// Order: TraceID -> RequestLogger -> Tracing -> Metrics -> PanicRecovery -> handler
 	handler = PanicRecoveryMiddleware(handler)
 	handler = telemetry.MetricsMiddleware(s.config.HeaderPrefix, handler)
+
+	if s.config.TracingEnabled {
+		handler = telemetry.TracingMiddleware(
+			telemetry.Tracer(), s.config.HeaderPrefix, s.config.TraceHeader, handler,
+		)
+	}
+
 	handler = observability.RequestLoggerMiddleware(slog.Default(), s.config.HeaderPrefix+"-Vendor-ID", handler)
 	handler = observability.TraceIDMiddleware(s.config.TraceHeader, handler)
 	return handler
@@ -542,6 +553,11 @@ func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContex
 	defer cancel()
 
 	pluginStart := time.Now()
+
+	// Trace the plugin call (no-op span when tracing is disabled)
+	ctx, span := telemetry.StartPluginSpan(ctx, "GetCredentials", txCtx.VendorID)
+	defer span.End()
+
 	cred, err := s.config.Plugin.GetCredentials(ctx, *txCtx, r)
 	pluginDuration := time.Since(pluginStart)
 
@@ -551,6 +567,7 @@ func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContex
 	}
 
 	if err != nil {
+		telemetry.RecordSpanError(ctx, err)
 		return nil, err
 	}
 
@@ -701,6 +718,12 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 		// between Director and ModifyResponse (which may run on different goroutines)
 		*req = *req.WithContext(telemetry.WithUpstreamStart(req.Context(), time.Now()))
 
+		// Start upstream span and inject W3C traceparent into outgoing request.
+		// The span is stored in context and ended in ModifyResponse or ErrorHandler.
+		ctx, upstreamSpan := telemetry.StartUpstreamSpan(req.Context(), req, target.Host)
+		ctx = telemetry.WithUpstreamSpan(ctx, upstreamSpan)
+		*req = *req.WithContext(ctx)
+
 		originalDirector(req)
 		req.Host = target.Host
 		req.URL.Scheme = target.Scheme
@@ -719,6 +742,9 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 
 	// Handle proxy errors (upstream unreachable, connection refused, etc.)
 	// ErrorHandler fires instead of ModifyResponse when the upstream is unreachable.
+	// NOTE: httputil.ReverseProxy passes the Director-modified request (outreq)
+	// to ErrorHandler, so r.Context() contains the upstream span. If this
+	// assumption changes, EndUpstreamSpan is safe to call with nil span.
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		// Record telemetry upstream duration
 		telemetry.RecordUpstreamDuration(r.Context(), telTiming)
@@ -727,6 +753,9 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 		if recorder := timing.FromContext(r.Context()); recorder != nil {
 			recorder.RecordUpstream(time.Since(upstreamStart))
 		}
+
+		// End the upstream tracing span with the transport error.
+		telemetry.EndUpstreamSpan(r.Context(), 0, err)
 
 		slog.Error("proxy error",
 			"trace_id", traceID,
@@ -756,6 +785,9 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 		if recorder := timing.FromContext(resp.Request.Context()); recorder != nil {
 			recorder.RecordUpstream(time.Since(upstreamStart))
 		}
+
+		// End the upstream tracing span with the response status code.
+		telemetry.EndUpstreamSpan(resp.Request.Context(), resp.StatusCode, nil)
 
 		var action *sdk.ResponseAction
 

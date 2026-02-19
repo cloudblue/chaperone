@@ -15,7 +15,7 @@
 | 05 | Observability (Logs) | [x] | P0 | 01, 04 | M |
 | 06 | Resilience | [x] | P0 | 01 | L |
 | 07 | Telemetry (Metrics) | [x] | P1 | Phase 1 only | M |
-| 08 | Telemetry (Tracing) | [ ] | P1 | 07 | L |
+| 08 | Telemetry (Tracing) | [x] | P1 | 07 | L |
 | 09 | Profiling | [x] | P1 | Phase 1 only | M |
 | 10 | Performance Attribution | [x] | P1 | Phase 1 only | M |
 | 11 | Benchmark Testing | [x] | P1 | 09 | M |
@@ -51,7 +51,7 @@ Sequential work on configuration, security, and resilience.
 ```
 Phase 1 (Complete)
     ├── 07-telemetry-metrics ────────────────┐
-    │       └── 08-telemetry-tracing         │
+    │       └── 08-telemetry-tracing [x]     │
     │                                        │
     ├── 09-profiling                         │
     │       └── 11-benchmark-testing         │
@@ -102,7 +102,7 @@ Phase 1 (Complete) ────────────────────�
 │   07-metrics      09-profiling        10-perf-attribution       │
 │   │                 │                                           │
 │   ▼                 ▼                                           │
-│   08-tracing    11-benchmarks                                   │
+│   08-tracing [x]  11-benchmarks                                   │
 │   │                 │                                           │
 │   └────────┬────────┘                                           │
 │            ▼                                                    │
@@ -146,6 +146,10 @@ Phase 1 (Complete) ────────────────────�
 ## Progress Notes
 
 *(To be updated during implementation)*
+
+### Completed
+
+- **Task 08 (Telemetry - Tracing)** - OpenTelemetry distributed tracing with OTLP export, W3C propagation, Connect-Request-ID bridging
 
 ## Phase Exit Criteria
 

@@ -1,6 +1,6 @@
 # Task: Telemetry (OpenTelemetry Tracing)
 
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 **Priority:** P1
 **Estimated Effort:** L
 
@@ -16,22 +16,22 @@ Implement OpenTelemetry integration with OTLP exporters for distributed tracing.
 
 ## Dependencies
 
-- [ ] `07-telemetry-metrics.task.md` - Shares admin infrastructure
+- [x] `07-telemetry-metrics.task.md` - Shares admin infrastructure
 - [x] Phase 1 complete - Trace ID extraction exists
-- [ ] **NO dependencies on Tasks 01-06** (enables parallel development)
+- [x] **NO dependencies on Tasks 01-06** (enables parallel development)
 
 ## Acceptance Criteria
 
-- [ ] OpenTelemetry SDK integrated with OTLP exporter
-- [ ] Traces exported to configurable OTLP endpoint (via `OTEL_EXPORTER_OTLP_ENDPOINT`)
-- [ ] Standard OTel environment variables respected (`OTEL_*`)
-- [ ] Spans created for: request handling, plugin execution, upstream call
-- [ ] Existing `Connect-Request-ID` used as trace ID when present
-- [ ] W3C Trace Context headers propagated to upstream
-- [ ] Span attributes include: `vendor_id`, `service_id`, `status_code`
-- [ ] Tracing can be disabled via environment variable
-- [ ] Tests pass: `go test ./internal/telemetry/...`
-- [ ] Lint passes: `make lint`
+- [x] OpenTelemetry SDK integrated with OTLP exporter
+- [x] Traces exported to configurable OTLP endpoint (via `OTEL_EXPORTER_OTLP_ENDPOINT`)
+- [x] Standard OTel environment variables respected (`OTEL_*`)
+- [x] Spans created for: request handling, plugin execution, upstream call
+- [x] Existing `Connect-Request-ID` used as trace ID when present
+- [x] W3C Trace Context headers propagated to upstream
+- [x] Span attributes include: `vendor_id`, `service_id`, `status_code`
+- [x] Tracing can be disabled via environment variable
+- [x] Tests pass: `go test ./internal/telemetry/...`
+- [x] Lint passes: `make lint`
 
 ## Implementation Hints
 
@@ -177,12 +177,12 @@ OTEL_SERVICE_NAME=chaperone
 
 ## Files to Create/Modify
 
-- [ ] `internal/telemetry/tracing.go` - OTel setup
-- [ ] `internal/telemetry/tracing_middleware.go` - Middleware
-- [ ] `internal/telemetry/propagation.go` - Context propagation
-- [ ] `internal/telemetry/tracing_test.go` - Unit tests
-- [ ] `cmd/chaperone/main.go` - Initialize and shutdown tracing
-- [ ] `go.mod` - Add OTel dependencies
+- [x] `internal/telemetry/tracing.go` - OTel setup
+- [x] `internal/telemetry/tracing_middleware.go` - Middleware
+- [x] `internal/telemetry/propagation.go` - Context propagation
+- [x] `internal/telemetry/tracing_test.go` - Unit tests
+- [x] `cmd/chaperone/main.go` - Initialize and shutdown tracing
+- [x] `go.mod` - Add OTel dependencies
 
 ## Testing Strategy
 

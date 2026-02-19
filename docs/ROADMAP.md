@@ -28,7 +28,7 @@ We define three key milestones to validate the architecture and reach production
 
 ### Telemetry
 * [ ] **Telemetry (Metrics):** Expose `/metrics` endpoint with Prometheus counters and histograms.
-* [ ] **Telemetry (Tracing):** OpenTelemetry integration with OTLP exporters for distributed tracing.
+* [x] **Telemetry (Tracing):** OpenTelemetry integration with OTLP exporters for distributed tracing.
 
 ### Performance
 * [ ] **Profiling:** Add the optional `/debug/pprof` endpoint (protected by config).
