@@ -8,11 +8,15 @@ YAML configuration with environment variable overrides following the
 
 Chaperone resolves the configuration file path in this order:
 
-1. **`-config` flag** — `chaperone -config /etc/chaperone.yaml`
-2. **`CHAPERONE_CONFIG` environment variable** — `export CHAPERONE_CONFIG=/etc/chaperone.yaml`
-3. **`./config.yaml`** — current working directory (default)
+1. **`CHAPERONE_CONFIG` environment variable** — `export CHAPERONE_CONFIG=/etc/chaperone.yaml`
+2. **`./config.yaml`** — current working directory (default)
 
 If no configuration file is found, Chaperone exits with an error.
+
+> **Default binary only:** The pre-built `cmd/chaperone` binary also accepts a
+> `-config` flag (highest priority). Custom plugin binaries receive
+> configuration via `chaperone.Run()` options and use the resolution
+> order above.
 
 ## Environment Variable Overrides
 
@@ -107,7 +111,7 @@ upstream:
 |-----|-------------|------|---------|-------------|
 | `timeouts.connect` | `CHAPERONE_UPSTREAM_TIMEOUTS_CONNECT` | duration | `5s` | TCP connection establishment timeout to vendor API |
 | `timeouts.read` | `CHAPERONE_UPSTREAM_TIMEOUTS_READ` | duration | `30s` | Time to read response headers from vendor |
-| `timeouts.write` | `CHAPERONE_UPSTREAM_TIMEOUTS_WRITE` | duration | `30s` | Time to write request body to vendor |
+| `timeouts.write` | `CHAPERONE_UPSTREAM_TIMEOUTS_WRITE` | duration | `30s` | Max time to write the full response back to the platform |
 | `timeouts.idle` | `CHAPERONE_UPSTREAM_TIMEOUTS_IDLE` | duration | `120s` | Keep-alive connection idle timeout |
 | `timeouts.keep_alive` | `CHAPERONE_UPSTREAM_TIMEOUTS_KEEP_ALIVE` | duration | `30s` | TCP keep-alive probe interval |
 | `timeouts.plugin` | `CHAPERONE_UPSTREAM_TIMEOUTS_PLUGIN` | duration | `10s` | Maximum time for plugin `GetCredentials` call |
@@ -163,21 +167,28 @@ receive a `403 Forbidden` response.
 
 ### Pattern Rules
 
+Patterns work for both **host keys** (using `.` as segment separator) and
+**path values** (using `/` as segment separator).
+
 | Pattern | Matches | Example |
 |---------|---------|---------|
-| `/exact/path` | Exact path only | `/api/charge` |
-| `*` | Single path segment (within one `/`) | `/v1/*/info` matches `/v1/users/info` but not `/v1/a/b/info` |
-| `**` | Zero or more path segments (recursive) | `/v1/**` matches `/v1/`, `/v1/users`, `/v1/users/123/orders` |
+| Literal | Exact match only | Host: `api.vendor.com`, Path: `/api/charge` |
+| `*` | Single segment | Host: `*.vendor.com` matches `api.vendor.com` but not `a.b.vendor.com`. Path: `/v1/*/info` matches `/v1/users/info` but not `/v1/a/b/info` |
+| `**` | Zero or more segments (recursive) | Path: `/v1/**` matches `/v1/`, `/v1/users`, `/v1/users/123/orders` |
 
 ### Examples
 
 ```yaml
 upstream:
   allow_list:
-    # Exact host, recursive wildcard
+    # Exact host, recursive wildcard paths
     "api.vendor.com":
       - "/v1/**"            # All paths under /v1/
       - "/v2/products/*"    # Single level under /v2/products/
+
+    # Domain glob — matches api.vendor.com, payments.vendor.com, etc.
+    "*.vendor.com":
+      - "/v1/**"
 
     # Exact paths only
     "payments.example.com":
@@ -191,17 +202,13 @@ upstream:
 
 ### Debugging Allow-List Denials
 
+Denied requests are logged at `warn` level with the blocked host and path.
 If a request is denied (403), check:
 
-1. The host in `X-Connect-Target-URL` matches an allow-list key exactly (case-sensitive)
+1. The host in `X-Connect-Target-URL` matches an allow-list key
+   (exact match is tried first, then glob patterns like `*.vendor.com`)
 2. The path matches one of the patterns for that host
 3. There are no trailing slashes causing mismatches
-
-Use `debug` log level to see detailed allow-list evaluation:
-
-```bash
-export CHAPERONE_OBSERVABILITY_LOG_LEVEL="debug"
-```
 
 ## Timeout Tuning Guidance
 
@@ -239,45 +246,8 @@ upstream:
 
 ## Complete Annotated Example
 
-The file `configs/config.example.yaml` contains a fully annotated configuration:
-
-```yaml
-server:
-  addr: ":8443"               # Traffic port
-  admin_addr: "127.0.0.1:9090"  # Admin port (localhost only for security)
-  shutdown_timeout: 30s       # Graceful shutdown drain time
-  tls:
-    enabled: true             # Enable mTLS
-    cert_file: "certs/server.crt"
-    key_file: "certs/server.key"
-    ca_file: "certs/ca.crt"
-    auto_rotate: true         # Phase 3: automatic cert rotation
-
-upstream:
-  header_prefix: "X-Connect"           # Context header prefix (ADR-005)
-  trace_header: "Connect-Request-ID"   # Correlation ID header
-  allow_list:                           # Default-deny: only listed hosts/paths
-    "api.vendor.com":
-      - "/v1/**"
-      - "/v2/**"
-    "payments.example.com":
-      - "/api/charge"
-      - "/api/refund"
-  timeouts:
-    connect: 5s       # TCP dial timeout
-    read: 30s         # Response header timeout
-    write: 30s        # Response write timeout
-    idle: 120s        # Keep-alive connection idle timeout
-    keep_alive: 30s   # TCP keep-alive probe interval
-    plugin: 10s       # Max time for plugin GetCredentials
-
-observability:
-  log_level: "info"            # debug | info | warn | error
-  enable_profiling: false      # Enable /debug/pprof on admin port
-  sensitive_headers:           # Additional headers to redact (merged with defaults)
-    # - "X-Custom-Secret"
-    # - "X-Vendor-Token"
-```
+See [`configs/config.example.yaml`](../../configs/config.example.yaml) for a
+fully annotated configuration file with inline comments for every option.
 
 ## Next Steps
 

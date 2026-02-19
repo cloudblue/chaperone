@@ -371,7 +371,9 @@ func main() {
     ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
     defer stop()
 
-    if err := chaperone.Run(ctx, myPlugin, /* options */); err != nil {
+    if err := chaperone.Run(ctx, myplugin.New(),
+        chaperone.WithVersion("0.1.0"),
+    ); err != nil {
         os.Exit(1)
     }
 }
