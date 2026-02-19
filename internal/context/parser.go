@@ -53,6 +53,10 @@ var contextHeaders = []headerDef{
 		Apply:  func(ctx *sdk.TransactionContext, v string) error { ctx.VendorID = v; return nil },
 	},
 	{
+		Suffix: "-Environment-ID",
+		Apply:  func(ctx *sdk.TransactionContext, v string) error { ctx.EnvironmentID = v; return nil },
+	},
+	{
 		Suffix: "-Marketplace-ID",
 		Apply:  func(ctx *sdk.TransactionContext, v string) error { ctx.MarketplaceID = v; return nil },
 	},
