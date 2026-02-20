@@ -125,7 +125,7 @@ If verdict is **NEEDS_FIXES** or **NEEDS_REDESIGN**:
 - [ ] Context (`context.Context`) passed where appropriate
 
 **Design Spec Compliance**:
-- [ ] Implementation matches interface definitions in `docs/DESIGN-SPECIFICATION.md`
+- [ ] Implementation matches interface definitions in `docs/explanation/DESIGN-SPECIFICATION.md`
 - [ ] ADR decisions are respected (check relevant ADRs)
 - [ ] Naming matches spec conventions
 

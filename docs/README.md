@@ -1,40 +1,44 @@
-# Documentation
+# Chaperone Documentation
 
-This directory contains the authoritative project documentation.
+Welcome to the Chaperone documentation. These docs are organized using the
+[Diátaxis](https://diataxis.fr/) framework into four categories: tutorials,
+how-to guides, reference, and explanation.
 
-## Contents
+## Tutorial
 
-| Document | Purpose |
-|----------|---------|
-| [DESIGN-SPECIFICATION.md](DESIGN-SPECIFICATION.md) | **Source of Truth** - Complete technical specification, ADRs, interfaces |
-| [ROADMAP.md](ROADMAP.md) | Phased delivery plan (PoC → MVP → GA → Future) |
+| Document | Description |
+|----------|-------------|
+| [Getting Started](getting-started.md) | Build, run, and send your first proxied request (~10 min) |
 
-## How These Documents Are Used
+## How-to Guides
 
-### Design Specification
-- Referenced by prompts and skills for implementation guidance
-- Contains Architecture Decision Records (ADRs)
-- Defines all interfaces, protocols, and behaviors
-- **Do not modify without team consensus**
+| Guide | Description |
+|-------|-------------|
+| [Deployment](guides/deployment.md) | Docker builds, container operations, Kubernetes probes, production hardening |
+| [Certificate Management](guides/certificate-management.md) | Development certs, production CA enrollment, CSR generation |
+| [Plugin Development](guides/plugin-development.md) | Build your own credential plugin — integration methods, testing, common patterns |
+| [Troubleshooting](guides/troubleshooting.md) | Common errors, mTLS issues, allow-list debugging, Docker problems |
 
-### Roadmap
-- Defines scope for each development phase
-- Current focus: **Phase 1 (PoC)**
-- Used by `check-phase-scope` prompt to validate work fits current phase
+## Reference
 
-## Relationship to Workflow
+| Document | Description |
+|----------|-------------|
+| [Configuration](reference/configuration.md) | All config options, env var overrides, allow-list syntax, timeout tuning |
+| [HTTP API](reference/http-api.md) | All endpoints — health, version, proxy, metrics, profiling |
+| [SDK](reference/sdk.md) | Plugin interfaces, types, helper methods, public API |
 
-```
-docs/DESIGN-SPECIFICATION.md     →  "What to build" (architecture)
-docs/ROADMAP.md                  →  "When to build" (phases)
-.github/copilot-instructions.md  →  "How to build" (conventions)
-.github/prompts/                 →  "How to invoke" (tasks)
-.github/skills/                  →  "Complex workflows" (expertise)
-```
+## Explanation
 
-## Modification Policy
+| Document | Description |
+|----------|-------------|
+| [Design Specification](explanation/DESIGN-SPECIFICATION.md) | Architecture rationale, ADRs, security model, design trade-offs |
+| [Roadmap](ROADMAP.md) | Phased delivery plan (PoC → MVP → GA → Future) |
 
-| Document | Who Can Modify | Process |
-|----------|----------------|---------|
-| DESIGN-SPECIFICATION.md | Tech Lead / Architect | ADR process, PR review |
-| ROADMAP.md | Product/Tech Lead | Phase completion review |
+## Audience
+
+These documents target **Distributor engineering teams** who receive the
+Chaperone source code and need to:
+
+- Deploy the proxy in their infrastructure (Mode A — direct mTLS termination)
+- Build a custom binary with their own credential-injection plugin
+- Configure routing, TLS, and observability for production use

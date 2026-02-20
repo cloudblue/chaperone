@@ -284,7 +284,7 @@ Examples:
 
 ## Architecture Decision Records
 
-Reference these ADRs from `docs/DESIGN-SPECIFICATION.md` when making architectural choices:
+Reference these ADRs from `docs/explanation/DESIGN-SPECIFICATION.md` when making architectural choices:
 
 | ADR | Decision | Rationale |
 |-----|----------|-----------|
@@ -318,7 +318,7 @@ Before adding a dependency:
 
 When generating code for Chaperone:
 
-1. **Check the Design Spec first** - `docs/DESIGN-SPECIFICATION.md` is the source of truth
+1. **Check the Design Spec first** - `docs/explanation/DESIGN-SPECIFICATION.md` is the source of truth
 2. **Follow the Plugin interface** - Changes to `pkg/sdk/` affect all Distributors
 3. **Include tests** - Every new function needs corresponding test
 4. **Add doc comments** - Exported functions need godoc comments

@@ -11,7 +11,7 @@ It uses a plugin architecture (static recompilation) for Distributor customizati
 
 Before starting any work, read these files in order:
 
-1. **Architecture & Spec**: `docs/DESIGN-SPECIFICATION.md` - Source of truth for what to build
+1. **Architecture & Spec**: `docs/explanation/DESIGN-SPECIFICATION.md` - Source of truth for what to build
 2. **Current Phase**: `docs/ROADMAP.md` - We're in **Phase 1 (PoC)**
 3. **Coding Conventions**: `.github/copilot-instructions.md` - How to write code
 4. **Workflow System**: `.github/META-WORKFLOW.md` - How the self-improving workflow works
@@ -22,8 +22,19 @@ Before starting any work, read these files in order:
 chaperone/
 ├── chaperone.go             # 🌐 Public API: Run(), Option types
 │
-├── docs/                    # 📚 Authoritative documentation
-│   ├── DESIGN-SPECIFICATION.md  # Architecture, ADRs, interfaces
+├── docs/                    # 📚 Authoritative documentation (Diátaxis)
+│   ├── getting-started.md       # Tutorial: first proxied request
+│   ├── guides/                  # How-to guides
+│   │   ├── deployment.md
+│   │   ├── certificate-management.md
+│   │   ├── plugin-development.md
+│   │   └── troubleshooting.md
+│   ├── reference/               # Reference documentation
+│   │   ├── configuration.md
+│   │   ├── http-api.md
+│   │   └── sdk.md
+│   ├── explanation/             # Explanation / architecture
+│   │   └── DESIGN-SPECIFICATION.md
 │   └── ROADMAP.md               # Phased delivery plan
 │
 ├── sdk/                     # 📦 Plugin SDK (separate Go module)
@@ -109,7 +120,7 @@ Or simply run:
 
 ## Architecture Decisions (ADRs)
 
-**See `docs/DESIGN-SPECIFICATION.md` Section 4** for all ADRs:
+**See `docs/explanation/DESIGN-SPECIFICATION.md` Section 4** for all ADRs:
 - ADR-001: Static Recompilation for plugins
 - ADR-002: Go as language
 - ADR-003: Hybrid caching (Fast/Slow path)
