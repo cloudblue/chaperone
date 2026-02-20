@@ -32,7 +32,6 @@ how-to guides, reference, and explanation.
 | Document | Description |
 |----------|-------------|
 | [Design Specification](explanation/DESIGN-SPECIFICATION.md) | Architecture rationale, ADRs, security model, design trade-offs |
-| [Roadmap](ROADMAP.md) | Phased delivery plan (PoC → MVP → GA → Future) |
 
 ## Audience
 
