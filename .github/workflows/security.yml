@@ -7,9 +7,15 @@ on:
   push:
     branches:
       - master
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
   pull_request:
     branches:
       - master
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
   schedule:
     # Run weekly on Monday at 00:00 UTC
     - cron: '0 0 * * 1'
