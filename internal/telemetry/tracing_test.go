@@ -216,6 +216,44 @@ func TestTracingMiddleware_CreatesSpan(t *testing.T) {
 	}
 }
 
+func TestTracingMiddleware_W3CTraceparentTakesPriorityOverConnectRequestID(t *testing.T) {
+	recorder := setupTestTracer(t)
+
+	handler := TracingMiddleware(
+		otel.Tracer(TracerName),
+		"X-Connect",
+		"Connect-Request-ID",
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+	)
+
+	// Create a valid W3C traceparent with a known trace ID.
+	w3cTraceID := "abcdef0123456789abcdef0123456789"
+	traceparent := "00-" + w3cTraceID + "-00f067aa0ba902b7-01"
+
+	// Also set a Connect-Request-ID that would produce a different trace ID.
+	connectRequestID := "550e8400-e29b-41d4-a716-446655440000"
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("traceparent", traceparent)
+	req.Header.Set("Connect-Request-ID", connectRequestID)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	spans := recorder.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+
+	span := spans[0]
+	gotTraceID := span.SpanContext().TraceID().String()
+	if gotTraceID != w3cTraceID {
+		t.Errorf("span trace ID = %q, want W3C trace ID %q (not bridged Connect-Request-ID)", gotTraceID, w3cTraceID)
+	}
+}
+
 func TestTracingMiddleware_DoesNotLeakQueryParams(t *testing.T) {
 	recorder := setupTestTracer(t)
 

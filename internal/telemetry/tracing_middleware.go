@@ -6,6 +6,7 @@ package telemetry
 import (
 	"context"
 	"net/http"
+	"strconv"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -56,11 +57,16 @@ func TracingMiddleware(tracer trace.Tracer, headerPrefix, traceHeader string, ne
 
 		// SECURITY: Record only path (not query string) to prevent leaking
 		// API keys or tokens that may appear in query parameters.
+		scheme := "https"
+		if r.TLS == nil {
+			scheme = "http"
+		}
 		ctx, span := tracer.Start(ctx, spanName,
 			trace.WithSpanKind(trace.SpanKindServer),
 			trace.WithAttributes(
 				semconv.HTTPRequestMethodKey.String(r.Method),
 				semconv.URLPath(r.URL.Path),
+				semconv.URLScheme(scheme),
 				semconv.ServerAddress(r.Host),
 			),
 		)
@@ -92,10 +98,12 @@ func TracingMiddleware(tracer trace.Tracer, headerPrefix, traceHeader string, ne
 
 		span.SetAttributes(semconv.HTTPResponseStatusCode(wrapped.Status))
 
-		// Per OTel HTTP semantic conventions, only 5xx responses set Error
-		// status on server spans. 4xx responses are correctly handled client
-		// errors and must NOT be marked as server errors.
+		// Per OTel HTTP semantic conventions, only 5xx responses are errors
+		// on server spans. 4xx responses are correctly handled client errors
+		// and must NOT set span status or error.type.
+		// Ref: https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
 		if wrapped.Status >= 500 {
+			span.SetAttributes(semconv.ErrorTypeKey.String(strconv.Itoa(wrapped.Status)))
 			span.SetStatus(codes.Error, http.StatusText(wrapped.Status))
 		}
 	})
@@ -116,17 +124,26 @@ func StartPluginSpan(ctx context.Context, operation, vendorID string) (context.C
 // StartUpstreamSpan creates a span for upstream HTTP calls.
 // SECURITY: Records only host+path (no query string) to prevent leaking
 // API keys or tokens that may appear in query parameters.
+// SECURITY: url.full is intentionally omitted — Chaperone injects credentials
+// into URLs/headers, so the full URL could contain secrets.
 // When tracing is disabled (OTEL_SDK_DISABLED=true), the global TracerProvider
 // returns no-op spans, so this is safe to call unconditionally. The overhead
 // of no-op span creation and header injection is negligible.
 func StartUpstreamSpan(ctx context.Context, req *http.Request, targetHost string) (context.Context, trace.Span) {
+	attrs := []attribute.KeyValue{
+		semconv.HTTPRequestMethodKey.String(req.Method),
+		semconv.URLPath(req.URL.Path),
+		semconv.ServerAddress(targetHost),
+	}
+	if port := req.URL.Port(); port != "" {
+		if p, err := strconv.Atoi(port); err == nil {
+			attrs = append(attrs, semconv.ServerPort(p))
+		}
+	}
+
 	ctx, span := Tracer().Start(ctx, req.Method+" "+targetHost,
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(
-			semconv.HTTPRequestMethodKey.String(req.Method),
-			semconv.URLPath(req.URL.Path),
-			semconv.ServerAddress(targetHost),
-		),
+		trace.WithAttributes(attrs...),
 	)
 
 	InjectTraceContext(ctx, req)

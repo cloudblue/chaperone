@@ -151,19 +151,15 @@ func configureLogging(rc *runConfig, cfg *config.Config) {
 func startProxy(ctx context.Context, plugin sdk.Plugin, rc *runConfig, cfg *config.Config) error {
 	logStartup(rc, cfg)
 
-	// Initialize tracing (if enabled via OTEL_SDK_DISABLED != "true").
+	// Initialize tracing (returns no-op shutdown when disabled).
 	tracingEnabled := telemetry.IsTracingEnabled()
-	var shutdownTracing func(context.Context) error
-	if tracingEnabled {
-		var tracingErr error
-		shutdownTracing, tracingErr = telemetry.InitTracing(context.Background(), telemetry.TracingConfig{ //nolint:contextcheck // tracing init is process-scoped, not request-scoped
-			ServiceName:    "chaperone",
-			ServiceVersion: rc.version,
-			Enabled:        true,
-		})
-		if tracingErr != nil {
-			return fmt.Errorf("initializing tracing: %w", tracingErr)
-		}
+	shutdownTracing, tracingErr := telemetry.InitTracing(context.Background(), telemetry.TracingConfig{ //nolint:contextcheck // tracing init is process-scoped, not request-scoped
+		ServiceName:    "chaperone",
+		ServiceVersion: rc.version,
+		Enabled:        tracingEnabled,
+	})
+	if tracingErr != nil {
+		return fmt.Errorf("initializing tracing: %w", tracingErr)
 	}
 
 	// Start admin server (health, version, pprof, metrics).
@@ -265,10 +261,8 @@ func awaitShutdown(ctx context.Context, srv *proxy.Server, adminSrv *telemetry.A
 	srv.Shutdown(shutdownCtx)
 
 	// Flush remaining traces before stopping admin.
-	if shutdownTracing != nil {
-		if err := shutdownTracing(shutdownCtx); err != nil {
-			slog.Error("tracer provider shutdown error", "error", err)
-		}
+	if err := shutdownTracing(shutdownCtx); err != nil {
+		slog.Error("tracer provider shutdown error", "error", err)
 	}
 
 	// Then drain admin server (health checks were available during traffic drain).

@@ -22,11 +22,8 @@ import (
 // TracerName is the instrumentation scope name for Chaperone spans.
 const TracerName = "github.com/cloudblue/chaperone"
 
-// Environment variables for tracing configuration.
-const (
-	EnvOTelSDKDisabled = "OTEL_SDK_DISABLED"
-	EnvOTelServiceName = "OTEL_SERVICE_NAME"
-)
+// EnvOTelSDKDisabled is the standard OTel env var to disable the SDK.
+const EnvOTelSDKDisabled = "OTEL_SDK_DISABLED"
 
 // TracingConfig holds configuration for OpenTelemetry tracing.
 type TracingConfig struct {
@@ -48,11 +45,6 @@ func InitTracing(ctx context.Context, cfg TracingConfig) (shutdown func(context.
 		return func(context.Context) error { return nil }, nil
 	}
 
-	serviceName := cfg.ServiceName
-	if envName := os.Getenv(EnvOTelServiceName); envName != "" {
-		serviceName = envName
-	}
-
 	exporter, err := otlptracehttp.New(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("creating OTLP exporter: %w", err)
@@ -60,9 +52,13 @@ func InitTracing(ctx context.Context, cfg TracingConfig) (shutdown func(context.
 
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
-			semconv.ServiceName(serviceName),
+			semconv.ServiceName(cfg.ServiceName),
 			semconv.ServiceVersion(cfg.ServiceVersion),
 		),
+		// WithFromEnv reads OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES.
+		// It appears after WithAttributes so env values override code defaults.
+		resource.WithFromEnv(),
+		resource.WithTelemetrySDK(),
 		resource.WithHost(),
 		// SECURITY: Do NOT use resource.WithProcess() — it includes
 		// WithProcessCommandArgs which would export CLI flags like
@@ -79,9 +75,10 @@ func InitTracing(ctx context.Context, cfg TracingConfig) (shutdown func(context.
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
-		// Use ParentBased sampler: respects upstream sampling decisions,
-		// samples all root spans by default. Override via OTEL_TRACES_SAMPLER env var.
-		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.AlwaysSample())),
+		// Sampler defaults to ParentBased(AlwaysSample).
+		// Override via OTEL_TRACES_SAMPLER / OTEL_TRACES_SAMPLER_ARG env vars.
+		// NOTE: Do NOT add WithSampler() here — it overrides env var config,
+		// preventing operators from tuning sampling in production.
 	)
 
 	otel.SetTracerProvider(tp)
@@ -91,7 +88,7 @@ func InitTracing(ctx context.Context, cfg TracingConfig) (shutdown func(context.
 	))
 
 	slog.Info("tracing initialized",
-		"service_name", serviceName,
+		"service_name", cfg.ServiceName,
 		"service_version", cfg.ServiceVersion,
 	)
 

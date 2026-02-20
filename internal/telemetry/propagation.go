@@ -5,8 +5,12 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"hash/fnv"
+	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 
 	"go.opentelemetry.io/otel"
@@ -82,13 +86,52 @@ func EndUpstreamSpan(ctx context.Context, statusCode int, err error) {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		span.SetAttributes(semconv.ErrorTypeKey.String(classifyTransportError(err)))
 	} else {
 		span.SetAttributes(semconv.HTTPResponseStatusCode(statusCode))
+		// Client spans: 4xx and 5xx are both errors per OTel HTTP semconv.
+		// Ref: https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+		if statusCode >= 400 {
+			span.SetAttributes(semconv.ErrorTypeKey.String(strconv.Itoa(statusCode)))
+		}
 		if statusCode >= 500 {
 			span.SetStatus(codes.Error, http.StatusText(statusCode))
 		}
 	}
 	span.End()
+}
+
+// Low-cardinality error type identifiers for the error.type span attribute.
+// Ref: https://opentelemetry.io/docs/specs/semconv/http/http-spans/ (footnote [4])
+const (
+	errorTypeTimeout    = "timeout"
+	errorTypeCancelled  = "cancelled"
+	errorTypeConnection = "connection_error"
+	errorTypeDNS        = "dns_error"
+	errorTypeOther      = "_OTHER"
+)
+
+// classifyTransportError maps transport errors to low-cardinality identifiers
+// suitable for the error.type span attribute.
+func classifyTransportError(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return errorTypeTimeout
+	}
+	if errors.Is(err, context.Canceled) {
+		return errorTypeCancelled
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return errorTypeDNS
+	}
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		if netErr.Timeout() {
+			return errorTypeTimeout
+		}
+		return errorTypeConnection
+	}
+	return errorTypeOther
 }
 
 // InjectTraceContext injects W3C Trace Context headers into the request.
