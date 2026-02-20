@@ -8,9 +8,15 @@ on:
     branches:
       - master
       - 'release/**'
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
   pull_request:
     branches:
       - master
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
 
 permissions:
   contents: read
