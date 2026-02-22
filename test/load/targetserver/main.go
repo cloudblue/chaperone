@@ -1,3 +1,6 @@
+// Copyright 2026 CloudBlue LLC
+// SPDX-License-Identifier: Apache-2.0
+
 // test/load/targetserver/main.go
 // Minimal HTTP echo server for load testing.
 // Returns a fixed JSON response with minimal overhead so that

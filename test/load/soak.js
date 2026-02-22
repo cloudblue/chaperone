@@ -1,3 +1,6 @@
+// Copyright 2026 CloudBlue LLC
+// SPDX-License-Identifier: Apache-2.0
+
 // test/load/soak.js
 // Soak test - long-running endurance test (4+ hours)
 // WARNING: This test runs for 4+ hours
