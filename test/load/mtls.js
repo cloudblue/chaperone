@@ -1,3 +1,6 @@
+// Copyright 2026 CloudBlue LLC
+// SPDX-License-Identifier: Apache-2.0
+
 // test/load/mtls.js
 // mTLS load test - validates TLS performance under load with client certs
 // Requires: test/load/certs/client.crt and test/load/certs/client.key

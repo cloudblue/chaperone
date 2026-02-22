@@ -1,3 +1,6 @@
+# Copyright 2026 CloudBlue LLC
+# SPDX-License-Identifier: Apache-2.0
+
 # Chaperone Makefile
 # Standard targets for build, test, lint, and development
 
@@ -221,8 +224,9 @@ docker-clean: ## Remove Docker images (production, test, and echoserver)
 # Code Quality
 # ============================================================================
 
-# golangci-lint binary location (installed via go install)
+# Tool binary locations (installed via go install)
 GOLANGCI_LINT := $(shell go env GOPATH)/bin/golangci-lint
+ADDLICENSE := $(shell go env GOPATH)/bin/addlicense
 
 .PHONY: lint
 lint: ## Run linters (both modules)
@@ -257,6 +261,41 @@ tidy: ## Tidy and verify go.mod (both modules)
 	go mod verify
 	cd sdk && go mod tidy
 
+# Common addlicense flags
+ADDLICENSE_FLAGS := -f .copyright-header.tmpl \
+	-ignore 'test/load/lib/**' \
+	-ignore 'test/testdata/**' \
+	-ignore 'plugins/reference/testdata/**' \
+	-ignore '.golangci.yml' \
+	-ignore '**/*.json' \
+	-ignore '**/*.md' \
+	-ignore '**/*.mod' \
+	-ignore '**/*.sum' \
+	-ignore '**/*.txt' \
+	-ignore '**/*.pem' \
+	-ignore '**/*.yaml' \
+	-ignore 'bin/**' \
+	-ignore 'certs/**' \
+	-ignore '.claude/**'
+
+.PHONY: license-check
+license-check: ## Check that all source files have copyright headers
+	@if [ -x "$(ADDLICENSE)" ]; then \
+		$(ADDLICENSE) -check $(ADDLICENSE_FLAGS) .; \
+	else \
+		echo "addlicense not installed. Run: make tools"; \
+		exit 1; \
+	fi
+
+.PHONY: license-fix
+license-fix: ## Add missing copyright headers to source files
+	@if [ -x "$(ADDLICENSE)" ]; then \
+		$(ADDLICENSE) $(ADDLICENSE_FLAGS) .; \
+	else \
+		echo "addlicense not installed. Run: make tools"; \
+		exit 1; \
+	fi
+
 # ============================================================================
 # Development Tools
 # ============================================================================
@@ -268,6 +307,8 @@ GOLANGCI_LINT_VERSION := v2.8.0
 tools: ## Install development tools
 	@echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(shell go env GOPATH)/bin $(GOLANGCI_LINT_VERSION)
+	@echo "Installing addlicense..."
+	go install github.com/google/addlicense@latest
 	@echo "Installing benchstat..."
 	go install golang.org/x/perf/cmd/benchstat@latest
 

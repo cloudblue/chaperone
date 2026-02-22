@@ -1,3 +1,6 @@
+// Copyright 2026 CloudBlue LLC
+// SPDX-License-Identifier: Apache-2.0
+
 // test/load/baseline.js
 // Baseline load test - steady traffic to establish performance baseline
 // Target: P50<20ms, P95<50ms, P99<100ms, Error rate<0.1%
