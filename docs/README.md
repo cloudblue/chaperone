@@ -26,6 +26,7 @@ how-to guides, reference, and explanation.
 | [Configuration](reference/configuration.md) | All config options, env var overrides, allow-list syntax, timeout tuning |
 | [HTTP API](reference/http-api.md) | All endpoints — health, version, proxy, metrics, profiling |
 | [SDK](reference/sdk.md) | Plugin interfaces, types, helper methods, public API |
+| [Contrib Plugins](reference/contrib-plugins.md) | Reusable auth building blocks (OAuth2, Microsoft SAM), request multiplexer |
 
 ## Explanation
 

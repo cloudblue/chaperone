@@ -658,6 +658,15 @@ Skip them in CI fast-feedback loops with `go test -short ./plugins/...`.
 
 ## Common Credential Patterns
 
+> **Shortcut:** For OAuth2 client credentials, refresh token grants, and
+> Microsoft Secure Application Model, the
+> [contrib building blocks](../reference/contrib-plugins.md) provide
+> production-ready implementations with token caching, singleflight
+> deduplication, and expiry margin handling. Use the
+> [request multiplexer](../reference/contrib-plugins.md#mux) to route
+> different vendors to different building blocks without writing auth
+> logic from scratch.
+
 Now that you have a working plugin, here are patterns for real-world
 credential strategies. Each pattern replaces the `fetchTag` method
 and `GetCredentials` return logic in your plugin.
@@ -865,6 +874,7 @@ Study this plugin as a starting template, especially the
 
 ## Next Steps
 
+- [Contrib Plugins Reference](../reference/contrib-plugins.md) — Pre-built OAuth2, Microsoft SAM, and request multiplexer
 - [SDK Reference](../reference/sdk.md) — Complete interface and type definitions
 - [Deployment Guide](deployment.md) — Deploy your custom binary with Docker
 - [Certificate Management](certificate-management.md) — Set up mTLS for production

@@ -60,6 +60,7 @@ make tools && make build-dev
 | [Configuration Reference](docs/reference/configuration.md) | All config options, env overrides, timeout tuning |
 | [HTTP API Reference](docs/reference/http-api.md) | Health, version, proxy, and metrics endpoints |
 | [SDK Reference](docs/reference/sdk.md) | Plugin interfaces, types, and public API |
+| [Contrib Plugins Reference](docs/reference/contrib-plugins.md) | Reusable auth building blocks, request multiplexer |
 | [Troubleshooting](docs/guides/troubleshooting.md) | Common issues and solutions |
 | [Design Specification](docs/explanation/DESIGN-SPECIFICATION.md) | Architecture rationale and ADRs |
 
@@ -81,6 +82,7 @@ chaperone/
 │   ├── telemetry/          # Prometheus metrics, admin server
 │   └── ...                 # cache, context, observability, security
 ├── plugins/reference/      # Default file-based credential provider
+├── plugins/contrib/        # Reusable auth building blocks (OAuth2, Microsoft SAM, mux)
 └── configs/                # Example configuration files
 ```
 
