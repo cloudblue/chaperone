@@ -27,6 +27,7 @@ var standardFields = map[string]bool{
 	"client_id":     true,
 	"client_secret": true,
 	"scope":         true,
+	"refresh_token": true,
 }
 
 // maxResponseBody limits how much of the token response we read (1 MB).
@@ -38,9 +39,17 @@ const debugBodyPrefix = 256
 
 // tokenResponse represents the JSON body from an OAuth2 token endpoint.
 type tokenResponse struct {
-	AccessToken string `json:"access_token"`
-	ExpiresIn   int64  `json:"expires_in"`
-	TokenType   string `json:"token_type"`
+	AccessToken  string `json:"access_token"`
+	ExpiresIn    int64  `json:"expires_in"`
+	TokenType    string `json:"token_type"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// tokenResult is the parsed and validated output of a token endpoint exchange.
+type tokenResult struct {
+	accessToken  string
+	expiresAt    time.Time
+	refreshToken string
 }
 
 // cachedToken holds a fetched access token and its computed expiration.
@@ -49,11 +58,12 @@ type cachedToken struct {
 	expiresAt   time.Time
 }
 
-// tokenManager handles fetching, caching, and deduplicating token requests.
+// tokenManager handles caching and deduplicating token requests.
+// The actual fetch logic is delegated to a grant-type-specific function.
 type tokenManager struct {
-	cfg    ClientCredentialsConfig
-	logger *slog.Logger
-	client *http.Client
+	tokenURL  string
+	logger    *slog.Logger
+	fetchFunc func(ctx context.Context) (*cachedToken, error)
 
 	mu    sync.RWMutex
 	token *cachedToken
@@ -61,22 +71,85 @@ type tokenManager struct {
 	group singleflight.Group
 }
 
-func newTokenManager(cfg ClientCredentialsConfig) *tokenManager {
-	logger := cfg.Logger
-	if logger == nil {
-		logger = slog.Default()
-	}
-
-	client := cfg.HTTPClient
-	if client == nil {
-		client = defaultHTTPClient()
-	}
-
+func newTokenManager(
+	tokenURL string,
+	logger *slog.Logger,
+	fetchFunc func(context.Context) (*cachedToken, error),
+) *tokenManager {
 	return &tokenManager{
-		cfg:    cfg,
-		logger: logger,
-		client: client,
+		tokenURL:  tokenURL,
+		logger:    logger,
+		fetchFunc: fetchFunc,
 	}
+}
+
+// getToken returns a valid access token, fetching a new one if needed.
+// Concurrent callers are deduplicated via singleflight.
+func (tm *tokenManager) getToken(ctx context.Context) (string, time.Time, error) {
+	tm.mu.RLock()
+	if tm.token != nil && time.Now().Before(tm.token.expiresAt) {
+		t := tm.token
+		tm.mu.RUnlock()
+		tm.logger.LogAttrs(ctx, slog.LevelDebug, "token cache hit",
+			slog.String("token_url", tm.tokenURL))
+		return t.accessToken, t.expiresAt, nil
+	}
+	tm.mu.RUnlock()
+
+	tm.logger.LogAttrs(ctx, slog.LevelDebug, "token cache miss",
+		slog.String("token_url", tm.tokenURL))
+
+	result, err, _ := tm.group.Do("token", func() (any, error) {
+		cached, fetchErr := tm.fetchFunc(ctx)
+		if fetchErr != nil {
+			return nil, fetchErr
+		}
+
+		tm.mu.Lock()
+		tm.token = cached
+		tm.mu.Unlock()
+
+		tm.logger.LogAttrs(ctx, slog.LevelDebug, "token fetched",
+			slog.String("token_url", tm.tokenURL),
+			slog.Time("expires_at", cached.expiresAt))
+
+		return cached, nil
+	})
+	if err != nil {
+		return "", time.Time{}, err
+	}
+
+	t := result.(*cachedToken)
+	return t.accessToken, t.expiresAt, nil
+}
+
+// tokenFetcher provides shared HTTP helpers for token endpoint communication.
+// Both ClientCredentials and RefreshToken use a tokenFetcher to handle form
+// encoding, auth modes, request execution, error classification, and response
+// parsing.
+type tokenFetcher struct {
+	tokenURL     string
+	clientID     string
+	clientSecret string
+	authMode     AuthMode
+	scopes       []string
+	extraParams  map[string]string
+	expiryMargin time.Duration
+	client       *http.Client
+	logger       *slog.Logger
+}
+
+func newTokenFetcher(cfg tokenFetcher) *tokenFetcher {
+	if cfg.logger == nil {
+		cfg.logger = slog.Default()
+	}
+	if cfg.client == nil {
+		cfg.client = defaultHTTPClient()
+	}
+	if cfg.expiryMargin == 0 {
+		cfg.expiryMargin = defaultExpiryMargin
+	}
+	return &cfg
 }
 
 func defaultHTTPClient() *http.Client {
@@ -90,56 +163,29 @@ func defaultHTTPClient() *http.Client {
 	}
 }
 
-// getToken returns a valid access token, fetching a new one if needed.
-// Concurrent callers are deduplicated via singleflight.
-func (tm *tokenManager) getToken(ctx context.Context) (string, time.Time, error) {
-	tm.mu.RLock()
-	if tm.token != nil && time.Now().Before(tm.token.expiresAt) {
-		t := tm.token
-		tm.mu.RUnlock()
-		tm.logger.LogAttrs(ctx, slog.LevelDebug, "token cache hit",
-			slog.String("token_url", tm.cfg.TokenURL))
-		return t.accessToken, t.expiresAt, nil
-	}
-	tm.mu.RUnlock()
-
-	tm.logger.LogAttrs(ctx, slog.LevelDebug, "token cache miss",
-		slog.String("token_url", tm.cfg.TokenURL))
-
-	result, err, _ := tm.group.Do("token", func() (any, error) {
-		return tm.fetchToken(ctx)
-	})
-	if err != nil {
-		return "", time.Time{}, err
-	}
-
-	t := result.(*cachedToken)
-	return t.accessToken, t.expiresAt, nil
-}
-
-// fetchToken performs the HTTP request to the token endpoint.
-func (tm *tokenManager) fetchToken(ctx context.Context) (*cachedToken, error) {
-	form := tm.buildForm()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tm.cfg.TokenURL,
+// exchange sends a token request with the given form parameters and returns
+// the parsed result. The caller is responsible for setting grant-type-specific
+// form parameters (e.g., refresh_token) before calling exchange.
+func (tf *tokenFetcher) exchange(ctx context.Context, form url.Values) (*tokenResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tf.tokenURL,
 		strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("building token request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	if tm.cfg.AuthMode == AuthModeBasic {
-		req.SetBasicAuth(tm.cfg.ClientID, tm.cfg.ClientSecret)
+	if tf.authMode == AuthModeBasic {
+		req.SetBasicAuth(tf.clientID, tf.clientSecret)
 	}
 
-	resp, body, err := tm.doRequest(ctx, req)
+	resp, body, err := tf.doRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, tm.handleErrorResponse(ctx, resp, body)
+		return nil, tf.handleErrorResponse(ctx, resp, body)
 	}
 
 	ct := resp.Header.Get("Content-Type")
@@ -147,51 +193,26 @@ func (tm *tokenManager) fetchToken(ctx context.Context) (*cachedToken, error) {
 		return nil, fmt.Errorf("unexpected token response content-type: %s", ct)
 	}
 
-	return tm.parseTokenResponse(ctx, body)
+	return tf.parseTokenResponse(body)
 }
 
-// doRequest executes the HTTP request and reads the response body.
-func (tm *tokenManager) doRequest(ctx context.Context, req *http.Request) (*http.Response, []byte, error) {
-	resp, err := tm.client.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, nil, fmt.Errorf("token request for %s: %w", tm.cfg.TokenURL, ctx.Err())
-		}
-		tm.logger.LogAttrs(ctx, slog.LevelWarn, "token endpoint request failed",
-			slog.String("token_url", tm.cfg.TokenURL),
-			slog.String("error", err.Error()))
-		return nil, nil, fmt.Errorf("token endpoint request for %s: %w",
-			tm.cfg.TokenURL, contrib.ErrTokenEndpointUnavailable)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
-	if err != nil {
-		resp.Body.Close()
-		if ctx.Err() != nil {
-			return nil, nil, fmt.Errorf("reading token response for %s: %w", tm.cfg.TokenURL, ctx.Err())
-		}
-		return nil, nil, fmt.Errorf("reading token response from %s: %w",
-			tm.cfg.TokenURL, contrib.ErrTokenEndpointUnavailable)
-	}
-
-	return resp, body, nil
-}
-
-// buildForm constructs the form parameters for the token request.
-func (tm *tokenManager) buildForm() url.Values {
+// buildForm constructs common form parameters for a token request.
+// The grantType is set as grant_type. Grant-specific parameters (e.g.,
+// refresh_token) must be added by the caller after buildForm returns.
+func (tf *tokenFetcher) buildForm(grantType string) url.Values {
 	form := url.Values{}
-	form.Set("grant_type", "client_credentials")
+	form.Set("grant_type", grantType)
 
-	if tm.cfg.AuthMode != AuthModeBasic {
-		form.Set("client_id", tm.cfg.ClientID)
-		form.Set("client_secret", tm.cfg.ClientSecret)
+	if tf.authMode != AuthModeBasic {
+		form.Set("client_id", tf.clientID)
+		form.Set("client_secret", tf.clientSecret)
 	}
 
-	if len(tm.cfg.Scopes) > 0 {
-		form.Set("scope", strings.Join(tm.cfg.Scopes, " "))
+	if len(tf.scopes) > 0 {
+		form.Set("scope", strings.Join(tf.scopes, " "))
 	}
 
-	for k, v := range tm.cfg.ExtraParams {
+	for k, v := range tf.extraParams {
 		if !standardFields[k] {
 			form.Set(k, v)
 		}
@@ -200,16 +221,43 @@ func (tm *tokenManager) buildForm() url.Values {
 	return form
 }
 
+// doRequest executes the HTTP request and reads the response body.
+func (tf *tokenFetcher) doRequest(ctx context.Context, req *http.Request) (*http.Response, []byte, error) {
+	resp, err := tf.client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, nil, fmt.Errorf("token request for %s: %w", tf.tokenURL, ctx.Err())
+		}
+		tf.logger.LogAttrs(ctx, slog.LevelWarn, "token endpoint request failed",
+			slog.String("token_url", tf.tokenURL),
+			slog.String("error", err.Error()))
+		return nil, nil, fmt.Errorf("token endpoint request for %s: %w",
+			tf.tokenURL, contrib.ErrTokenEndpointUnavailable)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	if err != nil {
+		resp.Body.Close()
+		if ctx.Err() != nil {
+			return nil, nil, fmt.Errorf("reading token response for %s: %w", tf.tokenURL, ctx.Err())
+		}
+		return nil, nil, fmt.Errorf("reading token response from %s: %w",
+			tf.tokenURL, contrib.ErrTokenEndpointUnavailable)
+	}
+
+	return resp, body, nil
+}
+
 // handleErrorResponse processes non-2xx responses from the token endpoint.
-func (tm *tokenManager) handleErrorResponse(ctx context.Context, resp *http.Response, body []byte) error {
+func (tf *tokenFetcher) handleErrorResponse(ctx context.Context, resp *http.Response, body []byte) error {
 	contentType := resp.Header.Get("Content-Type")
 
-	if tm.logger.Enabled(ctx, slog.LevelDebug) {
+	if tf.logger.Enabled(ctx, slog.LevelDebug) {
 		prefix := string(body)
 		if len(prefix) > debugBodyPrefix {
 			prefix = prefix[:debugBodyPrefix]
 		}
-		tm.logger.LogAttrs(ctx, slog.LevelDebug, "token endpoint error response",
+		tf.logger.LogAttrs(ctx, slog.LevelDebug, "token endpoint error response",
 			slog.Int("status", resp.StatusCode),
 			slog.String("content_type", contentType),
 			slog.String("body_prefix", prefix))
@@ -221,8 +269,8 @@ func (tm *tokenManager) handleErrorResponse(ctx context.Context, resp *http.Resp
 	}
 
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError {
-		tm.logger.LogAttrs(ctx, slog.LevelWarn, "token endpoint unavailable",
-			slog.String("token_url", tm.cfg.TokenURL),
+		tf.logger.LogAttrs(ctx, slog.LevelWarn, "token endpoint unavailable",
+			slog.String("token_url", tf.tokenURL),
 			slog.Int("status", resp.StatusCode))
 		return fmt.Errorf("token endpoint returned %d (content-type: %s): %w",
 			resp.StatusCode, contentType, contrib.ErrTokenEndpointUnavailable)
@@ -233,7 +281,7 @@ func (tm *tokenManager) handleErrorResponse(ctx context.Context, resp *http.Resp
 }
 
 // parseTokenResponse unmarshals and validates the token endpoint response.
-func (tm *tokenManager) parseTokenResponse(ctx context.Context, body []byte) (*cachedToken, error) {
+func (tf *tokenFetcher) parseTokenResponse(body []byte) (*tokenResult, error) {
 	var tokenResp tokenResponse
 	if err := json.Unmarshal(body, &tokenResp); err != nil {
 		return nil, fmt.Errorf("parsing token response: %w", err)
@@ -247,31 +295,17 @@ func (tm *tokenManager) parseTokenResponse(ctx context.Context, body []byte) (*c
 		return nil, fmt.Errorf("token response missing expires_in")
 	}
 
-	margin := tm.cfg.ExpiryMargin
-	if margin == 0 {
-		margin = defaultExpiryMargin
-	}
-
 	expiresInDuration := time.Duration(tokenResp.ExpiresIn) * time.Second
-	if expiresInDuration <= margin {
+	if expiresInDuration <= tf.expiryMargin {
 		return nil, fmt.Errorf("token expires_in (%ds) <= expiry margin (%s): %w",
-			tokenResp.ExpiresIn, margin, contrib.ErrTokenExpiredOnArrival)
+			tokenResp.ExpiresIn, tf.expiryMargin, contrib.ErrTokenExpiredOnArrival)
 	}
 
-	expiresAt := time.Now().Add(expiresInDuration - margin)
+	expiresAt := time.Now().Add(expiresInDuration - tf.expiryMargin)
 
-	cached := &cachedToken{
-		accessToken: tokenResp.AccessToken,
-		expiresAt:   expiresAt,
-	}
-
-	tm.mu.Lock()
-	tm.token = cached
-	tm.mu.Unlock()
-
-	tm.logger.LogAttrs(ctx, slog.LevelDebug, "token fetched",
-		slog.String("token_url", tm.cfg.TokenURL),
-		slog.Time("expires_at", expiresAt))
-
-	return cached, nil
+	return &tokenResult{
+		accessToken:  tokenResp.AccessToken,
+		expiresAt:    expiresAt,
+		refreshToken: tokenResp.RefreshToken,
+	}, nil
 }

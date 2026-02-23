@@ -1,13 +1,14 @@
 // Copyright 2026 CloudBlue LLC
 // SPDX-License-Identifier: Apache-2.0
 
-// Package oauth provides a generic OAuth2 client credentials building block
-// for the Chaperone egress proxy.
+// Package oauth provides generic OAuth2 building blocks for the Chaperone
+// egress proxy.
 //
-// [ClientCredentials] implements [sdk.CredentialProvider] using the OAuth2
-// client credentials grant (RFC 6749 Section 4.4). It handles token fetching,
-// caching with expiry margin, and concurrent request deduplication via
-// singleflight.
+// [ClientCredentials] implements the OAuth2 client credentials grant
+// (RFC 6749 Section 4.4). [RefreshToken] implements the refresh token grant
+// (RFC 6749 Section 6). Both implement [sdk.CredentialProvider] and handle
+// token fetching, caching with expiry margin, and concurrent request
+// deduplication via singleflight.
 //
 // Usage:
 //
@@ -93,8 +94,32 @@ type ClientCredentials struct {
 
 // NewClientCredentials creates a new client credentials provider.
 func NewClientCredentials(cfg ClientCredentialsConfig) *ClientCredentials {
+	f := newTokenFetcher(tokenFetcher{
+		tokenURL:     cfg.TokenURL,
+		clientID:     cfg.ClientID,
+		clientSecret: cfg.ClientSecret,
+		authMode:     cfg.AuthMode,
+		scopes:       cfg.Scopes,
+		extraParams:  cfg.ExtraParams,
+		expiryMargin: cfg.ExpiryMargin,
+		client:       cfg.HTTPClient,
+		logger:       cfg.Logger,
+	})
+
+	fetchFunc := func(ctx context.Context) (*cachedToken, error) {
+		form := f.buildForm("client_credentials")
+		result, err := f.exchange(ctx, form)
+		if err != nil {
+			return nil, err
+		}
+		return &cachedToken{
+			accessToken: result.accessToken,
+			expiresAt:   result.expiresAt,
+		}, nil
+	}
+
 	return &ClientCredentials{
-		tm: newTokenManager(cfg),
+		tm: newTokenManager(cfg.TokenURL, f.logger, fetchFunc),
 	}
 }
 
