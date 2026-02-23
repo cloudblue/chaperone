@@ -56,6 +56,7 @@ jobs:
           cache-dependency-path: |
             go.sum
             sdk/go.sum
+            plugins/contrib/go.sum
 
       - name: Install k6
         uses: grafana/setup-k6-action@ffe7d7290dfa715e48c2ccc924d068444c94bde2 # v1.1.0
