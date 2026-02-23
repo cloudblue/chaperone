@@ -33,9 +33,12 @@ var standardFields = map[string]bool{
 // maxResponseBody limits how much of the token response we read (1 MB).
 const maxResponseBody = 1 << 20
 
-// debugBodyPrefix is the maximum number of bytes from an error response body
-// included in debug log output.
-const debugBodyPrefix = 256
+// oauthErrorResponse holds the standard error fields from an OAuth2 error
+// response body (RFC 6749 Section 5.2). Only these fields are logged.
+type oauthErrorResponse struct {
+	Error       string `json:"error"`
+	Description string `json:"error_description"`
+}
 
 // tokenResponse represents the JSON body from an OAuth2 token endpoint.
 type tokenResponse struct {
@@ -99,8 +102,10 @@ func (tm *tokenManager) getToken(ctx context.Context) (string, time.Time, error)
 	tm.logger.LogAttrs(ctx, slog.LevelDebug, "token cache miss",
 		slog.String("token_url", tm.tokenURL))
 
+	// Use context.WithoutCancel so that a single caller's cancellation
+	// does not poison all coalesced singleflight waiters.
 	result, err, _ := tm.group.Do("token", func() (any, error) {
-		cached, fetchErr := tm.fetchFunc(ctx)
+		cached, fetchErr := tm.fetchFunc(context.WithoutCancel(ctx))
 		if fetchErr != nil {
 			return nil, fetchErr
 		}
@@ -253,14 +258,22 @@ func (tf *tokenFetcher) handleErrorResponse(ctx context.Context, resp *http.Resp
 	contentType := resp.Header.Get("Content-Type")
 
 	if tf.logger.Enabled(ctx, slog.LevelDebug) {
-		prefix := string(body)
-		if len(prefix) > debugBodyPrefix {
-			prefix = prefix[:debugBodyPrefix]
-		}
-		tf.logger.LogAttrs(ctx, slog.LevelDebug, "token endpoint error response",
+		attrs := []slog.Attr{
 			slog.Int("status", resp.StatusCode),
 			slog.String("content_type", contentType),
-			slog.String("body_prefix", prefix))
+		}
+
+		// Parse only the standard OAuth2 error fields (RFC 6749 §5.2).
+		// Never log the raw body — it may contain echoed credentials.
+		var oauthErr oauthErrorResponse
+		if json.Unmarshal(body, &oauthErr) == nil && oauthErr.Error != "" {
+			attrs = append(attrs, slog.String("oauth_error", oauthErr.Error))
+			if oauthErr.Description != "" {
+				attrs = append(attrs, slog.String("oauth_error_description", oauthErr.Description))
+			}
+		}
+
+		tf.logger.LogAttrs(ctx, slog.LevelDebug, "token endpoint error response", attrs...)
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized {

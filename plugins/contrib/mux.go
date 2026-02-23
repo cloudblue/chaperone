@@ -141,6 +141,8 @@ func (m *Mux) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, res
 // It returns the best entry and whether a tie was detected (multiple
 // matches at the same highest specificity).
 func (m *Mux) match(tx sdk.TransactionContext) (best *routeEntry, tied bool) {
+	var bestSpec int
+
 	for i := range m.entries {
 		e := &m.entries[i]
 		if !e.route.Matches(tx) {
@@ -149,10 +151,11 @@ func (m *Mux) match(tx sdk.TransactionContext) (best *routeEntry, tied bool) {
 
 		spec := e.route.Specificity()
 
-		if best == nil || spec > best.route.Specificity() {
+		if best == nil || spec > bestSpec {
 			best = e
+			bestSpec = spec
 			tied = false
-		} else if spec == best.route.Specificity() {
+		} else if spec == bestSpec {
 			tied = true
 		}
 	}

@@ -50,6 +50,14 @@ type RefreshTokenConfig struct {
 	// ExpiryMargin is subtracted from the token's expires_in before setting
 	// ExpiresAt on the credential. Default is 1 minute.
 	ExpiryMargin time.Duration
+
+	// OnSaveError is an optional callback invoked when a rotated refresh
+	// token fails to persist. This allows operators to hook metrics or
+	// alerting for this degraded state. The current request still succeeds
+	// (returning the access token), but subsequent refreshes may fail if the
+	// old token has been invalidated by the IdP.
+	// If nil, only logging occurs.
+	OnSaveError func(ctx context.Context, tokenURL string, err error)
 }
 
 // Compile-time check that RefreshToken implements CredentialProvider.
@@ -65,10 +73,11 @@ var _ sdk.CredentialProvider = (*RefreshToken)(nil)
 //
 // It is safe for concurrent use from multiple goroutines.
 type RefreshToken struct {
-	tm      *tokenManager
-	fetcher *tokenFetcher
-	store   TokenStore
-	logger  *slog.Logger
+	tm          *tokenManager
+	fetcher     *tokenFetcher
+	store       TokenStore
+	logger      *slog.Logger
+	onSaveError func(ctx context.Context, tokenURL string, err error)
 }
 
 // NewRefreshToken creates a new refresh token provider.
@@ -86,9 +95,10 @@ func NewRefreshToken(cfg RefreshTokenConfig) *RefreshToken {
 	})
 
 	rt := &RefreshToken{
-		fetcher: f,
-		store:   cfg.Store,
-		logger:  f.logger,
+		fetcher:     f,
+		store:       cfg.Store,
+		logger:      f.logger,
+		onSaveError: cfg.OnSaveError,
 	}
 
 	rt.tm = newTokenManager(cfg.TokenURL, f.logger, rt.fetch)
@@ -134,6 +144,10 @@ func (rt *RefreshToken) fetch(ctx context.Context) (*cachedToken, error) {
 			rt.logger.LogAttrs(ctx, slog.LevelError, "failed to save rotated refresh token",
 				slog.String("token_url", rt.fetcher.tokenURL),
 				slog.String("error", saveErr.Error()))
+
+			if rt.onSaveError != nil {
+				rt.onSaveError(ctx, rt.fetcher.tokenURL, saveErr)
+			}
 		}
 	}
 

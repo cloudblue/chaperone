@@ -213,6 +213,72 @@ func TestGetCredentials_MissingResource_ReturnsErrMissingContextData(t *testing.
 	}
 }
 
+func TestGetCredentials_EmptyTenantID_ReturnsErrInvalidContextData(t *testing.T) {
+	store := newMemoryTokenStore()
+
+	src := NewRefreshTokenSource(Config{
+		ClientID:     "id",
+		ClientSecret: "secret",
+		Store:        store,
+	})
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{
+		Data: map[string]any{
+			"TenantID": "",
+			"Resource": "https://graph.microsoft.com",
+		},
+	}
+
+	_, err := src.GetCredentials(ctx, tx, makeReq(ctx))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !errors.Is(err, contrib.ErrInvalidContextData) {
+		t.Errorf("error = %v, want errors.Is(ErrInvalidContextData)", err)
+	}
+
+	if !strings.Contains(err.Error(), "TenantID") {
+		t.Errorf("error = %q, want containing 'TenantID'", err.Error())
+	}
+
+	if !strings.Contains(err.Error(), "empty") {
+		t.Errorf("error = %q, want containing 'empty'", err.Error())
+	}
+}
+
+func TestGetCredentials_EmptyResource_ReturnsErrInvalidContextData(t *testing.T) {
+	store := newMemoryTokenStore()
+
+	src := NewRefreshTokenSource(Config{
+		ClientID:     "id",
+		ClientSecret: "secret",
+		Store:        store,
+	})
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{
+		Data: map[string]any{
+			"TenantID": "contoso.onmicrosoft.com",
+			"Resource": "",
+		},
+	}
+
+	_, err := src.GetCredentials(ctx, tx, makeReq(ctx))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !errors.Is(err, contrib.ErrInvalidContextData) {
+		t.Errorf("error = %v, want errors.Is(ErrInvalidContextData)", err)
+	}
+
+	if !strings.Contains(err.Error(), "Resource") {
+		t.Errorf("error = %q, want containing 'Resource'", err.Error())
+	}
+}
+
 func TestGetCredentials_TenantIDWrongType_ReturnsErrInvalidContextData(t *testing.T) {
 	store := newMemoryTokenStore()
 
@@ -241,6 +307,95 @@ func TestGetCredentials_TenantIDWrongType_ReturnsErrInvalidContextData(t *testin
 
 	if !strings.Contains(err.Error(), "float64") {
 		t.Errorf("error = %q, want containing actual type 'float64'", err.Error())
+	}
+}
+
+func TestGetCredentials_MaliciousTenantID_ReturnsErrInvalidContextData(t *testing.T) {
+	tests := []struct {
+		name     string
+		tenantID string
+	}{
+		{"path traversal", "../../admin"},
+		{"query injection", "contoso?foo=bar"},
+		{"fragment injection", "contoso#section"},
+		{"slash in value", "contoso/evil"},
+		{"backslash", "contoso\\evil"},
+		{"space", "contoso evil"},
+		{"starts with dot", ".hidden"},
+		{"starts with hyphen", "-invalid"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newMemoryTokenStore()
+
+			src := NewRefreshTokenSource(Config{
+				ClientID:     "id",
+				ClientSecret: "secret",
+				Store:        store,
+			})
+
+			ctx := context.Background()
+			tx := sdk.TransactionContext{
+				Data: map[string]any{
+					"TenantID": tt.tenantID,
+					"Resource": "https://graph.microsoft.com",
+				},
+			}
+
+			_, err := src.GetCredentials(ctx, tx, makeReq(ctx))
+			if err == nil {
+				t.Fatalf("expected error for tenantID %q", tt.tenantID)
+			}
+
+			if !errors.Is(err, contrib.ErrInvalidContextData) {
+				t.Errorf("error = %v, want errors.Is(ErrInvalidContextData)", err)
+			}
+		})
+	}
+}
+
+func TestGetCredentials_ValidTenantIDFormats(t *testing.T) {
+	tests := []struct {
+		name     string
+		tenantID string
+	}{
+		{"GUID", "12345678-abcd-1234-abcd-1234567890ab"},
+		{"domain name", "contoso.onmicrosoft.com"},
+		{"simple name", "common"},
+		{"organizations", "organizations"},
+		{"consumers", "consumers"},
+		{"alphanumeric with hyphens", "my-tenant-123"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, `{"access_token":"tok","expires_in":3600}`)
+			})
+
+			srv := httptest.NewServer(handler)
+			defer srv.Close()
+
+			store := newMemoryTokenStore()
+			store.set(tt.tenantID, "https://graph.microsoft.com", "refresh-tok")
+
+			src := NewRefreshTokenSource(Config{
+				TokenEndpoint: srv.URL,
+				ClientID:      "id",
+				ClientSecret:  "secret",
+				Store:         store,
+			})
+
+			ctx := context.Background()
+			tx := makeTx(tt.tenantID, "https://graph.microsoft.com")
+
+			_, err := src.GetCredentials(ctx, tx, makeReq(ctx))
+			if err != nil {
+				t.Fatalf("unexpected error for valid tenantID %q: %v", tt.tenantID, err)
+			}
+		})
 	}
 }
 

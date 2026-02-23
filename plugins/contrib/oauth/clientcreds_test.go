@@ -607,7 +607,7 @@ func (t *headerInjectTransport) RoundTrip(req *http.Request) (*http.Response, er
 	return t.underlying.RoundTrip(req)
 }
 
-func TestGetCredentials_NonSuccessResponse_LogsBodyPrefix(t *testing.T) {
+func TestGetCredentials_NonSuccessResponse_LogsSanitizedOAuthError(t *testing.T) {
 	responseBody := `{"error":"access_denied","error_description":"insufficient scope"}`
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -640,17 +640,22 @@ func TestGetCredentials_NonSuccessResponse_LogsBodyPrefix(t *testing.T) {
 		if entry.message != "token endpoint error response" {
 			continue
 		}
-		if entry.attrs["body_prefix"] == "" {
-			t.Error("body_prefix attribute should be present")
+		if entry.attrs["oauth_error"] != "access_denied" {
+			t.Errorf("oauth_error = %q, want %q", entry.attrs["oauth_error"], "access_denied")
 		}
-		if !strings.Contains(entry.attrs["body_prefix"], "access_denied") {
-			t.Errorf("body_prefix = %q, want to contain response body", entry.attrs["body_prefix"])
+		if entry.attrs["oauth_error_description"] != "insufficient scope" {
+			t.Errorf("oauth_error_description = %q, want %q",
+				entry.attrs["oauth_error_description"], "insufficient scope")
+		}
+		// Raw body must NOT be logged.
+		if entry.attrs["body_prefix"] != "" {
+			t.Error("body_prefix should not be present (raw body must not be logged)")
 		}
 		found = true
 	}
 
 	if !found {
-		t.Error("expected 'token endpoint error response' log entry with body_prefix")
+		t.Error("expected 'token endpoint error response' log entry with oauth_error")
 	}
 }
 

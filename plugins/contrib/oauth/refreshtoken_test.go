@@ -234,6 +234,85 @@ func TestRefreshToken_StoreSaveFailure_LogsErrorAndReturnsAccessToken(t *testing
 	}
 }
 
+func TestRefreshToken_StoreSaveFailure_InvokesOnSaveErrorCallback(t *testing.T) {
+	srv := httptest.NewServer(refreshTokenHandler("rotated-tok"))
+	defer srv.Close()
+
+	store := newMemoryStore("initial-tok")
+	store.saveErr = errors.New("vault write failed")
+
+	var (
+		callbackCalled bool
+		callbackURL    string
+		callbackErr    error
+	)
+
+	rt := NewRefreshToken(RefreshTokenConfig{
+		TokenURL:     srv.URL,
+		ClientID:     "id",
+		ClientSecret: "secret",
+		Store:        store,
+		OnSaveError: func(_ context.Context, tokenURL string, err error) {
+			callbackCalled = true
+			callbackURL = tokenURL
+			callbackErr = err
+		},
+	})
+
+	ctx := context.Background()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com", http.NoBody)
+
+	// Should still return the access token despite Save failure.
+	cred, err := rt.GetCredentials(ctx, sdk.TransactionContext{}, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := cred.Headers["Authorization"]; got != "Bearer access-tok-abc" {
+		t.Errorf("Authorization = %q, want Bearer access-tok-abc", got)
+	}
+
+	if !callbackCalled {
+		t.Fatal("OnSaveError callback was not invoked")
+	}
+
+	if callbackURL != srv.URL {
+		t.Errorf("callback tokenURL = %q, want %q", callbackURL, srv.URL)
+	}
+
+	if callbackErr == nil || callbackErr.Error() != "vault write failed" {
+		t.Errorf("callback err = %v, want 'vault write failed'", callbackErr)
+	}
+}
+
+func TestRefreshToken_StoreSaveFailure_NilOnSaveError_DoesNotPanic(t *testing.T) {
+	srv := httptest.NewServer(refreshTokenHandler("rotated-tok"))
+	defer srv.Close()
+
+	store := newMemoryStore("initial-tok")
+	store.saveErr = errors.New("vault write failed")
+
+	rt := NewRefreshToken(RefreshTokenConfig{
+		TokenURL:     srv.URL,
+		ClientID:     "id",
+		ClientSecret: "secret",
+		Store:        store,
+		// OnSaveError intentionally nil — should not panic.
+	})
+
+	ctx := context.Background()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com", http.NoBody)
+
+	cred, err := rt.GetCredentials(ctx, sdk.TransactionContext{}, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := cred.Headers["Authorization"]; got != "Bearer access-tok-abc" {
+		t.Errorf("Authorization = %q, want Bearer access-tok-abc", got)
+	}
+}
+
 func TestRefreshToken_ErrorResponses(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -785,7 +864,7 @@ func TestRefreshToken_CustomHTTPClient(t *testing.T) {
 	}
 }
 
-func TestRefreshToken_NonSuccessResponse_LogsBodyPrefix(t *testing.T) {
+func TestRefreshToken_NonSuccessResponse_LogsSanitizedOAuthError(t *testing.T) {
 	responseBody := `{"error":"access_denied","error_description":"insufficient scope"}`
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -821,18 +900,22 @@ func TestRefreshToken_NonSuccessResponse_LogsBodyPrefix(t *testing.T) {
 		if entry.message != "token endpoint error response" {
 			continue
 		}
-		if entry.attrs["body_prefix"] == "" {
-			t.Error("body_prefix attribute should be present")
+		if entry.attrs["oauth_error"] != "access_denied" {
+			t.Errorf("oauth_error = %q, want %q", entry.attrs["oauth_error"], "access_denied")
 		}
-		if !strings.Contains(entry.attrs["body_prefix"], "access_denied") {
-			t.Errorf("body_prefix = %q, want to contain response body",
-				entry.attrs["body_prefix"])
+		if entry.attrs["oauth_error_description"] != "insufficient scope" {
+			t.Errorf("oauth_error_description = %q, want %q",
+				entry.attrs["oauth_error_description"], "insufficient scope")
+		}
+		// Raw body must NOT be logged.
+		if entry.attrs["body_prefix"] != "" {
+			t.Error("body_prefix should not be present (raw body must not be logged)")
 		}
 		found = true
 	}
 
 	if !found {
-		t.Error("expected 'token endpoint error response' log entry with body_prefix")
+		t.Error("expected 'token endpoint error response' log entry with oauth_error")
 	}
 }
 

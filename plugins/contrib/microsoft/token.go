@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"sync"
 	"time"
 
@@ -16,6 +17,11 @@ import (
 	"github.com/cloudblue/chaperone/plugins/contrib/oauth"
 	"github.com/cloudblue/chaperone/sdk"
 )
+
+// validTenantID matches Azure AD tenant identifiers: GUIDs, domain names
+// (alphanumeric with dots and hyphens), or the literal "common"/"organizations"/
+// "consumers". It rejects path separators, query strings, and fragments.
+var validTenantID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.\-]*$`)
 
 const (
 	// defaultTokenEndpoint is the public Azure AD v1 token endpoint.
@@ -157,6 +163,11 @@ func (s *RefreshTokenSource) GetCredentials(
 		return nil, err
 	}
 
+	if !validTenantID.MatchString(tenantID) {
+		return nil, fmt.Errorf("TenantID contains invalid characters: %w",
+			contrib.ErrInvalidContextData)
+	}
+
 	resource, err := extractString(tx.Data, "Resource")
 	if err != nil {
 		return nil, err
@@ -246,6 +257,11 @@ func extractString(data map[string]any, key string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("%s must be a string, got %T: %w",
 			key, raw, contrib.ErrInvalidContextData)
+	}
+
+	if s == "" {
+		return "", fmt.Errorf("%s is empty in transaction context: %w",
+			key, contrib.ErrInvalidContextData)
 	}
 
 	return s, nil

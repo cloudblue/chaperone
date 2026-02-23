@@ -30,7 +30,6 @@ Sub-packages:
 [cred]: sdk.md#credential
 [cs]: sdk.md#certificatesigner
 [rm]: sdk.md#responsemodifier
-[ra]: sdk.md#responseaction
 
 ---
 
@@ -180,13 +179,13 @@ Route fields use `GlobMatch(pattern, input, sep)` with `/` as the separator.
 | `*` | Matches within one segment. Does not cross separators. | `"microsoft-*"` matches `"microsoft-azure"` but not `"microsoft/azure"` |
 | `**` | Matches across segments. Crosses separators. | `"*.graph.microsoft.com/**"` matches `"api.graph.microsoft.com/v1/users"` |
 
-#### `GlobMatch`
+### `GlobMatch`
 
 ```go
 func GlobMatch(pattern, input string, sep byte) bool
 ```
 
-Tests whether `input` matches the glob `pattern` using `sep` as the segment separator. Route fields call this function internally with `/` as the separator. It can also be used directly for custom matching logic.
+Package-level function. Tests whether `input` matches the glob `pattern` using `sep` as the segment separator. Route fields call this function internally with `/` as the separator. It can also be used directly for custom matching logic.
 
 ---
 
@@ -297,6 +296,7 @@ type RefreshTokenConfig struct {
     HTTPClient   *http.Client
     Logger       *slog.Logger
     ExpiryMargin time.Duration
+    OnSaveError  func(ctx context.Context, tokenURL string, err error)
 }
 ```
 
@@ -312,6 +312,7 @@ type RefreshTokenConfig struct {
 | `HTTPClient` | [`*http.Client`][client] | 10s timeout, TLS 1.3+ | HTTP client for token requests. |
 | `Logger` | [`*slog.Logger`][slog] | `slog.Default()` | Logger for debug, warning, and error messages. |
 | `ExpiryMargin` | [`time.Duration`][dur] | 1 minute | Subtracted from `expires_in` before setting `ExpiresAt`. |
+| `OnSaveError` | `func(ctx context.Context, tokenURL string, err error)` | `nil` | Optional callback invoked when a rotated refresh token fails to persist. Use for metrics or alerting. The request still succeeds with the access token; only logging occurs if nil. |
 
 ### `NewRefreshToken`
 
@@ -429,8 +430,8 @@ Extracts `TenantID` and `Resource` from [`tx.Data`][tx] and returns a cacheable 
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `"TenantID"` | `string` | Azure AD tenant (e.g., `"contoso.onmicrosoft.com"`). Required. Returns [`ErrMissingContextData`](#sentinel-errors) if absent, [`ErrInvalidContextData`](#sentinel-errors) if not a string. |
-| `"Resource"` | `string` | Target resource (e.g., `"https://graph.microsoft.com"`). Required. Returns [`ErrMissingContextData`](#sentinel-errors) if absent, [`ErrInvalidContextData`](#sentinel-errors) if not a string. |
+| `"TenantID"` | `string` | Azure AD tenant (e.g., `"contoso.onmicrosoft.com"`). Required. Returns [`ErrMissingContextData`](#sentinel-errors) if absent, [`ErrInvalidContextData`](#sentinel-errors) if not a string, empty, or contains invalid characters. Must match `^[a-zA-Z0-9][a-zA-Z0-9.\-]*$` (GUIDs, domain names, `common`/`organizations`/`consumers`). |
+| `"Resource"` | `string` | Target resource (e.g., `"https://graph.microsoft.com"`). Required. Returns [`ErrMissingContextData`](#sentinel-errors) if absent, [`ErrInvalidContextData`](#sentinel-errors) if not a string or empty. |
 
 **Token endpoint URL construction:**
 
@@ -483,7 +484,7 @@ import "github.com/cloudblue/chaperone/plugins/contrib"
 |-------|-------|-------|-----------|
 | `ErrNoRouteMatch` | `"no route matched"` | No mux route matched and no default is configured. Proxy configuration issue. | No |
 | `ErrMissingContextData` | `"missing required context data"` | Required key (`TenantID`, `Resource`) absent from `tx.Data`. Platform/caller issue. | No |
-| `ErrInvalidContextData` | `"invalid context data type"` | Required key present but wrong type (e.g., number instead of string). Platform/caller issue. | No |
+| `ErrInvalidContextData` | `"invalid context data type"` | Required key present but has wrong type (e.g., number instead of string), is an empty string, or contains invalid characters (TenantID must match `^[a-zA-Z0-9][a-zA-Z0-9.\-]*$`). Platform/caller issue. | No |
 | `ErrTenantNotFound` | `"tenant not found"` | Tenant not in store or resolver. Proxy configuration issue. | No |
 | `ErrInvalidCredentials` | `"invalid client credentials"` | OAuth2 token endpoint returned HTTP 401. Client secret is wrong or expired. | No |
 | `ErrTokenExpiredOnArrival` | `"token expired on arrival"` | Token `expires_in` is less than or equal to the expiry margin. Token too short-lived to cache. | No |
