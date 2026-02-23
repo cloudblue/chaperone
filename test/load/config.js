@@ -1,3 +1,6 @@
+// Copyright 2026 CloudBlue LLC
+// SPDX-License-Identifier: Apache-2.0
+
 // test/load/config.js
 // Shared k6 configuration for Chaperone load tests
 // Matches SLOs from Design Spec Section 9.3.B
