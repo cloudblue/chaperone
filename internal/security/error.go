@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"unicode/utf8"
 )
 
@@ -65,9 +66,14 @@ func NormalizeError(resp *http.Response, traceID string) error {
 		return fmt.Errorf("marshaling sanitized response: %w", err)
 	}
 
-	// Replace response body
+	// Replace response body and update all length indicators.
+	// Both resp.ContentLength (struct field) and the Content-Length header
+	// must be updated: httputil.ReverseProxy copies resp.Header to the
+	// client via copyHeader, so a stale Content-Length header causes a
+	// size mismatch → write error → ErrAbortHandler panic.
 	resp.Body = io.NopCloser(bytes.NewReader(sanitizedBody))
 	resp.ContentLength = int64(len(sanitizedBody))
+	resp.Header.Set("Content-Length", strconv.Itoa(len(sanitizedBody)))
 	resp.Header.Set("Content-Type", "application/json")
 
 	return nil

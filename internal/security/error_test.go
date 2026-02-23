@@ -5,8 +5,13 @@ package security
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -325,6 +330,129 @@ func TestNormalizeError_ContentLengthUpdated(t *testing.T) {
 	}
 }
 
+// TestNormalizeError_ContentLengthHeader_MatchesBody verifies that
+// NormalizeError updates the Content-Length HEADER (not just the struct field).
+// httputil.ReverseProxy copies resp.Header to the client via copyHeader —
+// if the header is stale, the client receives a wrong Content-Length which
+// causes the ReverseProxy to panic with ErrAbortHandler.
+//
+// Regression test for: Content-Length header mismatch causing
+// "net/http: abort Handler" panic in production.
+func TestNormalizeError_ContentLengthHeader_MatchesBody(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"401 small body", 401, `{"error":"unauthorized"}`},
+		{"500 large body", 500, strings.Repeat("stack trace line\n", 100)},
+		{"403 empty body", 403, ""},
+		{"502 exact match risk", 502, strings.Repeat("x", 80)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange: create response WITH a Content-Length header,
+			// as real http.Transport responses always have.
+			resp := createMockResponseWithContentLengthHeader(tt.status, tt.body)
+			defer resp.Body.Close()
+
+			originalHeaderLen := resp.Header.Get("Content-Length")
+
+			// Act
+			err := NormalizeError(resp, "trace-regression")
+
+			// Assert
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			body, _ := io.ReadAll(resp.Body)
+			headerCL := resp.Header.Get("Content-Length")
+
+			// The Content-Length HEADER must match the actual body length.
+			if headerCL == "" {
+				t.Fatal("Content-Length header missing after NormalizeError")
+			}
+
+			headerLen, err := strconv.Atoi(headerCL)
+			if err != nil {
+				t.Fatalf("Content-Length header is not a valid integer: %q", headerCL)
+			}
+
+			if headerLen != len(body) {
+				t.Errorf("Content-Length header = %d, actual body length = %d (original was %s)",
+					headerLen, len(body), originalHeaderLen)
+			}
+
+			// Struct field must also match.
+			if resp.ContentLength != int64(len(body)) {
+				t.Errorf("resp.ContentLength = %d, actual body length = %d",
+					resp.ContentLength, len(body))
+			}
+		})
+	}
+}
+
+// TestNormalizeError_ReverseProxy_NoPanic is an integration test that
+// reproduces the exact production failure: httputil.ReverseProxy panics
+// with ErrAbortHandler when ModifyResponse (via NormalizeError) changes
+// the body without updating the Content-Length header.
+func TestNormalizeError_ReverseProxy_NoPanic(t *testing.T) {
+	// Upstream server returns a 401 with a known body.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		// Body intentionally different size from what NormalizeError will produce.
+		w.Write([]byte(`{"error":"invalid credentials","details":"token expired at 2026-02-23T17:00:00Z"}`))
+	}))
+	defer upstream.Close()
+
+	targetURL, _ := url.Parse(upstream.URL)
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		return NormalizeError(resp, "trace-proxy-test")
+	}
+
+	// Proxy server that forwards to upstream.
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	// Act: make a request through the proxy.
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, proxyServer.URL+"/api/v1/customers", nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request through proxy failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Assert: we should get a valid response (not a connection reset).
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("failed to read response body: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+
+	// Verify Content-Length header matches actual body.
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		clInt, _ := strconv.Atoi(cl)
+		if clInt != len(body) {
+			t.Errorf("Content-Length header = %d, body length = %d", clInt, len(body))
+		}
+	}
+
+	// Body should be sanitized.
+	if !strings.Contains(string(body), "Request rejected by upstream service") {
+		t.Errorf("expected sanitized body, got: %s", string(body))
+	}
+}
+
 func TestNormalizeError_JSONResponseFormat(t *testing.T) {
 	// Arrange
 	resp := createMockResponse(500, "some error")
@@ -604,6 +732,24 @@ func createMockResponse(statusCode int, body string) *http.Response {
 		StatusCode:    statusCode,
 		Status:        http.StatusText(statusCode),
 		Header:        make(http.Header),
+		Body:          io.NopCloser(bytes.NewBufferString(body)),
+		ContentLength: int64(len(body)),
+	}
+}
+
+// createMockResponseWithContentLengthHeader creates a mock HTTP response
+// with the Content-Length header set, matching what http.Transport returns
+// for real upstream responses. This is critical for testing because
+// httputil.ReverseProxy uses resp.Header (not resp.ContentLength) when
+// writing to the client.
+func createMockResponseWithContentLengthHeader(statusCode int, body string) *http.Response {
+	h := make(http.Header)
+	h.Set("Content-Length", strconv.Itoa(len(body)))
+	h.Set("Content-Type", "text/plain")
+	return &http.Response{
+		StatusCode:    statusCode,
+		Status:        http.StatusText(statusCode),
+		Header:        h,
 		Body:          io.NopCloser(bytes.NewBufferString(body)),
 		ContentLength: int64(len(body)),
 	}
