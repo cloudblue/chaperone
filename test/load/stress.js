@@ -1,3 +1,6 @@
+// Copyright 2026 CloudBlue LLC
+// SPDX-License-Identifier: Apache-2.0
+
 // test/load/stress.js
 // Stress test - gradually increase load until failure to find system limits
 
