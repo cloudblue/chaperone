@@ -127,6 +127,17 @@ observability:
   # Env: CHAPERONE_OBSERVABILITY_ENABLE_PROFILING
   enable_profiling: false
 
+  # Enable OpenTelemetry distributed tracing
+  # When true, spans are exported via OTLP. Exporter configuration
+  # (endpoint, headers, TLS) uses standard OTEL_* environment variables:
+  #   OTEL_EXPORTER_OTLP_ENDPOINT  - Collector endpoint (e.g., http://localhost:4318)
+  #   OTEL_EXPORTER_OTLP_HEADERS   - Auth headers for the collector
+  #   OTEL_SERVICE_NAME             - Override service name (default: chaperone)
+  #   OTEL_SDK_DISABLED=true        - Force-disable the OTel SDK (always wins)
+  # Default: false
+  # Env: CHAPERONE_OBSERVABILITY_ENABLE_TRACING
+  enable_tracing: false
+
   # Additional headers to redact from logs and strip from responses.
   # These are MERGED with the built-in defaults which are always included:
   #   Authorization, Proxy-Authorization, Cookie, Set-Cookie, X-API-Key, X-Auth-Token

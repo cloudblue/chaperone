@@ -151,6 +151,18 @@ func configureLogging(rc *runConfig, cfg *config.Config) {
 func startProxy(ctx context.Context, plugin sdk.Plugin, rc *runConfig, cfg *config.Config) error {
 	logStartup(rc, cfg)
 
+	// Initialize tracing (returns no-op shutdown when disabled).
+	// Tracing is enabled only when config allows it and OTEL_SDK_DISABLED is not true.
+	tracingEnabled := cfg.Observability.EnableTracing && telemetry.IsTracingEnabled()
+	shutdownTracing, tracingErr := telemetry.InitTracing(context.Background(), telemetry.TracingConfig{ //nolint:contextcheck // tracing init is process-scoped, not request-scoped
+		ServiceName:    "chaperone",
+		ServiceVersion: rc.version,
+		Enabled:        tracingEnabled,
+	})
+	if tracingErr != nil {
+		return fmt.Errorf("initializing tracing: %w", tracingErr)
+	}
+
 	// Start admin server (health, version, pprof, metrics).
 	adminSrv := telemetry.NewAdminServer(cfg.Server.AdminAddr, rc.version)
 	telemetry.RegisterPprofHandlers(adminSrv.Mux(), cfg.Observability.EnableProfiling)
@@ -169,7 +181,7 @@ func startProxy(ctx context.Context, plugin sdk.Plugin, rc *runConfig, cfg *conf
 		}
 	}()
 
-	srv, err := newProxyServer(plugin, rc, cfg)
+	srv, err := newProxyServer(plugin, rc, cfg, tracingEnabled)
 	if err != nil {
 		return err
 	}
@@ -177,7 +189,7 @@ func startProxy(ctx context.Context, plugin sdk.Plugin, rc *runConfig, cfg *conf
 	// Start shutdown listener: when ctx is cancelled, drain servers gracefully.
 	// A fresh Background context is used intentionally — the parent ctx is
 	// already cancelled at this point, so we need a new deadline for draining.
-	go awaitShutdown(ctx, srv, adminSrv, *cfg.Server.ShutdownTimeout)
+	go awaitShutdown(ctx, srv, adminSrv, shutdownTracing, *cfg.Server.ShutdownTimeout)
 
 	// Start blocks until the server stops.
 	if startErr := srv.Start(); startErr != nil { //nolint:contextcheck // proxy.Server.Start blocks on Serve, no context parameter
@@ -190,7 +202,7 @@ func startProxy(ctx context.Context, plugin sdk.Plugin, rc *runConfig, cfg *conf
 }
 
 // newProxyServer creates the proxy server from the loaded configuration.
-func newProxyServer(plugin sdk.Plugin, rc *runConfig, cfg *config.Config) (*proxy.Server, error) {
+func newProxyServer(plugin sdk.Plugin, rc *runConfig, cfg *config.Config, tracingEnabled bool) (*proxy.Server, error) {
 	tlsEnabled := *cfg.Server.TLS.Enabled
 	srv, err := proxy.NewServer(proxy.Config{
 		Addr:             cfg.Server.Addr,
@@ -210,9 +222,10 @@ func newProxyServer(plugin sdk.Plugin, rc *runConfig, cfg *config.Config) (*prox
 			KeyFile:  cfg.Server.TLS.KeyFile,
 			CAFile:   cfg.Server.TLS.CAFile,
 		},
-		ReadTimeout:  *cfg.Upstream.Timeouts.Read,
-		WriteTimeout: *cfg.Upstream.Timeouts.Write,
-		IdleTimeout:  *cfg.Upstream.Timeouts.Idle,
+		ReadTimeout:    *cfg.Upstream.Timeouts.Read,
+		WriteTimeout:   *cfg.Upstream.Timeouts.Write,
+		IdleTimeout:    *cfg.Upstream.Timeouts.Idle,
+		TracingEnabled: tracingEnabled,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating proxy server: %w", err)
@@ -220,23 +233,40 @@ func newProxyServer(plugin sdk.Plugin, rc *runConfig, cfg *config.Config) (*prox
 	return srv, nil
 }
 
-// awaitShutdown blocks until ctx is cancelled, then drains the traffic server
-// first (stops accepting new proxy requests) and the admin server second
-// (health checks remain available during drain).
+// awaitShutdown blocks until ctx is cancelled, then initiates a graceful
+// shutdown of the traffic server, tracer provider, and admin server within
+// the given timeout.
+//
+// Shutdown order: traffic server -> tracer flush -> admin server
+// The traffic server is drained first (stops accepting new proxy requests),
+// then traces are flushed, then the admin server (health checks remain
+// available during traffic drain).
+//
+// A single timeout context is shared across all three shutdown phases.
+// Under heavy load, earlier phases may consume most of the budget, leaving
+// less time for tracer flush. This is acceptable because losing a few
+// trailing traces is preferable to delaying shutdown.
 //
 // A fresh context (context.Background) is used intentionally because the
 // parent ctx is already cancelled when this code runs.
 //
 //nolint:contextcheck // all contexts here are intentionally non-inherited from the cancelled parent
-func awaitShutdown(ctx context.Context, srv *proxy.Server, adminSrv *telemetry.AdminServer, timeout time.Duration) {
+func awaitShutdown(ctx context.Context, srv *proxy.Server, adminSrv *telemetry.AdminServer, shutdownTracing func(context.Context) error, timeout time.Duration) {
 	<-ctx.Done()
 	slog.Info("shutdown signal received, draining connections...")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	// Drain traffic server first (stops accepting new proxy requests).
 	srv.Shutdown(shutdownCtx)
 
+	// Flush remaining traces before stopping admin.
+	if err := shutdownTracing(shutdownCtx); err != nil {
+		slog.Error("tracer provider shutdown error", "error", err)
+	}
+
+	// Then drain admin server (health checks were available during traffic drain).
 	if shutdownErr := adminSrv.Shutdown(shutdownCtx); shutdownErr != nil {
 		slog.Error("admin server shutdown error", "error", shutdownErr)
 	}

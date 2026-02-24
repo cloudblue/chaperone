@@ -311,6 +311,13 @@ func applyObservabilityEnvOverrides(cfg *Config) error {
 		}
 		cfg.Observability.EnableProfiling = b
 	}
+	if v := getEnv("OBSERVABILITY_ENABLE_TRACING"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("invalid %s_%s value %q: %w", EnvPrefix, "OBSERVABILITY_ENABLE_TRACING", v, err)
+		}
+		cfg.Observability.EnableTracing = b
+	}
 	// Security: Body logging can ONLY be enabled via env var, not config file.
 	// The yaml:"-" tag on EnableBodyLogging prevents YAML from setting it.
 	// Per Design Spec Section 5.3 (Body Safety).

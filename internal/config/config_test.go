@@ -41,6 +41,7 @@ upstream:
 observability:
   log_level: "debug"
   enable_profiling: true
+  enable_tracing: true
   sensitive_headers:
     - "X-Secret-Key"
 `
@@ -91,6 +92,9 @@ observability:
 	}
 	if cfg.Observability.EnableProfiling != true {
 		t.Errorf("Observability.EnableProfiling = %v, want true", cfg.Observability.EnableProfiling)
+	}
+	if cfg.Observability.EnableTracing != true {
+		t.Errorf("Observability.EnableTracing = %v, want true", cfg.Observability.EnableTracing)
 	}
 	// Sensitive headers: custom "X-Secret-Key" merged with defaults
 	defaults := defaultSensitiveHeaders()
@@ -517,6 +521,7 @@ func TestValidate_ValidConfig_NoError(t *testing.T) {
 		Observability: ObservabilityConfig{
 			LogLevel:         "info",
 			EnableProfiling:  false,
+			EnableTracing:    false,
 			SensitiveHeaders: []string{"Authorization"},
 		},
 	}
@@ -862,6 +867,7 @@ upstream:
 		{"invalid TLS enabled", "CHAPERONE_SERVER_TLS_ENABLED", "yes"},
 		{"invalid TLS auto rotate", "CHAPERONE_SERVER_TLS_AUTO_ROTATE", "nope"},
 		{"invalid profiling", "CHAPERONE_OBSERVABILITY_ENABLE_PROFILING", "enabled"},
+		{"invalid tracing", "CHAPERONE_OBSERVABILITY_ENABLE_TRACING", "yes-please"},
 		{"invalid body logging", "CHAPERONE_OBSERVABILITY_ENABLE_BODY_LOGGING", "yes-please"},
 	}
 
@@ -1305,6 +1311,7 @@ upstream:
 	t.Setenv("CHAPERONE_UPSTREAM_TIMEOUTS_PLUGIN", "7s")
 	t.Setenv("CHAPERONE_OBSERVABILITY_LOG_LEVEL", "debug")
 	t.Setenv("CHAPERONE_OBSERVABILITY_ENABLE_PROFILING", "true")
+	t.Setenv("CHAPERONE_OBSERVABILITY_ENABLE_TRACING", "true")
 
 	// Act
 	cfg, err := Load(configPath)
@@ -1362,6 +1369,9 @@ upstream:
 	}
 	if cfg.Observability.EnableProfiling != true {
 		t.Errorf("EnableProfiling = %v, want true", cfg.Observability.EnableProfiling)
+	}
+	if cfg.Observability.EnableTracing != true {
+		t.Errorf("EnableTracing = %v, want true", cfg.Observability.EnableTracing)
 	}
 }
 
@@ -1692,5 +1702,69 @@ func TestValidate_MultipleErrors_AllReported(t *testing.T) {
 	}
 	if !contains(errStr, "allow_list") {
 		t.Error("error should mention allow_list")
+	}
+}
+
+func TestApplyDefaults_EnableTracing_DefaultsToFalse(t *testing.T) {
+	// Arrange - config with no enable_tracing set
+	cfg := &Config{}
+
+	// Act
+	applyDefaults(cfg)
+
+	// Assert - EnableTracing should default to false (opt-in)
+	if cfg.Observability.EnableTracing != DefaultEnableTracing {
+		t.Errorf("EnableTracing = %v, want default %v", cfg.Observability.EnableTracing, DefaultEnableTracing)
+	}
+}
+
+func TestLoad_EnableTracing_YAMLEnablesIt(t *testing.T) {
+	yamlContent := `
+server:
+  tls:
+    enabled: false
+upstream:
+  allow_list:
+    api.example.com:
+      - "/**"
+observability:
+  enable_tracing: true
+`
+	configPath := writeTestConfig(t, yamlContent)
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !cfg.Observability.EnableTracing {
+		t.Error("EnableTracing should be true when set in YAML")
+	}
+}
+
+func TestLoad_EnableTracing_EnvVarOverridesYAML(t *testing.T) {
+	yamlContent := `
+server:
+  tls:
+    enabled: false
+upstream:
+  allow_list:
+    api.example.com:
+      - "/**"
+observability:
+  enable_tracing: true
+`
+	configPath := writeTestConfig(t, yamlContent)
+
+	// Env var overrides YAML
+	t.Setenv("CHAPERONE_OBSERVABILITY_ENABLE_TRACING", "false")
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Observability.EnableTracing {
+		t.Error("EnableTracing should be false when env var overrides YAML")
 	}
 }

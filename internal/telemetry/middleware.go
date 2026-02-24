@@ -37,8 +37,12 @@ func MetricsMiddleware(headerPrefix string, next http.Handler) http.Handler {
 		ctx, timing := WithTiming(r.Context())
 		r = r.WithContext(ctx)
 
-		// Wrap response writer to capture status code
-		wrapped := httputil.NewStatusCapturingResponseWriter(w)
+		// Reuse existing StatusCapturingResponseWriter if available
+		// (e.g., from TracingMiddleware), otherwise create one.
+		wrapped, ok := w.(*httputil.StatusCapturingResponseWriter)
+		if !ok {
+			wrapped = httputil.NewStatusCapturingResponseWriter(w)
+		}
 
 		// Process request
 		next.ServeHTTP(wrapped, r)

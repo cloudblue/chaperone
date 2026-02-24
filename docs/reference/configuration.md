@@ -124,6 +124,7 @@ Controls logging, profiling, and header redaction.
 observability:
   log_level: "info"
   enable_profiling: false
+  enable_tracing: false
   sensitive_headers:
     - "X-Custom-Secret"
     - "X-Vendor-Token"
@@ -133,6 +134,7 @@ observability:
 |-----|-------------|------|---------|-------------|
 | `log_level` | `CHAPERONE_OBSERVABILITY_LOG_LEVEL` | string | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `enable_profiling` | `CHAPERONE_OBSERVABILITY_ENABLE_PROFILING` | bool | `false` | Enable `/debug/pprof` endpoints on the admin port |
+| `enable_tracing` | `CHAPERONE_OBSERVABILITY_ENABLE_TRACING` | bool | `false` | Enable OpenTelemetry distributed tracing (see [Tracing](#tracing)) |
 | — | `CHAPERONE_OBSERVABILITY_ENABLE_BODY_LOGGING` | bool | `false` | Log request/response bodies at debug level. **Env-var only** — cannot be set in the YAML file (security safeguard). A startup warning is emitted when enabled. |
 | `sensitive_headers` | — | []string | See below | Additional headers to redact (merged with defaults) |
 
@@ -158,6 +160,42 @@ observability:
     - "X-Custom-Secret"
     - "X-Vendor-Token"
 ```
+
+### Tracing
+
+OpenTelemetry distributed tracing is controlled by two independent mechanisms:
+
+1. **Chaperone config** — `enable_tracing` in `config.yaml` or `CHAPERONE_OBSERVABILITY_ENABLE_TRACING` env var
+2. **OTel SDK** — Standard `OTEL_*` environment variables for exporter configuration
+
+Tracing is only active when **both** layers are enabled. `OTEL_SDK_DISABLED=true`
+always wins and disables the SDK regardless of the Chaperone config.
+
+```yaml
+observability:
+  enable_tracing: true    # Enable tracing in Chaperone
+```
+
+```bash
+# Configure the OTel exporter (standard OTel env vars)
+export OTEL_EXPORTER_OTLP_ENDPOINT="http://collector:4318"
+export OTEL_SERVICE_NAME="chaperone-prod"            # Override default "chaperone"
+export OTEL_TRACES_SAMPLER="parentbased_traceidratio"  # Optional: sampling
+export OTEL_TRACES_SAMPLER_ARG="0.1"                   # Optional: 10% sampling
+
+# Emergency kill switch (always wins)
+export OTEL_SDK_DISABLED=true
+```
+
+| Variable | Purpose |
+|----------|---------|  
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Auth headers for the collector |
+| `OTEL_SERVICE_NAME` | Override service name (default: `chaperone`) |
+| `OTEL_RESOURCE_ATTRIBUTES` | Additional resource attributes |
+| `OTEL_TRACES_SAMPLER` | Sampling strategy |
+| `OTEL_TRACES_SAMPLER_ARG` | Sampler argument (e.g., ratio) |
+| `OTEL_SDK_DISABLED` | Force-disable SDK (`true` always wins) |
 
 ## Allow-List Syntax
 

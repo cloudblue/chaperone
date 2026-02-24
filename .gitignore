@@ -8,6 +8,7 @@
 # Build output
 /bin/
 /dist/
+/chaperone
 
 # Test binary, built with `go test -c`
 *.test

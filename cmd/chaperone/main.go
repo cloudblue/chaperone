@@ -32,7 +32,7 @@ var (
 	BuildDate = "unknown"
 )
 
-//nolint:funlen // CLI entry points are acceptable to be longer
+//nolint:funlen,gocognit // CLI entry points are acceptable to be longer and more complex
 func main() {
 	// Check for subcommands first
 	if len(os.Args) > 1 {
