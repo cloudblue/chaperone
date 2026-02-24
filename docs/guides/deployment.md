@@ -419,3 +419,4 @@ If you encounter issues during deployment, see the
 - [Configuration Reference](../reference/configuration.md) — Full configuration specification
 - [Plugin Development Guide](plugin-development.md) — Build your own credential plugin
 - [Troubleshooting](troubleshooting.md) — Common issues and solutions
+- [Load Testing](../../test/load/README.md) — k6-based performance and resilience tests

@@ -1,6 +1,6 @@
 # Chaperone Load Testing
 
-This directory contains k6-based load testing scripts for the Chaperone egress proxy.
+Run k6-based load tests against the Chaperone egress proxy to validate performance, resilience, and mTLS overhead.
 
 ## Prerequisites
 
@@ -28,18 +28,19 @@ docker run --rm -i grafana/k6 run - <script.js
 
 ### Start Chaperone
 
+The `make load-*` targets automatically generate certificates (`gencerts-load`) and start the target echo server (`load-target-start`). You only need to start the proxy itself in a separate terminal:
+
 ```bash
-make gencerts
-make run
+make gencerts   # Generate TLS certificates (one-time)
+make run        # Start the proxy (keep this running)
 ```
 
 ### TLS Note
 
-When testing against localhost with self-signed certificates, you may need to
-skip TLS verification:
+All `make load-*` targets set `K6_INSECURE_SKIP_TLS_VERIFY=true` automatically for the self-signed certificates. When running k6 directly, pass the variable yourself:
 
 ```bash
-K6_INSECURE_SKIP_TLS_VERIFY=true make load-baseline
+K6_INSECURE_SKIP_TLS_VERIFY=true k6 run test/load/baseline.js
 ```
 
 ## Running Load Tests
@@ -48,7 +49,7 @@ K6_INSECURE_SKIP_TLS_VERIFY=true make load-baseline
 
 ```bash
 make load-smoke      # 1 minute quick validation
-make load-baseline   # 5 minutes, 50 VUs
+make load-baseline   # ~6 minutes (includes ramp), 50 VUs
 make load-spike      # Traffic surge test
 make load-stress     # ~17 minutes, find limits (see ulimit note below)
 make load-soak       # 4+ hours endurance
@@ -57,17 +58,20 @@ make load-mtls       # With client certificates
 
 ### Custom Configuration
 
+When running k6 directly against localhost, remember the TLS variable (see [TLS Note](#tls-note) above):
+
 ```bash
-k6 run -e PROXY_URL=https://staging:8443 test/load/baseline.js
-k6 run -e TARGET_URL=https://api.vendor.com/v1/status test/load/baseline.js
-k6 run --vus 100 --duration 10m test/load/baseline.js
-k6 run --out json=results.json test/load/baseline.js
+K6_INSECURE_SKIP_TLS_VERIFY=true k6 run -e PROXY_URL=https://staging:8443 test/load/baseline.js
+K6_INSECURE_SKIP_TLS_VERIFY=true k6 run -e TARGET_URL=https://api.vendor.com/v1/status test/load/baseline.js
+K6_INSECURE_SKIP_TLS_VERIFY=true k6 run --vus 100 --duration 10m test/load/baseline.js
+K6_INSECURE_SKIP_TLS_VERIFY=true k6 run --out json=results.json test/load/baseline.js
 ```
 
 ## Test Scenarios
 
 | Scenario | Duration | Max VUs | Purpose |
 |----------|----------|---------|---------|
+| smoke | 1 min | 10 | Quick validation (overrides baseline stages) |
 | baseline | ~6 min | 50 | Establish performance baseline |
 | spike | ~5 min | 1000 | Test resilience to traffic surges |
 | stress | ~17 min | 3000 | Find system breaking point |
@@ -76,19 +80,16 @@ k6 run --out json=results.json test/load/baseline.js
 
 ## Performance Targets (SLOs)
 
-| Metric | Smoke | Baseline | Spike | Stress | Soak |
-|--------|-------|----------|-------|--------|------|
-| P50 latency | < 50ms | < 20ms | < 50ms | < 100ms | < 30ms |
-| P95 latency | < 150ms | < 50ms | < 200ms | < 500ms | < 75ms |
-| P99 latency | < 300ms | < 100ms | < 500ms | < 1s | < 200ms |
-| Error rate | < 1% | < 0.1% | < 1% | < 5% | < 0.1% |
+| Metric | Smoke | Baseline | Spike | Stress | Soak | mTLS |
+|--------|-------|----------|-------|--------|------|------|
+| P50 latency | < 50ms | < 20ms | < 50ms | < 100ms | < 30ms | < 30ms |
+| P95 latency | < 150ms | < 50ms | < 200ms | < 500ms | < 75ms | < 75ms |
+| P99 latency | < 300ms | < 100ms | < 500ms | < 1s | < 200ms | < 200ms |
+| Error rate | < 1% | < 0.1% | < 1% | < 5% | < 0.1% | < 0.1% |
 
-## Stress Test Prerequisites
+### Stress Test Prerequisites
 
-The stress test ramps to 3000 VUs with no sleep between iterations. Before running,
-tune your OS to prevent client-side resource exhaustion from masking server limits.
-See [k6: Fine-tune OS](https://grafana.com/docs/k6/latest/set-up/fine-tune-os/) for
-the full guide.
+The stress test ramps to 3000 VUs with no sleep between iterations. Before running, tune your OS to prevent client-side resource exhaustion from masking server limits. See [k6: Fine-tune OS](https://grafana.com/docs/k6/latest/set-up/fine-tune-os/) for the full guide.
 
 ```bash
 # Linux
@@ -109,7 +110,7 @@ rather than actual server limits.
 ```bash
 # Watch Prometheus metrics
 curl -s localhost:9090/metrics | grep chaperone_requests_total
-curl -s localhost:9090/metrics | grep chaperone_request_duration
+curl -s localhost:9090/metrics | grep chaperone_request_duration_seconds
 
 # Watch active connections
 curl -s localhost:9090/metrics | grep chaperone_active_connections
@@ -126,6 +127,8 @@ test/load/
 ├── stress.js        # Stress test (find breaking point)
 ├── soak.js          # Soak test (endurance, 4+ hours)
 ├── mtls.js          # mTLS scenario with client certs
+├── targetserver/    # Minimal echo server for load testing
+│   └── main.go
 ├── lib/             # Vendored k6 libraries
 │   └── k6-summary.js
 ├── certs/           # Certificates (generated at runtime)
