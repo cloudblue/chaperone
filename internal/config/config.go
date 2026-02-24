@@ -87,6 +87,13 @@ type ObservabilityConfig struct {
 	// EnableProfiling enables the /debug/pprof endpoint on the admin port.
 	// Security: This should be false in production.
 	EnableProfiling bool `yaml:"enable_profiling"`
+	// EnableTracing enables OpenTelemetry distributed tracing.
+	// When true, spans are exported via OTLP. Exporter configuration
+	// (endpoint, headers, TLS) uses standard OTEL_* environment variables.
+	// Even when enabled here, OTEL_SDK_DISABLED=true takes precedence and
+	// disables the SDK entirely.
+	// Default: false.
+	EnableTracing bool `yaml:"enable_tracing"`
 	// EnableBodyLogging allows request/response bodies to appear in debug logs.
 	// Security: This MUST only be enabled via the CHAPERONE_OBSERVABILITY_ENABLE_BODY_LOGGING
 	// environment variable, not via config file. A startup warning is emitted when enabled.

@@ -67,6 +67,8 @@ const (
 	DefaultLogLevel = "info"
 	// DefaultEnableProfiling is the secure default for profiling (disabled).
 	DefaultEnableProfiling = false
+	// DefaultEnableTracing is the secure default for tracing (disabled).
+	DefaultEnableTracing = false
 )
 
 // defaultSensitiveHeaders returns the list of headers that MUST be redacted

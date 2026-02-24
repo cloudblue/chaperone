@@ -152,7 +152,8 @@ func startProxy(ctx context.Context, plugin sdk.Plugin, rc *runConfig, cfg *conf
 	logStartup(rc, cfg)
 
 	// Initialize tracing (returns no-op shutdown when disabled).
-	tracingEnabled := telemetry.IsTracingEnabled()
+	// Tracing is enabled only when config allows it and OTEL_SDK_DISABLED is not true.
+	tracingEnabled := cfg.Observability.EnableTracing && telemetry.IsTracingEnabled()
 	shutdownTracing, tracingErr := telemetry.InitTracing(context.Background(), telemetry.TracingConfig{ //nolint:contextcheck // tracing init is process-scoped, not request-scoped
 		ServiceName:    "chaperone",
 		ServiceVersion: rc.version,

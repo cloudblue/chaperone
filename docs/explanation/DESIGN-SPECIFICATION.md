@@ -295,7 +295,7 @@ Telemetry data is owned by the Distributor but structured for end-to-end correla
 
 **Profiling.** Go's `pprof` endpoints are available on the admin port when enabled via configuration. Disabled by default.
 
-> **Note on OpenTelemetry:** The current implementation uses Prometheus for metrics. The correlation IDs are compatible with OTel distributed tracing standards. Native OTLP exporter support is planned for a future release.
+> **Note on OpenTelemetry:** The current implementation uses Prometheus for metrics and OpenTelemetry for distributed tracing. Tracing is opt-in via `observability.enable_tracing` in `config.yaml`. Exporter configuration (endpoint, headers, sampling) uses standard `OTEL_*` environment variables. See the [Configuration Reference](../reference/configuration.md#tracing) for details.
 
 ### Certificate lifecycle
 
