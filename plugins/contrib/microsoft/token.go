@@ -25,7 +25,7 @@ var validTenantID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.\-]*$`)
 
 const (
 	// defaultTokenEndpoint is the public Azure AD v1 token endpoint.
-	defaultTokenEndpoint = "https://login.microsoftonline.com"
+	defaultTokenEndpoint = "https://login.microsoftonline.com" // #nosec G101 -- URL endpoint, not a credential
 
 	// defaultMaxPoolSize is the maximum number of oauth.RefreshToken instances
 	// kept in the LRU pool. Each instance owns its own access token cache and
@@ -48,7 +48,7 @@ type Config struct {
 	ClientID string
 
 	// ClientSecret is the Azure AD application secret.
-	ClientSecret string
+	ClientSecret string // #nosec G117 -- config struct holds secrets by design
 
 	// Store provides per-tenant, per-resource refresh token persistence.
 	Store TokenStore
@@ -173,14 +173,14 @@ func (s *RefreshTokenSource) GetCredentials(
 		return nil, err
 	}
 
-	instance := s.getOrCreate(tenantID, resource)
+	instance := s.getOrCreate(ctx, tenantID, resource)
 
 	return instance.GetCredentials(ctx, tx, req)
 }
 
 // getOrCreate returns an existing pool instance or creates a new one.
 // On pool capacity overflow, the least recently used instance is evicted.
-func (s *RefreshTokenSource) getOrCreate(tenantID, resource string) *oauth.RefreshToken {
+func (s *RefreshTokenSource) getOrCreate(ctx context.Context, tenantID, resource string) *oauth.RefreshToken {
 	key := poolKey{tenantID: tenantID, resource: resource}
 
 	s.mu.Lock()
@@ -188,14 +188,15 @@ func (s *RefreshTokenSource) getOrCreate(tenantID, resource string) *oauth.Refre
 
 	if elem, ok := s.pool[key]; ok {
 		s.lru.MoveToFront(elem)
-		return elem.Value.(*poolEntry).instance
+		entry, _ := elem.Value.(*poolEntry)
+		return entry.instance
 	}
 
 	instance := s.newInstance(tenantID, resource)
 
 	// Evict LRU if at capacity.
 	if s.lru.Len() >= s.maxPoolSize {
-		s.evictLRU()
+		s.evictLRU(ctx)
 	}
 
 	entry := &poolEntry{key: key, instance: instance}
@@ -230,14 +231,14 @@ func (s *RefreshTokenSource) newInstance(tenantID, resource string) *oauth.Refre
 
 // evictLRU removes the least recently used instance from the pool.
 // Caller must hold s.mu.
-func (s *RefreshTokenSource) evictLRU() {
+func (s *RefreshTokenSource) evictLRU(ctx context.Context) {
 	back := s.lru.Back()
 	if back == nil {
 		return
 	}
 
-	entry := back.Value.(*poolEntry)
-	s.logger.LogAttrs(context.Background(), slog.LevelDebug, "evicting LRU pool instance",
+	entry, _ := back.Value.(*poolEntry)
+	s.logger.LogAttrs(ctx, slog.LevelDebug, "evicting LRU pool instance",
 		slog.String("tenant_id", entry.key.tenantID),
 		slog.String("resource", entry.key.resource))
 

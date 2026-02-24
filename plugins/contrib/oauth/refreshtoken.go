@@ -22,7 +22,7 @@ type RefreshTokenConfig struct {
 	ClientID string
 
 	// ClientSecret is the OAuth2 client secret.
-	ClientSecret string
+	ClientSecret string // #nosec G117 -- config struct holds secrets by design
 
 	// Scopes are the OAuth2 scopes to request. Joined with space per RFC 6749.
 	// For v1-style endpoints, use ExtraParams with "resource" key instead.

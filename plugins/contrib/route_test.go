@@ -11,9 +11,9 @@ import (
 
 func TestRoute_Specificity(t *testing.T) {
 	tests := []struct {
-		name string
+		name  string
 		route Route
-		want int
+		want  int
 	}{
 		{
 			name:  "empty route has zero specificity",
@@ -242,9 +242,9 @@ func TestRoute_Matches_MultipleFields(t *testing.T) {
 
 func TestStripScheme(t *testing.T) {
 	tests := []struct {
-		name   string
-		input  string
-		want   string
+		name  string
+		input string
+		want  string
 	}{
 		{
 			name:  "https scheme",

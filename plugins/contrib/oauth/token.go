@@ -16,8 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudblue/chaperone/plugins/contrib"
 	"golang.org/x/sync/singleflight"
+
+	"github.com/cloudblue/chaperone/plugins/contrib"
 )
 
 // standardFields are form parameter names reserved by the OAuth2 spec.
@@ -42,10 +43,10 @@ type oauthErrorResponse struct {
 
 // tokenResponse represents the JSON body from an OAuth2 token endpoint.
 type tokenResponse struct {
-	AccessToken  string `json:"access_token"`
+	AccessToken  string `json:"access_token"` // #nosec G117 -- OAuth2 token response field
 	ExpiresIn    int64  `json:"expires_in"`
 	TokenType    string `json:"token_type"`
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken string `json:"refresh_token"` // #nosec G117 -- OAuth2 token response field
 }
 
 // tokenResult is the parsed and validated output of a token endpoint exchange.
@@ -124,7 +125,10 @@ func (tm *tokenManager) getToken(ctx context.Context) (string, time.Time, error)
 		return "", time.Time{}, err
 	}
 
-	t := result.(*cachedToken)
+	t, ok := result.(*cachedToken)
+	if !ok {
+		return "", time.Time{}, fmt.Errorf("unexpected singleflight result type %T", result)
+	}
 	return t.accessToken, t.expiresAt, nil
 }
 
@@ -228,7 +232,7 @@ func (tf *tokenFetcher) buildForm(grantType string) url.Values {
 
 // doRequest executes the HTTP request and reads the response body.
 func (tf *tokenFetcher) doRequest(ctx context.Context, req *http.Request) (*http.Response, []byte, error) {
-	resp, err := tf.client.Do(req)
+	resp, err := tf.client.Do(req) // #nosec G704 -- tokenURL is set by plugin author at construction, not from external input
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, nil, fmt.Errorf("token request for %s: %w", tf.tokenURL, ctx.Err())
@@ -242,7 +246,7 @@ func (tf *tokenFetcher) doRequest(ctx context.Context, req *http.Request) (*http
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close() // #nosec G104 -- best-effort close on read failure
 		if ctx.Err() != nil {
 			return nil, nil, fmt.Errorf("reading token response for %s: %w", tf.tokenURL, ctx.Err())
 		}
