@@ -28,9 +28,9 @@ func validateTenantID(tenant string) error {
 }
 
 // validateURL checks that u is a valid URL with a scheme and host.
-// It returns a boolean indicating whether the URL uses HTTPS (callers
-// should warn on HTTP).
-func validateURL(u string) error {
+// By default it requires HTTPS; set allowHTTP to true for testing with
+// local mock servers (the -allow-http flag).
+func validateURL(u string, allowHTTP bool) error {
 	if u == "" {
 		return fmt.Errorf("URL is required")
 	}
@@ -38,22 +38,19 @@ func validateURL(u string) error {
 	if err != nil {
 		return fmt.Errorf("invalid URL %q: %w", u, err)
 	}
-	if parsed.Scheme != "https" && parsed.Scheme != "http" {
-		return fmt.Errorf("URL %q must use HTTPS (or HTTP) scheme", u)
+	if allowHTTP {
+		if parsed.Scheme != "https" && parsed.Scheme != "http" {
+			return fmt.Errorf("URL %q must use HTTPS or HTTP scheme", u)
+		}
+	} else {
+		if parsed.Scheme != "https" {
+			return fmt.Errorf("URL %q must use HTTPS scheme", u)
+		}
 	}
 	if parsed.Host == "" {
 		return fmt.Errorf("URL %q has no host", u)
 	}
 	return nil
-}
-
-// isHTTPS returns true if the URL uses the HTTPS scheme.
-func isHTTPS(u string) bool {
-	parsed, err := url.Parse(u)
-	if err != nil {
-		return false
-	}
-	return parsed.Scheme == "https"
 }
 
 // validateNonEmpty checks that value is not empty. The name parameter is used

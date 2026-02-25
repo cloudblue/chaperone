@@ -112,7 +112,7 @@ func finishExchange(ctx context.Context, cfg consentConfig, code, redirectURI, v
 		extraParams:  cfg.extraTokenParams,
 	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", errExchangeFailed, err)
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Token exchange complete\n")
 

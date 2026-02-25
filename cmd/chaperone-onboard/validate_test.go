@@ -70,13 +70,12 @@ func TestValidateURL_ValidInputs(t *testing.T) {
 		{"standard HTTPS", "https://auth.example.com/authorize"},
 		{"with port", "https://auth.example.com:8443/token"},
 		{"with path", "https://login.microsoftonline.com/tenant/oauth2/authorize"},
-		{"HTTP also accepted", "http://localhost:9999/token"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if err := validateURL(tt.url); err != nil {
-				t.Errorf("validateURL(%q) = %v, want nil", tt.url, err)
+			if err := validateURL(tt.url, false); err != nil {
+				t.Errorf("validateURL(%q, false) = %v, want nil", tt.url, err)
 			}
 		})
 	}
@@ -93,34 +92,37 @@ func TestValidateURL_InvalidInputs(t *testing.T) {
 		{"no scheme", "auth.example.com/authorize"},
 		{"ftp scheme", "ftp://auth.example.com/authorize"},
 		{"no host", "https:///path"},
+		{"HTTP rejected by default", "http://localhost:9999/token"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if err := validateURL(tt.url); err == nil {
-				t.Errorf("validateURL(%q) = nil, want error", tt.url)
+			if err := validateURL(tt.url, false); err == nil {
+				t.Errorf("validateURL(%q, false) = nil, want error", tt.url)
 			}
 		})
 	}
 }
 
-func TestIsHTTPS(t *testing.T) {
+func TestValidateURL_AllowHTTP(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		url  string
-		want bool
+		name    string
+		url     string
+		wantErr bool
 	}{
-		{"https://example.com", true},
-		{"http://example.com", false},
-		{"", false},
-		{"not-a-url", false},
+		{"HTTPS still valid", "https://auth.example.com/authorize", false},
+		{"HTTP accepted", "http://localhost:9999/token", false},
+		{"FTP still rejected", "ftp://auth.example.com/authorize", true},
+		{"empty still rejected", "", true},
 	}
 	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := isHTTPS(tt.url); got != tt.want {
-				t.Errorf("isHTTPS(%q) = %v, want %v", tt.url, got, tt.want)
+			err := validateURL(tt.url, true)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateURL(%q, true) error = %v, wantErr %v", tt.url, err, tt.wantErr)
 			}
 		})
 	}
@@ -143,5 +145,56 @@ func TestValidateNonEmpty_Empty(t *testing.T) {
 	}
 	if err != nil && err.Error() != "client-id is required" {
 		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestParseExtraParams_Valid(t *testing.T) {
+	t.Parallel()
+
+	v, err := parseExtraParams("a=1,b=2")
+	if err != nil {
+		t.Fatalf("parseExtraParams() error = %v", err)
+	}
+	assertParam(t, v, "a", "1")
+	assertParam(t, v, "b", "2")
+}
+
+func TestParseExtraParams_EmptyValue(t *testing.T) {
+	t.Parallel()
+
+	v, err := parseExtraParams("key=")
+	if err != nil {
+		t.Fatalf("parseExtraParams() error = %v", err)
+	}
+	assertParam(t, v, "key", "")
+}
+
+func TestParseExtraParams_TrailingComma(t *testing.T) {
+	t.Parallel()
+
+	v, err := parseExtraParams("key=value,")
+	if err != nil {
+		t.Fatalf("parseExtraParams() error = %v", err)
+	}
+	assertParam(t, v, "key", "value")
+}
+
+func TestParseExtraParams_InvalidInputs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"no equals", "keyonly"},
+		{"empty key", "=value"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := parseExtraParams(tt.input); err == nil {
+				t.Errorf("parseExtraParams(%q) = nil, want error", tt.input)
+			}
+		})
 	}
 }

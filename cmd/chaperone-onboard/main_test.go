@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -108,6 +109,34 @@ func TestBuild_OAuthMissingFlags_ExitsWithError(t *testing.T) {
 	if !strings.Contains(string(output), "authorize-url") {
 		t.Errorf("expected error about missing authorize-url, got: %s", output)
 	}
+	assertExitCode(t, err, 1)
+}
+
+func TestBuild_OAuthBadExtraParams_ExitsWithUsageCode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping build test in short mode")
+	}
+
+	binary := buildTestBinary(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, binary, "oauth",
+		"-authorize-url", "https://auth.example.com/authorize",
+		"-token-url", "https://auth.example.com/token",
+		"-client-id", "test",
+		"-extra-params", "badpair")
+	cmd.Env = append(os.Environ(), "CHAPERONE_ONBOARD_CLIENT_SECRET=test")
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatal("expected non-zero exit code for invalid extra-params")
+	}
+
+	if !strings.Contains(string(output), "extra-params") {
+		t.Errorf("expected error about extra-params, got: %s", output)
+	}
+	assertExitCode(t, err, 1)
 }
 
 func TestBuild_MicrosoftInvalidTenant_ExitsWithError(t *testing.T) {
@@ -133,6 +162,7 @@ func TestBuild_MicrosoftInvalidTenant_ExitsWithError(t *testing.T) {
 	if !strings.Contains(string(output), "invalid tenant") {
 		t.Errorf("expected error about invalid tenant, got: %s", output)
 	}
+	assertExitCode(t, err, 1)
 }
 
 // TestBuild_OAuthE2E runs a full end-to-end test with a mock OAuth2 provider.
@@ -169,6 +199,7 @@ func TestBuild_OAuthE2E(t *testing.T) {
 		"-client-id", "test-app",
 		"-scope", "openid offline_access",
 		"-no-browser",
+		"-allow-http",
 		"-timeout", "15s")
 	cmd.Env = append(os.Environ(), "CHAPERONE_ONBOARD_CLIENT_SECRET=test-secret")
 
@@ -242,6 +273,7 @@ func TestBuild_MicrosoftE2E(t *testing.T) {
 		"-resource", "https://graph.microsoft.com",
 		"-endpoint", mockProvider.URL,
 		"-no-browser",
+		"-allow-http",
 		"-timeout", "15s")
 	cmd.Env = append(os.Environ(), "CHAPERONE_ONBOARD_CLIENT_SECRET=test-secret")
 
@@ -360,8 +392,10 @@ func TestExitCode_Mapping(t *testing.T) {
 		want int
 	}{
 		{"usage error", errUsage, 1},
+		{"wrapped usage error", fmt.Errorf("%w: -authorize-url: URL is required", errUsage), 1},
 		{"consent timeout", errConsentTimeout, 2},
 		{"exchange failed", errExchangeFailed, 3},
+		{"wrapped exchange failed", fmt.Errorf("%w: HTTP 401: invalid_client", errExchangeFailed), 3},
 		{"generic error", fmt.Errorf("something else"), 4},
 	}
 	for _, tt := range tests {
@@ -371,5 +405,17 @@ func TestExitCode_Mapping(t *testing.T) {
 				t.Errorf("exitCode(%v) = %d, want %d", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+// assertExitCode checks that an error from exec.Cmd contains the expected exit code.
+func assertExitCode(t *testing.T, err error, want int) {
+	t.Helper()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected *exec.ExitError, got %T: %v", err, err)
+	}
+	if got := exitErr.ExitCode(); got != want {
+		t.Errorf("exit code = %d, want %d", got, want)
 	}
 }

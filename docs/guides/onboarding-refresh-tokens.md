@@ -125,3 +125,7 @@ Use `-no-browser` to print the authorization URL to stderr instead of opening a 
 ### Consent timeout
 
 The default timeout is 5 minutes. If you need more time, use `-timeout 10m`.
+
+### The `-allow-http` flag
+
+Both subcommands require HTTPS URLs by default. The `-allow-http` flag exists only for testing against local mock servers during development. Never use it against real OAuth2 providers — credentials would be transmitted in plaintext.

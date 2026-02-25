@@ -29,6 +29,7 @@ func oauthCmd(args []string) error {
 	timeout := fs.Duration("timeout", 5*time.Minute, "Consent timeout")
 	noBrowser := fs.Bool("no-browser", false, "Print authorization URL instead of opening browser")
 	noPKCE := fs.Bool("no-pkce", false, "Disable PKCE for legacy providers")
+	allowHTTP := fs.Bool("allow-http", false, "Allow HTTP URLs (testing/development only; insecure)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: chaperone-onboard oauth [options]
@@ -48,6 +49,7 @@ Optional:
   -timeout         Consent timeout (default: 5m)
   -no-browser      Print authorization URL instead of opening browser
   -no-pkce         Disable PKCE for legacy providers that don't support it
+  -allow-http      Allow HTTP URLs (testing/development only; INSECURE)
 
 Client secret: read from CHAPERONE_ONBOARD_CLIENT_SECRET env var.
 
@@ -68,24 +70,24 @@ Example:
 	}
 
 	// Validate required flags
-	if err := validateURL(*authorizeURL); err != nil {
-		return fmt.Errorf("-authorize-url: %w", err)
+	if err := validateURL(*authorizeURL, *allowHTTP); err != nil {
+		return fmt.Errorf("%w: -authorize-url: %w", errUsage, err)
 	}
-	if err := validateURL(*tokenURL); err != nil {
-		return fmt.Errorf("-token-url: %w", err)
+	if err := validateURL(*tokenURL, *allowHTTP); err != nil {
+		return fmt.Errorf("%w: -token-url: %w", errUsage, err)
 	}
 	if err := validateNonEmpty("client-id", *clientID); err != nil {
-		return fmt.Errorf("-%w", err)
+		return fmt.Errorf("%w: -%w", errUsage, err)
 	}
 
-	if !isHTTPS(*authorizeURL) || !isHTTPS(*tokenURL) {
-		fmt.Fprintf(os.Stderr, "WARNING: Using HTTP URLs. Credentials will be sent in plaintext.\n")
-		fmt.Fprintf(os.Stderr, "         Production OAuth2 endpoints should always use HTTPS.\n\n")
+	if *allowHTTP {
+		fmt.Fprintf(os.Stderr, "WARNING: -allow-http is set. Credentials may be transmitted in plaintext.\n")
+		fmt.Fprintf(os.Stderr, "         Use only for testing with local mock servers.\n\n")
 	}
 
 	clientSecret := os.Getenv(envClientSecret)
 	if clientSecret == "" {
-		return fmt.Errorf("%s environment variable is required", envClientSecret)
+		return fmt.Errorf("%w: %s environment variable is required", errUsage, envClientSecret)
 	}
 
 	cfg := consentConfig{
@@ -103,7 +105,7 @@ Example:
 	if *extraParams != "" {
 		parsed, err := parseExtraParams(*extraParams)
 		if err != nil {
-			return fmt.Errorf("-extra-params: %w", err)
+			return fmt.Errorf("%w: -extra-params: %w", errUsage, err)
 		}
 		cfg.extraAuthParams = parsed
 	}

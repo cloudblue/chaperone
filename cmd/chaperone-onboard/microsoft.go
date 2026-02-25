@@ -28,6 +28,7 @@ func microsoftCmd(args []string) error {
 	port := fs.Int("port", 0, "Local callback port (default: OS-assigned)")
 	timeout := fs.Duration("timeout", 5*time.Minute, "Consent timeout")
 	noBrowser := fs.Bool("no-browser", false, "Print authorization URL instead of opening browser")
+	allowHTTP := fs.Bool("allow-http", false, "Allow HTTP endpoint URL (testing/development only; insecure)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: chaperone-onboard microsoft [options]
@@ -50,6 +51,7 @@ Optional:
                if your app registration requires an exact redirect URI)
   -timeout     Consent timeout (default: 5m)
   -no-browser  Print authorization URL instead of opening browser
+  -allow-http  Allow HTTP endpoint URL (testing/development only; INSECURE)
 
 Client secret: read from CHAPERONE_ONBOARD_CLIENT_SECRET env var.
 
@@ -70,18 +72,26 @@ Example:
 
 	// Validate required flags
 	if err := validateTenantID(*tenant); err != nil {
-		return fmt.Errorf("-tenant: %w", err)
+		return fmt.Errorf("%w: -tenant: %w", errUsage, err)
 	}
 	if err := validateNonEmpty("client-id", *clientID); err != nil {
-		return fmt.Errorf("-%w", err)
+		return fmt.Errorf("%w: -%w", errUsage, err)
 	}
 	if err := validateNonEmpty("resource", *resource); err != nil {
-		return fmt.Errorf("-%w", err)
+		return fmt.Errorf("%w: -%w", errUsage, err)
+	}
+	if err := validateURL(*endpoint, *allowHTTP); err != nil {
+		return fmt.Errorf("%w: -endpoint: %w", errUsage, err)
 	}
 
 	clientSecret := os.Getenv(envClientSecret)
 	if clientSecret == "" {
-		return fmt.Errorf("%s environment variable is required", envClientSecret)
+		return fmt.Errorf("%w: %s environment variable is required", errUsage, envClientSecret)
+	}
+
+	if *allowHTTP {
+		fmt.Fprintf(os.Stderr, "WARNING: -allow-http is set. Credentials may be transmitted in plaintext.\n")
+		fmt.Fprintf(os.Stderr, "         Use only for testing with local mock servers.\n\n")
 	}
 
 	// Derive Azure AD v1 endpoints from tenant ID

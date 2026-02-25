@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -86,7 +87,7 @@ func TestExchangeCode_MissingRefreshToken_ReturnsActionableError(t *testing.T) {
 		t.Fatal("expected error for missing refresh_token")
 	}
 	want := "no refresh_token in response"
-	if got := err.Error(); !contains(got, want) {
+	if got := err.Error(); !strings.Contains(got, want) {
 		t.Errorf("error = %q, want containing %q", got, want)
 	}
 }
@@ -115,7 +116,7 @@ func TestExchangeCode_HTTPError_ReturnsOAuthError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for 401 response")
 	}
-	if got := err.Error(); !contains(got, "invalid_client") || !contains(got, "bad credentials") {
+	if got := err.Error(); !strings.Contains(got, "invalid_client") || !strings.Contains(got, "bad credentials") {
 		t.Errorf("error = %q, want containing oauth error details", got)
 	}
 }
@@ -142,7 +143,7 @@ func TestExchangeCode_ServerError_ReturnsGenericError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for 500 response")
 	}
-	if got := err.Error(); !contains(got, "500") {
+	if got := err.Error(); !strings.Contains(got, "500") {
 		t.Errorf("error = %q, want containing status code", got)
 	}
 }
@@ -269,18 +270,4 @@ func TestExchangeCode_ContextCancelled_ReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
 	}
-}
-
-// contains is a test helper to check substring presence.
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchSubstring(s, substr)
-}
-
-func searchSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
