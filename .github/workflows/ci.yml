@@ -152,7 +152,12 @@ jobs:
       - name: Build binary
         run: make build
 
-      - name: Verify binary exists
+      - name: Build onboard tool
+        run: make build-onboard
+
+      - name: Verify binaries exist
         run: |
           test -f bin/chaperone
           ./bin/chaperone --version || true
+          test -f bin/chaperone-onboard
+          ./bin/chaperone-onboard -version

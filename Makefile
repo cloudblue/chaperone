@@ -6,8 +6,10 @@
 
 # Build variables
 BINARY_NAME := chaperone
+ONBOARD_BINARY := chaperone-onboard
 BUILD_DIR := bin
 CMD_PATH := ./cmd/chaperone
+ONBOARD_CMD_PATH := ./cmd/chaperone-onboard
 
 # Prevent Go from auto-downloading a different toolchain version.
 # This avoids silent compile/tool version mismatches when the local
@@ -30,6 +32,11 @@ LDFLAGS := -ldflags "-s -w \
 	-X main.GitCommit=$(GIT_COMMIT) \
 	-X main.BuildDate=$(BUILD_DATE) \
 	-X 'github.com/cloudblue/chaperone/internal/proxy.allowInsecureTargets=$(ALLOW_INSECURE_TARGETS)'"
+
+ONBOARD_LDFLAGS := -ldflags "-s -w \
+	-X main.Version=$(VERSION) \
+	-X main.GitCommit=$(GIT_COMMIT) \
+	-X main.BuildDate=$(BUILD_DATE)"
 
 # Development build flags (allows insecure targets and profiling for testing)
 LDFLAGS_DEV := -ldflags "\
@@ -56,6 +63,12 @@ build: ## Build the production binary (HTTPS targets only)
 	@echo "  ALLOW_INSECURE_TARGETS=$(ALLOW_INSECURE_TARGETS)"
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_PATH)
+
+.PHONY: build-onboard
+build-onboard: ## Build the onboarding CLI tool
+	@echo "Building $(ONBOARD_BINARY)..."
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 go build $(ONBOARD_LDFLAGS) -o $(BUILD_DIR)/$(ONBOARD_BINARY) $(ONBOARD_CMD_PATH)
 
 .PHONY: build-dev
 build-dev: ## Build for development (allows HTTP targets, debug symbols)

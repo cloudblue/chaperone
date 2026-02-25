@@ -93,6 +93,36 @@ jobs:
             -o dist/chaperone-darwin-arm64 \
             ./cmd/chaperone
 
+          # Onboard tool LDFLAGS (no proxy-specific flags)
+          ONBOARD_LDFLAGS="-s -w \
+            -X main.Version=${VERSION} \
+            -X main.GitCommit=${GIT_COMMIT} \
+            -X main.BuildDate=${BUILD_DATE}"
+
+          # chaperone-onboard: Linux AMD64
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -ldflags "${ONBOARD_LDFLAGS}" \
+            -o dist/chaperone-onboard-linux-amd64 \
+            ./cmd/chaperone-onboard
+
+          # chaperone-onboard: Linux ARM64
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -ldflags "${ONBOARD_LDFLAGS}" \
+            -o dist/chaperone-onboard-linux-arm64 \
+            ./cmd/chaperone-onboard
+
+          # chaperone-onboard: Darwin (macOS) AMD64
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build \
+            -ldflags "${ONBOARD_LDFLAGS}" \
+            -o dist/chaperone-onboard-darwin-amd64 \
+            ./cmd/chaperone-onboard
+
+          # chaperone-onboard: Darwin (macOS) ARM64 (Apple Silicon)
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+            -ldflags "${ONBOARD_LDFLAGS}" \
+            -o dist/chaperone-onboard-darwin-arm64 \
+            ./cmd/chaperone-onboard
+
       - name: Generate checksums
         run: |
           cd dist
