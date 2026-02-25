@@ -17,6 +17,7 @@ how-to guides, reference, and explanation.
 | [Deployment](guides/deployment.md) | Docker builds, container operations, Kubernetes probes, production hardening |
 | [Certificate Management](guides/certificate-management.md) | Development certs, production CA enrollment, CSR generation |
 | [Plugin Development](guides/plugin-development.md) | Build your own credential plugin — integration methods, testing, common patterns |
+| [Onboarding Refresh Tokens](guides/onboarding-refresh-tokens.md) | Bootstrap the initial refresh token for OAuth2/Microsoft SAM building blocks |
 | [Troubleshooting](guides/troubleshooting.md) | Common errors, mTLS issues, allow-list debugging, Docker problems |
 
 ## Reference

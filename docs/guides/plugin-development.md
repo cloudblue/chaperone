@@ -666,6 +666,10 @@ Skip them in CI fast-feedback loops with `go test -short ./plugins/...`.
 > [request multiplexer](../reference/contrib-plugins.md#mux) to route
 > different vendors to different building blocks without writing auth
 > logic from scratch.
+>
+> **Initial token setup:** Refresh token building blocks require a pre-seeded
+> token store. See [Onboarding Refresh Tokens](onboarding-refresh-tokens.md)
+> for how to bootstrap the first token using the `chaperone-onboard` CLI.
 
 Now that you have a working plugin, here are patterns for real-world
 credential strategies. Each pattern replaces the `fetchTag` method
