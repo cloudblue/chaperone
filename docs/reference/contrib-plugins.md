@@ -422,7 +422,9 @@ import "github.com/cloudblue/chaperone/plugins/contrib/microsoft"
 
 Implements the delegated refresh token grant for Microsoft Partner Center. A single Azure AD app registration (one `ClientID` + `ClientSecret`) is shared across all tenants. Per-tenant state is managed by a keyed [`TokenStore`](#tokenstoremicrosoft).
 
-> **Getting started:** The `TokenStore` must be seeded with an initial refresh token for each tenant before the proxy can use this building block. Use the [`chaperone-onboard microsoft`](../guides/onboarding-refresh-tokens.md) CLI tool to perform the one-time consent flow.
+> **Getting started:** For a step-by-step walkthrough that covers project setup, onboarding, and wiring the Mux, see the [Microsoft SAM with Mux tutorial](../tutorials/microsoft-sam-mux.md).
+>
+> The `TokenStore` must be seeded with an initial refresh token for each tenant before the proxy can use this building block. The tutorial covers seeding, or see [`chaperone-onboard microsoft`](../guides/onboarding-refresh-tokens.md) for the standalone onboarding guide.
 
 ### `Config`
 

@@ -665,7 +665,7 @@ Skip them in CI fast-feedback loops with `go test -short ./plugins/...`.
 > deduplication, and expiry margin handling. Use the
 > [request multiplexer](../reference/contrib-plugins.md#mux) to route
 > different vendors to different building blocks without writing auth
-> logic from scratch.
+> logic from scratch. The [Microsoft SAM with Mux tutorial](../tutorials/microsoft-sam-mux.md) walks through the full setup end-to-end.
 >
 > **Initial token setup:** Refresh token building blocks require a pre-seeded
 > token store. See [Onboarding Refresh Tokens](onboarding-refresh-tokens.md)

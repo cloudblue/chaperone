@@ -9,6 +9,7 @@ how-to guides, reference, and explanation.
 | Document | Description |
 |----------|-------------|
 | [Getting Started](getting-started.md) | Build, run, and send your first proxied request (~10 min) |
+| [Microsoft SAM with Mux](tutorials/microsoft-sam-mux.md) | Build a proxy with Microsoft Secure Application Model and the request multiplexer (~20 min) |
 
 ## How-to Guides
 
