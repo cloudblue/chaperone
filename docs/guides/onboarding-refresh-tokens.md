@@ -1,4 +1,4 @@
-# Onboarding refresh tokens
+# Onboard refresh tokens for OAuth2 and Microsoft SAM
 
 How to bootstrap the initial refresh token for `oauth.RefreshToken` or `microsoft.RefreshTokenSource` using the `chaperone-onboard` CLI tool. This is a one-time step — once seeded, the proxy rotates tokens automatically.
 
@@ -25,7 +25,7 @@ How to bootstrap the initial refresh token for `oauth.RefreshToken` or `microsof
 export CHAPERONE_ONBOARD_CLIENT_SECRET='your-app-secret'
 ```
 
-**2. Run the onboarding tool:**
+**2. Run the onboarding tool and authorize in the browser:**
 
 ```bash
 chaperone-onboard microsoft \
@@ -35,9 +35,9 @@ chaperone-onboard microsoft \
   > refresh-token.txt
 ```
 
-The tool prints only the refresh token to stdout, so you can redirect to a file (as above) or pipe to your secrets manager.
+The tool prints only the refresh token to stdout, so you can redirect to a file (as above) or pipe to your secrets manager. See [Store the refresh token](#store-the-refresh-token) for where to place the file.
 
-**3. Authorize in the browser.** The tool opens your default browser to the Azure AD consent page. Sign in as an admin and grant consent. After granting consent, the browser shows a "You may close this tab and return to the terminal" page.
+The command opens your default browser to the Azure AD consent page. Sign in as an admin and grant consent. After granting consent, the browser shows a "You may close this tab and return to the terminal" page.
 
 For sovereign clouds (Azure Government, Azure China), override the endpoint:
 
@@ -57,7 +57,7 @@ chaperone-onboard microsoft \
 export CHAPERONE_ONBOARD_CLIENT_SECRET='your-client-secret'
 ```
 
-**2. Run the onboarding tool:**
+**2. Run the onboarding tool and authorize in the browser:**
 
 ```bash
 chaperone-onboard oauth \
@@ -68,9 +68,9 @@ chaperone-onboard oauth \
   > refresh-token.txt
 ```
 
-The tool prints only the refresh token to stdout, so you can redirect to a file (as above) or pipe to your secrets manager.
+Stdout contains only the refresh token, so you can redirect it to a file or pipe it to a secrets manager. See [Store the refresh token](#store-the-refresh-token) for where to place the file.
 
-**3. Authorize in the browser** and complete the provider's consent flow.
+The command opens your default browser to the provider's consent page. Complete the authorization flow and return to the terminal.
 
 If your provider requires an exact redirect URI match, use a fixed port:
 
@@ -85,13 +85,49 @@ chaperone-onboard oauth \
 
 ## Store the refresh token
 
-Store the token in your `TokenStore` implementation. The proxy's `oauth.RefreshToken` and `microsoft.RefreshTokenSource` blocks read from it at startup. How you seed the store depends on your storage backend:
+The proxy reads the refresh token from a [`TokenStore`](../reference/contrib-plugins.md#tokenstoreoauth) at runtime. You need to seed the store with the token you just obtained.
 
-- **File-based store:** Write the token to the expected file path.
-- **Vault-backed store:** Use the Vault CLI or API to write the token to the expected KV path.
-- **Database-backed store:** Insert the token into the appropriate table.
+### Using `FileStore` (built-in)
 
-See the [Contrib Plugins Reference](../reference/contrib-plugins.md) for the `TokenStore` interface definitions and a Vault-backed implementation skeleton.
+The contrib module ships file-based stores for both OAuth and Microsoft flows. Redirect the `chaperone-onboard` output to the expected file path.
+
+**For generic OAuth2** — a single file per token:
+
+```bash
+chaperone-onboard oauth ... > /var/lib/chaperone/refresh-token.txt
+```
+
+Then configure the provider to read from that path:
+
+```go
+store := oauth.NewFileStore("/var/lib/chaperone/refresh-token.txt")
+```
+
+**For Microsoft SAM** — a directory tree with one file per tenant+resource pair:
+
+```bash
+chaperone-onboard microsoft \
+  -tenant contoso.onmicrosoft.com \
+  -client-id ... \
+  -resource https://graph.microsoft.com \
+  > /var/lib/chaperone/tokens/contoso.onmicrosoft.com/graph.microsoft.com
+```
+
+Then point the store at the base directory:
+
+```go
+store := microsoft.NewFileStore("/var/lib/chaperone/tokens")
+```
+
+The shell `>` redirect does not create parent directories, so create the tenant directory first: `mkdir -p /var/lib/chaperone/tokens/contoso.onmicrosoft.com`. At runtime, `FileStore.Save` calls `os.MkdirAll` and creates directories automatically when Microsoft rotates the token.
+
+The resource filename is derived by stripping the URL scheme and replacing any character outside `[a-zA-Z0-9.-]` with an underscore. For example, `https://graph.microsoft.com` becomes `graph.microsoft.com`, while `https://api.example.com/v1` becomes `api.example.com_v1`. See the [FileStore reference](../reference/contrib-plugins.md#microsoft-filestore) for the full sanitization rules.
+
+### Other backends
+
+- **Vault:** Use the Vault CLI or API to write the token to the expected KV path. See the [Vault-backed skeleton](../reference/contrib-plugins.md#vault-backed-tokenstore) in the contrib reference.
+- **Database:** Insert the token into the appropriate table.
+- **Custom:** Implement the [`TokenStore`](../reference/contrib-plugins.md#tokenstoreoauth) interface (2 methods: `Load` and `Save`).
 
 ## Troubleshooting
 
@@ -126,6 +162,6 @@ Use `-no-browser` to print the authorization URL to stderr instead of opening a 
 
 The default timeout is 5 minutes. If you need more time, use `-timeout 10m`.
 
-### The `-allow-http` flag
+### Testing against local servers without HTTPS
 
-Both subcommands require HTTPS URLs by default. The `-allow-http` flag exists only for testing against local mock servers during development. Never use it against real OAuth2 providers — credentials would be transmitted in plaintext.
+Both subcommands require HTTPS URLs by default. To test against a local mock server during development, pass the `-allow-http` flag. Never use it against real OAuth2 providers — credentials would be transmitted in plaintext.

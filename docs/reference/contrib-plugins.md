@@ -95,7 +95,7 @@ Configures the [`CertificateSigner`][cs] delegate. Without a signer, `SignCSR` r
 func (m *Mux) SetResponseModifier(modifier sdk.ResponseModifier)
 ```
 
-Configures the [`ResponseModifier`][rm] delegate. Without a modifier, `ModifyResponse` returns a nil action and nil error (no-op).
+Configures the [`ResponseModifier`][rm] delegate. Without a modifier, `ModifyResponse` returns a nil action and nil error.
 
 ### `GetCredentials`
 
@@ -185,7 +185,7 @@ Route fields use `GlobMatch(pattern, input, sep)` with `/` as the separator.
 func GlobMatch(pattern, input string, sep byte) bool
 ```
 
-Package-level function. Tests whether `input` matches the glob `pattern` using `sep` as the segment separator. Route fields call this function internally with `/` as the separator. It can also be used directly for custom matching logic.
+Package-level function. Tests whether `input` matches the glob `pattern` using `sep` as the segment separator. Route fields call this function internally with `/` as the separator.
 
 ---
 
@@ -219,7 +219,7 @@ type ClientCredentialsConfig struct {
 | `ClientID` | `string` | — (required) | OAuth2 client identifier. |
 | `ClientSecret` | `string` | — (required) | OAuth2 client secret. |
 | `Scopes` | `[]string` | `nil` | Scopes to request. Joined with space per RFC 6749. |
-| `ExtraParams` | `map[string]string` | `nil` | Extra form parameters merged into the token request. Cannot override standard fields (`grant_type`, `client_id`, `client_secret`, `scope`). |
+| `ExtraParams` | `map[string]string` | `nil` | Extra form parameters merged into the token request. Cannot override standard fields (`grant_type`, `client_id`, `client_secret`, `scope`, `refresh_token`). |
 | `AuthMode` | [`AuthMode`](#authmode) | `AuthModePost` | How credentials are sent to the token endpoint. |
 | `HTTPClient` | [`*http.Client`][client] | 10s timeout, TLS 1.3+ | HTTP client for token requests. |
 | `Logger` | [`*slog.Logger`][slog] | `slog.Default()` | Logger for debug and warning messages. |
@@ -322,7 +322,7 @@ type RefreshTokenConfig struct {
 func NewRefreshToken(cfg RefreshTokenConfig) *RefreshToken
 ```
 
-Creates a new refresh token provider. Applies defaults for unset optional fields (`HTTPClient`, `Logger`, `ExpiryMargin`). Does not validate required fields — an empty `TokenURL` or nil `Store` causes errors at first `GetCredentials` call, not at construction time.
+Creates a new refresh token provider. Applies defaults for unset optional fields (`HTTPClient`, `Logger`, `ExpiryMargin`). Like [`NewClientCredentials`](#newclientcredentials), required fields are validated lazily at first `GetCredentials` call.
 
 ### `RefreshToken`
 
@@ -368,6 +368,50 @@ Abstracts refresh token persistence for a single session. Scoped to one token UR
 
 Implementations must be safe for concurrent use and should be durable. A failed `Save` after a successful exchange means the rotated refresh token is lost — the old one has been invalidated by the token endpoint.
 
+### OAuth `FileStore`
+
+```go
+type FileStore struct{ /* unexported */ }
+```
+
+A file-backed [`TokenStore`](#tokenstoreoauth) that reads and writes a single refresh token to a plain text file. The token is stored as raw text with no wrapper or metadata.
+
+#### `NewFileStore`
+
+```go
+func NewFileStore(path string) *FileStore
+```
+
+Creates a `FileStore` that persists the refresh token at `path`. Panics if `path` is empty.
+
+`Save` creates parent directories automatically, so the file does not need to exist before the first write.
+
+#### Atomic writes
+
+Writes use a temp-file-and-rename pattern: the token is written to a temporary file in the same directory, fsynced to disk, and renamed to the target path. This prevents corruption from a crash mid-write. Files are created with `0600` permissions; directories with `0700`.
+
+#### Error behavior
+
+| Method | Condition | Error |
+|--------|-----------|-------|
+| `Load` | File does not exist | Wraps `os.ErrNotExist` (check with `errors.Is`) |
+| `Save` | Empty `refreshToken` | Returns an error |
+
+#### Example
+
+```go
+store := oauth.NewFileStore("/var/lib/chaperone/refresh-token.txt")
+
+provider := oauth.NewRefreshToken(oauth.RefreshTokenConfig{
+    TokenURL:     "https://auth.vendor.com/oauth/token",
+    ClientID:     os.Getenv("CLIENT_ID"),
+    ClientSecret: os.Getenv("CLIENT_SECRET"),
+    Store:        store,
+})
+```
+
+Seed the file with the initial token from [`chaperone-onboard oauth`](../guides/onboarding-refresh-tokens.md). The proxy rotates it automatically from there.
+
 ---
 
 ## Microsoft Secure Application Model
@@ -412,7 +456,7 @@ type Config struct {
 func NewRefreshTokenSource(cfg Config) *RefreshTokenSource
 ```
 
-Creates a new Microsoft refresh token source. Applies defaults for unset optional fields (`TokenEndpoint`, `MaxPoolSize`, `ExpiryMargin`, `HTTPClient`, `Logger`). Does not validate required fields — an empty `ClientID` or nil `Store` causes errors at first `GetCredentials` call, not at construction time.
+Creates a new Microsoft refresh token source. Applies defaults for unset optional fields (`TokenEndpoint`, `MaxPoolSize`, `ExpiryMargin`, `HTTPClient`, `Logger`). Like [`NewClientCredentials`](#newclientcredentials), required fields are validated lazily at first `GetCredentials` call.
 
 ### `RefreshTokenSource`
 
@@ -473,6 +517,82 @@ Multi-tenant refresh token persistence keyed by tenant and resource.
 | `Save` | `tenantID`, `resource`, `refreshToken` | Persists a rotated refresh token after a successful exchange. |
 
 Implementations must be safe for concurrent use and should be durable. A failed `Save` after a successful exchange means the rotated token is lost — the old one has been invalidated by Microsoft's token endpoint.
+
+### Microsoft `FileStore`
+
+```go
+type FileStore struct{ /* unexported */ }
+```
+
+A file-backed [`TokenStore`](#tokenstoremicrosoft) that organizes refresh tokens in a directory tree:
+
+```
+baseDir/
+  {tenantID}/
+    {sanitizedResource}
+```
+
+Each `(tenantID, resource)` pair maps to a separate plain text file.
+
+#### `NewFileStore`
+
+```go
+func NewFileStore(baseDir string) *FileStore
+```
+
+Creates a `FileStore` rooted at `baseDir`. Panics if `baseDir` is empty.
+
+`Save` creates the tenant subdirectory automatically, so the directory tree does not need to exist before the first write.
+
+#### Directory layout
+
+`tenantID` is used as a subdirectory name directly — it is validated against `^[a-zA-Z0-9][a-zA-Z0-9.\-]*$` to prevent path traversal.
+
+The resource URL is converted to a filename by stripping the scheme (`https://`, `http://`) and replacing characters outside `[a-zA-Z0-9.-]` with underscores. Examples:
+
+| Resource | Filename |
+|----------|----------|
+| `https://graph.microsoft.com` | `graph.microsoft.com` |
+| `https://management.azure.com` | `management.azure.com` |
+| `https://api.partnercenter.microsoft.com/v1` | `api.partnercenter.microsoft.com_v1` |
+
+Sanitized filenames that exceed 200 bytes are rejected with a validation error to prevent OS-level `ENAMETOOLONG` errors.
+
+#### Atomic writes
+
+Same pattern as [`oauth.FileStore`](#oauth-filestore): temp file, fsync, rename. Files are created with `0600` permissions; directories with `0700`.
+
+#### Error behavior
+
+| Method | Condition | Error |
+|--------|-----------|-------|
+| `Load` | File does not exist | Wraps [`ErrTenantNotFound`](#sentinel-errors) |
+| `Load` / `Save` | Invalid `tenantID` | Validation error (not `ErrTenantNotFound`) |
+| `Load` / `Save` | Empty or scheme-only `resource` | Validation error |
+| `Save` | Empty `refreshToken` | Returns an error |
+
+#### Example
+
+```go
+store := microsoft.NewFileStore("/var/lib/chaperone/tokens")
+
+source := microsoft.NewRefreshTokenSource(microsoft.Config{
+    ClientID:     os.Getenv("MS_CLIENT_ID"),
+    ClientSecret: os.Getenv("MS_CLIENT_SECRET"),
+    Store:        store,
+})
+```
+
+Seed each tenant with [`chaperone-onboard microsoft`](../guides/onboarding-refresh-tokens.md). The resulting directory tree looks like:
+
+```
+/var/lib/chaperone/tokens/
+  contoso.onmicrosoft.com/
+    graph.microsoft.com
+  fabrikam.onmicrosoft.com/
+    graph.microsoft.com
+    management.azure.com
+```
 
 ---
 
@@ -542,12 +662,13 @@ func main() {
     mux := contrib.NewMux()
 
     // Microsoft vendors via Secure Application Model
+    msStore := microsoft.NewFileStore("/var/lib/chaperone/tokens")
     mux.Handle(
         contrib.Route{VendorID: "microsoft-*"},
         microsoft.NewRefreshTokenSource(microsoft.Config{
             ClientID:     os.Getenv("MS_CLIENT_ID"),
             ClientSecret: os.Getenv("MS_CLIENT_SECRET"),
-            Store:        myVaultStore, // implements microsoft.TokenStore
+            Store:        msStore,
         }),
     )
 
@@ -562,8 +683,8 @@ func main() {
         }),
     )
 
-    // Fallback for unmatched vendors
-    mux.Default(fileProvider)
+    // Fallback for unmatched vendors (your CredentialProvider here)
+    // mux.Default(fallbackProvider)
 
     ctx := context.Background()
     chaperone.Run(ctx, mux)
@@ -593,10 +714,10 @@ func (v *VaultTokenStore) Load(ctx context.Context, tenantID, resource string) (
     return token, nil
 }
 
-func (v *VaultTokenStore) Save(ctx context.Context, tenantID, resource, token string) error {
+func (v *VaultTokenStore) Save(ctx context.Context, tenantID, resource, refreshToken string) error {
     path := fmt.Sprintf("tenants/%s/%s", tenantID, resource)
     _, err := v.client.KVv2(v.mount).Put(ctx, path, map[string]any{
-        "refresh_token": token,
+        "refresh_token": refreshToken,
     })
     if err != nil {
         return fmt.Errorf("vault write %s: %w", path, err)
