@@ -32,7 +32,7 @@ type exchangeConfig struct {
 
 // oauthTokenResponse holds the JSON fields from a token endpoint response.
 type oauthTokenResponse struct {
-	RefreshToken string `json:"refresh_token"` //nolint:gosec // OAuth2 response field
+	RefreshToken string `json:"refresh_token"` // #nosec G117 -- OAuth2 response field, not a credential
 	Error        string `json:"error"`
 	Description  string `json:"error_description"`
 }
@@ -54,7 +54,7 @@ func exchangeCode(ctx context.Context, cfg exchangeConfig) (string, error) {
 		client = defaultExchangeClient()
 	}
 
-	resp, err := client.Do(req) //nolint:gosec // tokenURL is set by CLI flags, not external input
+	resp, err := client.Do(req) // #nosec G704 -- tokenURL is set by CLI flags, not external input
 	if err != nil {
 		return "", fmt.Errorf("token exchange request failed: %w", err)
 	}

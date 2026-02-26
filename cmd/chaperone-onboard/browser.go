@@ -22,11 +22,11 @@ func openBrowser(url string) error {
 
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.CommandContext(ctx, "open", url)
+		cmd = exec.CommandContext(ctx, "open", url) // #nosec G204 -- url is from CLI flags, not external input
 	case "linux":
-		cmd = exec.CommandContext(ctx, "xdg-open", url)
+		cmd = exec.CommandContext(ctx, "xdg-open", url) // #nosec G204 -- url is from CLI flags, not external input
 	case "windows":
-		cmd = exec.CommandContext(ctx, "cmd", "/c", "start", url)
+		cmd = exec.CommandContext(ctx, "cmd", "/c", "start", url) // #nosec G204 -- url is from CLI flags, not external input
 	default:
 		return fmt.Errorf("unsupported platform %s", runtime.GOOS)
 	}

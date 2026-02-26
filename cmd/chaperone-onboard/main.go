@@ -62,7 +62,7 @@ func run(args []string) error {
 		printUsage()
 		return nil
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %q\n\n", args[0]) //nolint:gosec // CLI output, not web
+		fmt.Fprintf(os.Stderr, "Unknown command: %q\n\n", args[0]) // #nosec G705 -- CLI stderr output, not web
 		printUsage()
 		return errUsage
 	}

@@ -205,7 +205,7 @@ func callbackHandler(
 		if errParam := query.Get("error"); errParam != "" {
 			desc := query.Get("error_description")
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintf(w, "Authorization error: %s", html.EscapeString(errParam)) //nolint:gosec // output is HTML-escaped
+			fmt.Fprintf(w, "Authorization error: %s", html.EscapeString(errParam)) // #nosec G705 -- output is HTML-escaped
 			if desc != "" {
 				resultCh <- callbackResult{err: fmt.Errorf("authorization denied: %s: %s", errParam, desc)}
 			} else {
