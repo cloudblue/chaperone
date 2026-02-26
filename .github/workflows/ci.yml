@@ -8,16 +8,10 @@ on:
     branches:
       - master
       - 'release/**'
-    paths-ignore:
-      - '**/*.md'
-      - 'LICENSE'
   pull_request:
     branches:
       - master
       - 'release/**'
-    paths-ignore:
-      - '**/*.md'
-      - 'LICENSE'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -30,8 +24,29 @@ env:
   GOLANGCI_LINT_VERSION: 'v2.8.0'
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      code: ${{ steps.check.outputs.code }}
+    steps:
+      - name: Checkout action
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .github/actions
+          sparse-checkout-cone-mode: false
+
+      - name: Detect code changes
+        id: check
+        uses: ./.github/actions/detect-code-changes
+
   license:
     name: License Headers
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -51,6 +66,8 @@ jobs:
 
   lint:
     name: Lint
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -77,6 +94,8 @@ jobs:
 
   test:
     name: Test
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

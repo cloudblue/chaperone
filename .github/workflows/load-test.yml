@@ -8,9 +8,6 @@ on:
     branches:
       - master
       - 'release/**'
-    paths-ignore:
-      - '**/*.md'
-      - 'LICENSE'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -23,8 +20,29 @@ env:
   K6_VERSION: '0.56.0'
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      code: ${{ steps.check.outputs.code }}
+    steps:
+      - name: Checkout action
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .github/actions
+          sparse-checkout-cone-mode: false
+
+      - name: Detect code changes
+        id: check
+        uses: ./.github/actions/detect-code-changes
+
   smoke:
     name: Smoke Load Test
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
