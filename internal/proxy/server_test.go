@@ -172,7 +172,7 @@ func TestProxy_TraceID_GeneratedWhenMissing(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -196,7 +196,7 @@ func TestProxy_TraceID_PreservedFromRequest(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -224,7 +224,7 @@ func TestProxy_ResponseSanitizer_StripsAuthHeaders(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -257,7 +257,7 @@ func TestNewServer_NilPlugin_UsesNoopPlugin(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -283,7 +283,7 @@ func TestProxy_TargetURLWithPath_PreservesPath(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	// Target URL with a specific path
@@ -333,7 +333,7 @@ func TestProxy_MethodPassthrough_ForwardsOriginalMethod(t *testing.T) {
 			}))
 			defer backend.Close()
 
-			srv := mustNewServer(t, testConfig())
+			srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 			handler := srv.Handler()
 
 			req := httptest.NewRequest(tt.method, "/proxy", nil)

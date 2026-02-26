@@ -4,6 +4,7 @@
 package proxy_test
 
 import (
+	"net/url"
 	"os"
 	"testing"
 	"time"
@@ -54,4 +55,31 @@ func mustNewServer(t *testing.T, cfg proxy.Config) *proxy.Server {
 		t.Fatalf("NewServer failed with valid config: %v", err)
 	}
 	return srv
+}
+
+// mustNewServerForTarget creates a server config that allows requests to the
+// target URL's exact host:port. This keeps integration tests aligned with the
+// production allow-list port filtering rules.
+func mustNewServerForTarget(t *testing.T, cfg proxy.Config, targetURL string) *proxy.Server {
+	t.Helper()
+
+	host := mustTargetHostPort(t, targetURL)
+	cfg.AllowList = map[string][]string{host: {"/**"}}
+	return mustNewServer(t, cfg)
+}
+
+func mustTargetHostPort(t *testing.T, targetURL string) string {
+	t.Helper()
+
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		t.Fatalf("failed to parse target URL %q: %v", targetURL, err)
+	}
+
+	host := parsed.Host
+	if host == "" {
+		t.Fatalf("target URL %q is missing host", targetURL)
+	}
+
+	return host
 }

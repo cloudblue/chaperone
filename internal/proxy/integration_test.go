@@ -81,7 +81,7 @@ func TestIntegration_ProxyInjectsCredentials(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.Plugin = plugin
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -112,7 +112,7 @@ func TestIntegration_ProxyForwardsBody(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	requestBody := `{"action": "create", "data": {"name": "test"}}`
@@ -149,7 +149,7 @@ func TestIntegration_PluginError_Returns500(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.Plugin = plugin
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -188,7 +188,7 @@ func TestIntegration_PluginTimeout_Returns504(t *testing.T) {
 	cfg := testConfig()
 	cfg.Plugin = plugin
 	cfg.PluginTimeout = 50 * time.Millisecond // Very short timeout for test
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -224,7 +224,7 @@ func TestIntegration_PluginReturnsNil_ForwardsWithoutInjection(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.Plugin = plugin
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -261,7 +261,7 @@ func TestIntegration_TransactionContextPassedToPlugin(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.Plugin = plugin
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -301,7 +301,7 @@ func TestIntegration_BackendError_Returns502(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -342,7 +342,7 @@ func TestIntegration_MultipleCredentialHeaders(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.Plugin = plugin
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -383,7 +383,7 @@ func TestIntegration_PluginContextCancellation(t *testing.T) {
 	cfg := testConfig()
 	cfg.Plugin = plugin
 	cfg.PluginTimeout = 5 * time.Second
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -407,7 +407,9 @@ func TestIntegration_PluginContextCancellation(t *testing.T) {
 
 func TestIntegration_BackendUnreachable_Returns502(t *testing.T) {
 	// Arrange - target URL that doesn't exist
-	srv := mustNewServer(t, testConfig())
+	cfg := testConfig()
+	cfg.AllowList = map[string][]string{"127.0.0.1:1": {"/**"}}
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -466,7 +468,7 @@ func TestIntegration_AllowList_ValidRequest_Passes(t *testing.T) {
 	// Configure server with allow list
 	cfg := testConfig()
 	cfg.AllowList = map[string][]string{
-		"127.0.0.1": {"/**"},
+		mustTargetHostPort(t, backend.URL): {"/**"},
 	}
 	srv := mustNewServer(t, cfg)
 
@@ -527,7 +529,7 @@ func TestIntegration_AllowList_BlockedPath_Returns403(t *testing.T) {
 	// Configure server with restricted path
 	cfg := testConfig()
 	cfg.AllowList = map[string][]string{
-		"127.0.0.1": {"/v1/**"},
+		mustTargetHostPort(t, backend.URL): {"/v1/**"},
 	}
 	srv := mustNewServer(t, cfg)
 
@@ -561,7 +563,7 @@ func TestIntegration_AllowList_GlobPatternMatches(t *testing.T) {
 	// Configure server with glob patterns
 	cfg := testConfig()
 	cfg.AllowList = map[string][]string{
-		"127.0.0.1": {"/v1/customers/*/profiles", "/v1/orders/**"},
+		mustTargetHostPort(t, backend.URL): {"/v1/customers/*/profiles", "/v1/orders/**"},
 	}
 	srv := mustNewServer(t, cfg)
 
@@ -671,7 +673,7 @@ func TestIntegration_UpstreamError_NormalizedResponse(t *testing.T) {
 			}))
 			defer backend.Close()
 
-			srv := mustNewServer(t, testConfig())
+			srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 
 			req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
 			req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
@@ -723,7 +725,7 @@ func TestIntegration_SuccessResponse_NotNormalized(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
@@ -772,7 +774,7 @@ func TestIntegration_PluginModifyResponse_RunsBeforeNormalization(t *testing.T) 
 
 	cfg := testConfig()
 	cfg.Plugin = plugin
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
@@ -819,7 +821,7 @@ func TestIntegration_ResponseSanitization_StripsSensitiveHeaders(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -873,7 +875,7 @@ func TestIntegration_ResponseSanitization_CustomHeaders(t *testing.T) {
 	// Configure server with custom sensitive headers (merged with defaults)
 	cfg := testConfig()
 	cfg.SensitiveHeaders = []string{"X-Custom-Secret"} // Merged with defaults
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -937,7 +939,7 @@ func TestIntegration_ResponseSanitization_StripsInjectedHeaders(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.Plugin = plugin
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -992,7 +994,7 @@ func TestIntegration_ResponseSanitization_InjectedAndStaticCombined(t *testing.T
 
 	cfg := testConfig()
 	cfg.Plugin = plugin
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1039,7 +1041,7 @@ func TestIntegration_ResponseSanitization_SlowPath_NoInjectedHeaders(t *testing.
 
 	cfg := testConfig()
 	cfg.Plugin = plugin
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1095,7 +1097,7 @@ func TestIntegration_ResponseSanitization_SlowPath_AutoDetectsInjectedHeaders(t 
 
 	cfg := testConfig()
 	cfg.Plugin = plugin
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1143,7 +1145,7 @@ func TestHandlerStack_TraceID_PropagatedToBackend(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -1172,7 +1174,7 @@ func TestHandlerStack_TraceID_GeneratedAndPropagated(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -1214,7 +1216,7 @@ func TestHandlerStack_TraceID_ConsistentAcrossLogAndBackend(t *testing.T) {
 	slog.SetDefault(logger)
 	defer slog.SetDefault(origLogger)
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
@@ -1280,7 +1282,7 @@ func TestIntegration_ServerTiming_PresentOnSuccess(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1320,7 +1322,7 @@ func TestIntegration_ServerTiming_PresentOnError(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1357,7 +1359,7 @@ func TestIntegration_ServerTiming_ReflectsPluginDuration(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.Plugin = plugin
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1398,7 +1400,7 @@ func TestIntegration_ServerTiming_ReflectsUpstreamDuration(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1438,7 +1440,7 @@ func TestIntegration_ServerTiming_NoPluginShowsZeroDuration(t *testing.T) {
 	defer backend.Close()
 
 	// No plugin configured
-	srv := mustNewServer(t, testConfig())
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1473,7 +1475,7 @@ func TestIntegration_ServerTiming_PresentOnPluginError(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.Plugin = plugin
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1520,7 +1522,7 @@ func TestIntegration_ServerTiming_PresentOnPluginTimeout(t *testing.T) {
 	cfg := testConfig()
 	cfg.Plugin = plugin
 	cfg.PluginTimeout = 50 * time.Millisecond
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1585,7 +1587,9 @@ func TestIntegration_ServerTiming_PresentOnAllowListRejection(t *testing.T) {
 // is present when the request is malformed (400 Bad Request).
 // Missing X-Connect-Target-URL header triggers this path.
 func TestIntegration_ServerTiming_PresentOnBadRequest(t *testing.T) {
-	srv := mustNewServer(t, testConfig())
+	cfg := testConfig()
+	cfg.AllowList = map[string][]string{"127.0.0.1:1": {"/**"}}
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	// Missing X-Connect-Target-URL → 400
@@ -1615,7 +1619,9 @@ func TestIntegration_ServerTiming_PresentOnBadRequest(t *testing.T) {
 // TestIntegration_ServerTiming_BadGatewayIncludesHeader verifies that
 // Server-Timing is present even when the upstream is unreachable.
 func TestIntegration_ServerTiming_BadGatewayIncludesHeader(t *testing.T) {
-	srv := mustNewServer(t, testConfig())
+	cfg := testConfig()
+	cfg.AllowList = map[string][]string{"127.0.0.1:1": {"/**"}}
+	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1760,7 +1766,7 @@ func TestIntegration_ContextHeaders_StrippedBeforeForwarding(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.Plugin = &mockPlugin{}
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1803,7 +1809,7 @@ func TestIntegration_TraceHeader_PreservedOnForwarding(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.Plugin = &mockPlugin{}
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1839,7 +1845,7 @@ func TestIntegration_CustomPrefix_ContextHeadersStripped(t *testing.T) {
 	cfg := testConfig()
 	cfg.HeaderPrefix = "X-MyPlatform"
 	cfg.Plugin = &mockPlugin{}
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -1880,7 +1886,7 @@ func TestIntegration_NonContextHeaders_PreservedOnForwarding(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.Plugin = &mockPlugin{}
-	srv := mustNewServer(t, cfg)
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/proxy", strings.NewReader(`{"key":"value"}`))

@@ -180,16 +180,14 @@ func TestHandler_UpstreamDuration_RecordsOnSuccess(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	// Parse upstream URL to get host for AllowList
-	// Note: AllowList validator uses Hostname() which strips the port,
-	// so we must use Hostname() here too for matching
+	// Parse upstream URL to get host:port for AllowList
 	upstreamURL, err := url.Parse(upstream.URL)
 	if err != nil {
 		t.Fatalf("failed to parse upstream URL: %v", err)
 	}
 
 	cfg := mtlsTestConfig()
-	cfg.AllowList = map[string][]string{upstreamURL.Hostname(): {"/**"}}
+	cfg.AllowList = map[string][]string{upstreamURL.Host: {"/**"}}
 	srv := mustNewTestServer(t, cfg)
 
 	handler := srv.Handler()
@@ -218,7 +216,7 @@ func TestHandler_UpstreamDuration_RecordsOnError(t *testing.T) {
 
 	// Target a non-existent server to trigger error path
 	cfg := mtlsTestConfig()
-	cfg.AllowList = map[string][]string{"127.0.0.1": {"/**"}}
+	cfg.AllowList = map[string][]string{"127.0.0.1:59999": {"/**"}}
 	srv := mustNewTestServer(t, cfg)
 
 	handler := srv.Handler()

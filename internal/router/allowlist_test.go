@@ -202,14 +202,15 @@ func TestAllowListValidator_URLEdgeCases(t *testing.T) {
 		errType   error
 	}{
 		{
-			name:      "URL with port - port stripped for matching",
+			name:      "URL with explicit default https port",
 			targetURL: "https://api.example.com:443/test",
 			wantErr:   false,
 		},
 		{
-			name:      "URL with non-standard port",
+			name:      "URL with non-standard port denied when allow-list host has no port",
 			targetURL: "https://api.example.com:8443/test",
-			wantErr:   false,
+			wantErr:   true,
+			errType:   ErrHostNotAllowed,
 		},
 		{
 			name:      "URL with query params - ignored in path matching",
@@ -242,6 +243,148 @@ func TestAllowListValidator_URLEdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			err := validator.Validate(tt.targetURL)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate(%q) error = %v, wantErr %v", tt.targetURL, err, tt.wantErr)
+			}
+			if tt.errType != nil && !errors.Is(err, tt.errType) {
+				t.Errorf("expected error type %v, got %v", tt.errType, err)
+			}
+		})
+	}
+}
+
+func TestAllowListValidator_PortFilteringBehaviorMatrix(t *testing.T) {
+	tests := []struct {
+		name      string
+		allowList map[string][]string
+		targetURL string
+		wantErr   bool
+		errType   error
+	}{
+		{
+			name: "no port in config allows implicit default https",
+			allowList: map[string][]string{
+				"api.vendor.com": {"/v1/**"},
+			},
+			targetURL: "https://api.vendor.com/v1/x",
+			wantErr:   false,
+		},
+		{
+			name: "no port in config allows explicit default https",
+			allowList: map[string][]string{
+				"api.vendor.com": {"/v1/**"},
+			},
+			targetURL: "https://api.vendor.com:443/v1/x",
+			wantErr:   false,
+		},
+		{
+			name: "no port in config denies non-standard https port",
+			allowList: map[string][]string{
+				"api.vendor.com": {"/v1/**"},
+			},
+			targetURL: "https://api.vendor.com:8443/v1/x",
+			wantErr:   true,
+			errType:   ErrHostNotAllowed,
+		},
+		{
+			name: "explicit port in config allows exact match",
+			allowList: map[string][]string{
+				"api.vendor.com:8443": {"/v1/**"},
+			},
+			targetURL: "https://api.vendor.com:8443/v1/x",
+			wantErr:   false,
+		},
+		{
+			name: "explicit port in config denies missing explicit port",
+			allowList: map[string][]string{
+				"api.vendor.com:8443": {"/v1/**"},
+			},
+			targetURL: "https://api.vendor.com/v1/x",
+			wantErr:   true,
+			errType:   ErrHostNotAllowed,
+		},
+		{
+			name: "localhost explicit dev port allowed",
+			allowList: map[string][]string{
+				"localhost:8000": {"/api/v1/**"},
+			},
+			targetURL: "http://localhost:8000/api/v1",
+			wantErr:   false,
+		},
+		{
+			name: "localhost without port denies non-standard http port",
+			allowList: map[string][]string{
+				"localhost": {"/**"},
+			},
+			targetURL: "http://localhost:3000/test",
+			wantErr:   true,
+			errType:   ErrHostNotAllowed,
+		},
+		{
+			name: "localhost without port allows default http port",
+			allowList: map[string][]string{
+				"localhost": {"/**"},
+			},
+			targetURL: "http://localhost/test",
+			wantErr:   false,
+		},
+		{
+			name: "localhost without port allows explicit default http port",
+			allowList: map[string][]string{
+				"localhost": {"/**"},
+			},
+			targetURL: "http://localhost:80/test",
+			wantErr:   false,
+		},
+		{
+			name: "explicit port in config denies different explicit port",
+			allowList: map[string][]string{
+				"api.vendor.com:8443": {"/v1/**"},
+			},
+			targetURL: "https://api.vendor.com:443/v1/x",
+			wantErr:   true,
+			errType:   ErrHostNotAllowed,
+		},
+		{
+			name: "wildcard host with explicit port allows exact port",
+			allowList: map[string][]string{
+				"*.vendor.com:8443": {"/v1/**"},
+			},
+			targetURL: "https://api.vendor.com:8443/v1/x",
+			wantErr:   false,
+		},
+		{
+			name: "wildcard host with explicit port denies default port",
+			allowList: map[string][]string{
+				"*.vendor.com:8443": {"/v1/**"},
+			},
+			targetURL: "https://api.vendor.com/v1/x",
+			wantErr:   true,
+			errType:   ErrHostNotAllowed,
+		},
+		{
+			name: "wildcard host without port denies non-default port",
+			allowList: map[string][]string{
+				"*.vendor.com": {"/v1/**"},
+			},
+			targetURL: "https://api.vendor.com:9443/v1/x",
+			wantErr:   true,
+			errType:   ErrHostNotAllowed,
+		},
+		{
+			name: "wildcard host without port allows default port",
+			allowList: map[string][]string{
+				"*.vendor.com": {"/v1/**"},
+			},
+			targetURL: "https://api.vendor.com/v1/x",
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := NewAllowListValidator(tt.allowList)
 			err := validator.Validate(tt.targetURL)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validate(%q) error = %v, wantErr %v", tt.targetURL, err, tt.wantErr)
@@ -407,6 +550,41 @@ func TestValidateAllowListConfig(t *testing.T) {
 				"api.google.com": {},
 			},
 			wantErr: false, // Valid but will deny all paths for this host
+		},
+		{
+			name: "valid host with explicit port",
+			allowList: map[string][]string{
+				"api.google.com:8443": {"/v1/**"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid host with wildcard and explicit port",
+			allowList: map[string][]string{
+				"*.google.com:443": {"/v1/**"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid host port - non numeric",
+			allowList: map[string][]string{
+				"api.google.com:abc": {"/v1/**"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid host port - out of range",
+			allowList: map[string][]string{
+				"api.google.com:70000": {"/v1/**"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid host port - empty port separator",
+			allowList: map[string][]string{
+				"api.google.com:": {"/v1/**"},
+			},
+			wantErr: true,
 		},
 	}
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -59,9 +60,10 @@ func NewAllowListValidator(allowList map[string][]string) *AllowListValidator {
 //
 // The validation process:
 //  1. Parse the URL
-//  2. Extract and normalize the host (lowercase, strip port)
-//  3. Check if host matches any domain pattern in allow list
-//  4. Check if path matches any path pattern for the matched domain
+//  2. Validate scheme and normalize host (lowercase)
+//  3. Resolve effective target port (explicit or scheme default)
+//  4. Check host+port matches any domain pattern in allow list
+//  5. Check if path matches any path pattern for the matched domain
 //
 // Security checks:
 //   - Path traversal detection (../ and encoded variants)
@@ -88,6 +90,11 @@ func (v *AllowListValidator) Validate(targetURL string) error {
 	// Extract and normalize host (lowercase, strip port)
 	host := strings.ToLower(parsed.Hostname())
 
+	targetPort, err := resolveTargetPort(parsed)
+	if err != nil {
+		return err
+	}
+
 	// Get path, defaulting to "/" if empty
 	path := parsed.Path
 	if path == "" {
@@ -100,7 +107,7 @@ func (v *AllowListValidator) Validate(targetURL string) error {
 	}
 
 	// Find matching host pattern
-	allowedPaths, ok := v.findMatchingHost(host)
+	allowedPaths, ok := v.findMatchingHost(host, targetPort, parsed.Scheme)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrHostNotAllowed, host)
 	}
@@ -113,23 +120,103 @@ func (v *AllowListValidator) Validate(targetURL string) error {
 	return nil
 }
 
-// findMatchingHost finds the allow list entry that matches the given host.
-// It tries exact match first, then glob patterns.
+// findMatchingHost finds the allow list entry that matches the given host and port.
+// It tries exact match first, then glob patterns, while enforcing port constraints.
 // Returns the allowed paths and true if a match is found.
-func (v *AllowListValidator) findMatchingHost(host string) ([]string, bool) {
+func (v *AllowListValidator) findMatchingHost(host string, targetPort int, scheme string) ([]string, bool) {
 	// Try exact match first
 	if paths, ok := v.hostPatterns[host]; ok {
-		return paths, true
+		if portMatches(targetPort, scheme, false, 0) {
+			return paths, true
+		}
+	}
+
+	// Try exact host with explicit port first
+	for pattern, paths := range v.hostPatterns {
+		hostPattern, configuredPort, hasPort, err := splitHostPattern(pattern)
+		if err != nil {
+			continue
+		}
+
+		if hostPattern == host && portMatches(targetPort, scheme, hasPort, configuredPort) {
+			return paths, true
+		}
 	}
 
 	// Try glob patterns
 	for pattern, paths := range v.hostPatterns {
-		if GlobMatch(pattern, host, '.') {
+		hostPattern, configuredPort, hasPort, err := splitHostPattern(pattern)
+		if err != nil {
+			continue
+		}
+
+		if GlobMatch(hostPattern, host, '.') && portMatches(targetPort, scheme, hasPort, configuredPort) {
 			return paths, true
 		}
 	}
 
 	return nil, false
+}
+
+func resolveTargetPort(parsed *url.URL) (int, error) {
+	if parsed.Port() != "" {
+		port, err := strconv.Atoi(parsed.Port())
+		if err != nil || port < 1 || port > 65535 {
+			return 0, fmt.Errorf("%w: invalid port", ErrInvalidTargetURL)
+		}
+		return port, nil
+	}
+
+	defaultPort, ok := defaultPortForScheme(parsed.Scheme)
+	if !ok {
+		return 0, fmt.Errorf("%w: unsupported scheme %q", ErrInvalidTargetURL, parsed.Scheme)
+	}
+
+	return defaultPort, nil
+}
+
+func defaultPortForScheme(scheme string) (int, bool) {
+	switch strings.ToLower(scheme) {
+	case "https":
+		return 443, true
+	case "http":
+		return 80, true
+	default:
+		return 0, false
+	}
+}
+
+func splitHostPattern(pattern string) (hostPattern string, port int, hasPort bool, err error) {
+	idx := strings.LastIndex(pattern, ":")
+	if idx == -1 {
+		return pattern, 0, false, nil
+	}
+
+	host := pattern[:idx]
+	portPart := pattern[idx+1:]
+	if host == "" || portPart == "" {
+		return "", 0, false, errors.New("invalid host:port pattern")
+	}
+
+	port, err = strconv.Atoi(portPart)
+	if err != nil || port < 1 || port > 65535 {
+		return "", 0, false, errors.New("invalid host port")
+	}
+
+	return host, port, true, nil
+}
+
+func portMatches(targetPort int, scheme string, hasConfiguredPort bool, configuredPort int) bool {
+	if hasConfiguredPort {
+		return targetPort == configuredPort
+	}
+
+	defaultPort, ok := defaultPortForScheme(scheme)
+	if !ok {
+		return false
+	}
+
+	return targetPort == defaultPort
 }
 
 // pathMatches checks if the given path matches any of the allowed patterns.
@@ -195,8 +282,14 @@ func ValidateAllowListConfig(allowList map[string][]string) error {
 	var errs []error
 
 	for host, paths := range allowList {
+		hostPattern, _, _, err := splitHostPattern(host)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("host %q: invalid port", host))
+			continue
+		}
+
 		// Validate host pattern
-		if err := ValidateGlobPattern(host, '.'); err != nil {
+		if err := ValidateGlobPattern(hostPattern, '.'); err != nil {
 			errs = append(errs, fmt.Errorf("host %q: %w", host, err))
 		}
 
