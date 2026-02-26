@@ -54,7 +54,7 @@ func (f *FileStore) Load(_ context.Context, tenantID, resource string) (string, 
 
 	path := f.tokenPath(tenantID, resource)
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is built from validated tenantID and sanitized resource under baseDir
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return "", fmt.Errorf("no token for tenant %s, resource %s: %w",
@@ -93,20 +93,20 @@ func (f *FileStore) Save(_ context.Context, tenantID, resource, refreshToken str
 
 	defer func() {
 		if tmpPath != "" {
-			os.Remove(tmpPath)
+			_ = os.Remove(tmpPath)
 		}
 	}()
 
 	if _, err := tmp.WriteString(refreshToken); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("writing token to temp file: %w", err)
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("syncing token to disk: %w", err)
 	}
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("setting token file permissions: %w", err)
 	}
 	if err := tmp.Close(); err != nil {

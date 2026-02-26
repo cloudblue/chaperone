@@ -62,20 +62,20 @@ func (f *FileStore) Save(_ context.Context, refreshToken string) error {
 
 	defer func() {
 		if tmpPath != "" {
-			os.Remove(tmpPath)
+			_ = os.Remove(tmpPath)
 		}
 	}()
 
 	if _, err := tmp.WriteString(refreshToken); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("writing token to temp file: %w", err)
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("syncing token to disk: %w", err)
 	}
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("setting token file permissions: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
