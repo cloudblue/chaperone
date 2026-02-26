@@ -26,31 +26,15 @@ jobs:
     outputs:
       code: ${{ steps.check.outputs.code }}
     steps:
-      - name: Check for code changes
+      - name: Checkout action
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .github/actions
+          sparse-checkout-cone-mode: false
+
+      - name: Detect code changes
         id: check
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          fetch_failed() {
-            echo "::warning::Change detection failed (GitHub API error). Running all checks as a precaution."
-            gh pr comment "${{ github.event.pull_request.number }}" \
-              --repo "${{ github.repository }}" \
-              --body "> [!WARNING]
-          > **${{ github.workflow }}**: Change detection failed (GitHub API error). Running all checks as a precaution." || true
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          }
-          FILES=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --paginate --jq '.[].filename') || fetch_failed
-          if [ -z "$FILES" ]; then
-            echo "code=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          CODE_FILES=$(echo "$FILES" | grep -vE '\.md$|^LICENSE$' || true)
-          if [ -n "$CODE_FILES" ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "code=false" >> "$GITHUB_OUTPUT"
-          fi
+        uses: ./.github/actions/detect-code-changes
 
   benchmark:
     name: Benchmark Comparison
