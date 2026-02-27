@@ -461,3 +461,26 @@ require (
     github.com/cloudblue/chaperone     v1.5.0  // Can upgrade freely
 )
 ```
+
+### Major Version Upgrades
+
+When the SDK moves to a new major version (e.g., v1 → v2), the Go import
+path changes per [Go module conventions](https://go.dev/doc/modules/major-version):
+
+| Version | Import Path |
+|---------|-------------|
+| v0, v1 | `github.com/cloudblue/chaperone/sdk` |
+| v2+ | `github.com/cloudblue/chaperone/sdk/v2` |
+
+A major SDK version bump requires coordinated changes:
+
+1. **SDK module:** Update `module` path in `sdk/go.mod` to include `/v2`
+2. **Core module:** Update the `require` directive and all `import`
+   statements in `go.mod` and Go source files
+3. **Tags:** Create new tags (`sdk/v2.0.0`, then a Core release)
+4. **Distributors:** Must update their import paths and `require`
+   directives — this is a breaking change
+
+Major version bumps should be rare and coordinated with a Core release.
+See [ADR-004](../explanation/DESIGN-SPECIFICATION.md) for the rationale
+behind independent module versioning.

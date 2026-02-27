@@ -21,7 +21,6 @@ plugin that injects a custom header into every proxied request.
 | Requirement | Version | Purpose |
 |-------------|---------|---------|
 | **Go** | 1.25+ | Building the plugin binary ([install Go](https://go.dev/doc/install)) |
-| **Chaperone source** | — | SDK and Core modules (cloned in [Getting Started](../getting-started.md)) |
 | **curl** | any | Sending test requests |
 
 > **Recommended:** Complete the [Getting Started](../getting-started.md)
@@ -49,36 +48,25 @@ a separate repository, see [Fork/Extend](#alternative-forkextend) below.
 
 ### Step 1: Create the Project
 
-Create a new directory **next to** the Chaperone source (the `replace`
-directives in Step 3 expect this layout):
+Create a new directory for your proxy project:
 
 ```bash
-# Assuming you cloned Chaperone to ~/projects/chaperone
 cd ~/projects
 mkdir -p my-proxy/plugins
 cd my-proxy
 ```
 
-Your directory structure should look like:
-
-```
-~/projects/
-├── chaperone/        ← Chaperone source (from Getting Started)
-│   ├── go.mod
-│   ├── sdk/
-│   └── ...
-└── my-proxy/         ← Your new project
-    └── plugins/
-```
-
 ### Step 2: Initialize the Go Module
 
-Create a `go.mod` file that declares your module and depends on the
-Chaperone SDK and Core. Since the Chaperone modules aren't published to a
-Go package registry yet, use `replace` directives to point to your local
-Chaperone source:
+Initialize your Go module and add the Chaperone dependencies:
 
-Create `go.mod`:
+```bash
+go mod init github.com/acme/my-proxy
+go get github.com/cloudblue/chaperone@latest
+go get github.com/cloudblue/chaperone/sdk@latest
+```
+
+This creates a `go.mod` like:
 
 ```go
 module github.com/acme/my-proxy
@@ -86,22 +74,23 @@ module github.com/acme/my-proxy
 go 1.25
 
 require (
-    github.com/cloudblue/chaperone     v0.0.0
-    github.com/cloudblue/chaperone/sdk v0.0.0
-)
-
-// Pre-publication: point to local Chaperone source.
-// Remove these directives once modules are published on a Go proxy.
-replace (
-    github.com/cloudblue/chaperone     => ../chaperone
-    github.com/cloudblue/chaperone/sdk => ../chaperone/sdk
+    github.com/cloudblue/chaperone     v0.1.0
+    github.com/cloudblue/chaperone/sdk v0.1.0
 )
 ```
 
-> **After publication:** Once Chaperone modules are published on a Go
-> proxy, remove the `replace` block and use versioned imports instead.
-> See [go.mod After Publication](#gomod-after-publication) for the
-> updated format.
+The SDK and Core are versioned independently (see
+[Module Versioning](../reference/sdk.md#module-versioning)). You can
+upgrade the Core (bug fixes, performance) without changing your plugin
+code, as long as the SDK major version remains the same.
+
+> **Contributing to Chaperone?** If you need to test against a local
+> checkout of the Chaperone source (e.g., for development), use a
+> [Go workspace](https://go.dev/doc/tutorial/workspaces) instead of
+> `replace` directives:
+> ```bash
+> go work init . /path/to/chaperone /path/to/chaperone/sdk
+> ```
 
 ### Step 3: Write Your Plugin
 
@@ -260,8 +249,8 @@ upstream:
 ### Step 6: Resolve Dependencies and Build
 
 Go modules require a dependency resolution step before building. Run
-`go mod tidy` to download the Chaperone modules (via the `replace`
-directives) and create the `go.sum` lock file:
+`go mod tidy` to download the Chaperone modules and create the `go.sum`
+lock file:
 
 ```bash
 go mod tidy
@@ -405,27 +394,6 @@ Then run:
 
 See [Certificate Management](certificate-management.md) for the full
 enrollment workflow, including submitting the CSR to a CA.
-
-#### go.mod After Publication
-
-Once Chaperone modules are published on a Go package registry, remove the
-`replace` directives and use versioned imports:
-
-```go
-module github.com/acme/my-proxy
-
-go 1.25
-
-require (
-    github.com/cloudblue/chaperone     v1.5.0   // Core — upgrade freely
-    github.com/cloudblue/chaperone/sdk v1.0.0   // SDK — stable interface
-)
-```
-
-The SDK and Core are versioned independently (see
-[Module Versioning](../reference/sdk.md#module-versioning)). You can
-upgrade the Core (bug fixes, performance) without changing your plugin
-code, as long as the SDK major version remains the same.
 
 #### Available Options
 
