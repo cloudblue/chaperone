@@ -14,8 +14,8 @@ server:
 upstream:
   header_prefix: "X-Connect"
   allow_list:
-    # The echo server container is reachable via Docker DNS as "echoserver"
-    "echoserver":
+    # The echo server container is reachable via Docker DNS as "echoserver:8080"
+    "echoserver:8080":
       - "/**"
 
 observability:

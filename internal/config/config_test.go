@@ -1705,6 +1705,56 @@ func TestValidate_MultipleErrors_AllReported(t *testing.T) {
 	}
 }
 
+func TestValidate_InvalidAllowListHostPort_ReturnsError(t *testing.T) {
+	tlsDisabled := false
+
+	tests := []struct {
+		name      string
+		allowList map[string][]string
+	}{
+		{
+			name: "non numeric port",
+			allowList: map[string][]string{
+				"api.vendor.com:abc": {"/**"},
+			},
+		},
+		{
+			name: "out of range port",
+			allowList: map[string][]string{
+				"api.vendor.com:70000": {"/**"},
+			},
+		},
+		{
+			name: "empty host port separator",
+			allowList: map[string][]string{
+				"api.vendor.com:": {"/**"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Server: ServerConfig{
+					TLS: TLSConfig{Enabled: &tlsDisabled},
+				},
+				Upstream: UpstreamConfig{
+					AllowList: tt.allowList,
+				},
+			}
+			applyDefaults(cfg)
+
+			err := Validate(cfg)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !contains(err.Error(), "allow_list") {
+				t.Errorf("error should mention allow_list, got %v", err)
+			}
+		})
+	}
+}
+
 func TestApplyDefaults_EnableTracing_DefaultsToFalse(t *testing.T) {
 	// Arrange - config with no enable_tracing set
 	cfg := &Config{}

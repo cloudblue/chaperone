@@ -103,7 +103,7 @@ upstream:
 |-----|-------------|------|---------|-------------|
 | `header_prefix` | `CHAPERONE_UPSTREAM_HEADER_PREFIX` | string | `X-Connect` | Prefix for context headers (configurable per ADR-005) |
 | `trace_header` | `CHAPERONE_UPSTREAM_TRACE_HEADER` | string | `Connect-Request-ID` | Correlation ID header name |
-| `allow_list` | — | map | **Required** | Host → path patterns (see [Allow-List Syntax](#allow-list-syntax)) |
+| `allow_list` | — | map | **Required** | Host or host:port → path patterns (see [Allow-List Syntax](#allow-list-syntax)) |
 
 #### Timeouts
 
@@ -203,6 +203,27 @@ The allow-list enforces a **default-deny** policy. Only requests matching
 a host+path combination are forwarded to the vendor API. All other requests
 receive a `403 Forbidden` response.
 
+### Host and Port Rules
+
+Allow-list keys support optional port constraints:
+
+- `host` (no port): only the scheme default port is allowed (`https` → `443`, `http` → `80`)
+- `host:port`: host **and** port must match exactly
+
+This is a secure default that blocks non-standard ports unless explicitly allowed.
+
+| Allow-list Key | Target URL | Result |
+|---|---|---|
+| `api.vendor.com` | `https://api.vendor.com/v1/x` | Allowed |
+| `api.vendor.com` | `https://api.vendor.com:443/v1/x` | Allowed |
+| `api.vendor.com` | `https://api.vendor.com:8443/v1/x` | Denied |
+| `api.vendor.com:8443` | `https://api.vendor.com:8443/v1/x` | Allowed |
+| `api.vendor.com:8443` | `https://api.vendor.com/v1/x` | Denied |
+| `localhost` | `http://localhost:3000/test` | Denied |
+| `localhost:8000` | `http://localhost:8000/test` | Allowed |
+
+Note: `http://` targets are only permitted when the binary is built with `allowInsecureTargets=true`; otherwise HTTPS is required.
+
 ### Pattern Rules
 
 Patterns work for both **host keys** (using `.` as segment separator) and
@@ -224,8 +245,16 @@ upstream:
       - "/v1/**"            # All paths under /v1/
       - "/v2/products/*"    # Single level under /v2/products/
 
+    # Exact host + explicit non-default port
+    "api.vendor.com:8443":
+      - "/v1/**"
+
     # Domain glob — matches api.vendor.com, payments.vendor.com, etc.
     "*.vendor.com":
+      - "/v1/**"
+
+    # Domain glob with explicit port
+    "*.vendor.com:9443":
       - "/v1/**"
 
     # Exact paths only

@@ -66,7 +66,12 @@ upstream:
 
   # Allow-list for target URLs (REQUIRED)
   # Security: This is mandatory - empty means deny all requests.
-  # Format: hostname -> list of path patterns
+  # Format: hostname[:port] -> list of path patterns
+  # Port rules:
+  #   - If host key omits port, only scheme default port is allowed
+  #     (HTTPS=443, HTTP=80)
+  #   - To allow non-default ports, include explicit :port in host key
+  #   - HTTP targets require a build with allowInsecureTargets=true
   # Patterns:
   #   * = single-level wildcard (within segment)
   #   ** = multi-level/recursive wildcard
@@ -79,6 +84,9 @@ upstream:
     "payments.example.com":
       - "/api/charge"
       - "/api/refund"
+    # Example: Explicit non-default port (dev/private endpoint)
+    "localhost:8000":
+      - "/api/v1/**"
 
   timeouts:
     # Connection establishment timeout

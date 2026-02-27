@@ -18,7 +18,7 @@ upstream:
   header_prefix: "X-Connect"
   trace_header: "Connect-Request-ID"
   allow_list:
-    "localhost":
+    "localhost:9999":
       - "/**"
   timeouts:
     connect: 5s
