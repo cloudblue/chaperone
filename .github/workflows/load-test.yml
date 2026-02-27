@@ -78,4 +78,6 @@ jobs:
           curl -sf --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key https://localhost:8443/_ops/health >/dev/null 2>&1 || { echo "Chaperone failed to start"; exit 1; }
 
       - name: Run smoke load test
-        run: K6_INSECURE_SKIP_TLS_VERIFY=true k6 run --vus 10 --duration 1m -e K6_SCENARIO=smoke test/load/baseline.js
+        run: |
+          mkdir -p test/load/results
+          K6_INSECURE_SKIP_TLS_VERIFY=true k6 run --vus 10 --duration 1m -e K6_SCENARIO=smoke test/load/baseline.js

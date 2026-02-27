@@ -66,6 +66,7 @@ func BenchmarkFullRequestCycle_FastPath(b *testing.B) {
 	// Use the real proxy Server, same pattern as integration_test.go
 	cfg := benchConfig()
 	cfg.Plugin = plugin
+	cfg.AllowList = map[string][]string{mustBenchTargetHostPort(b, upstream.URL): {"/**"}}
 	srv, err := NewServer(cfg)
 	if err != nil {
 		b.Fatalf("NewServer failed: %v", err)
@@ -112,6 +113,7 @@ func BenchmarkFullRequestCycle_SlowPath(b *testing.B) {
 
 	cfg := benchConfig()
 	cfg.Plugin = slowPlugin
+	cfg.AllowList = map[string][]string{mustBenchTargetHostPort(b, upstream.URL): {"/**"}}
 	srv, err := NewServer(cfg)
 	if err != nil {
 		b.Fatalf("NewServer failed: %v", err)
@@ -149,6 +151,7 @@ func BenchmarkFullRequestCycle_NoPlugin(b *testing.B) {
 	defer upstream.Close()
 
 	cfg := benchConfig()
+	cfg.AllowList = map[string][]string{mustBenchTargetHostPort(b, upstream.URL): {"/**"}}
 	srv, err := NewServer(cfg)
 	if err != nil {
 		b.Fatalf("NewServer failed: %v", err)
@@ -191,6 +194,7 @@ func BenchmarkFullRequestCycle_Parallel(b *testing.B) {
 
 	cfg := benchConfig()
 	cfg.Plugin = plugin
+	cfg.AllowList = map[string][]string{mustBenchTargetHostPort(b, upstream.URL): {"/**"}}
 	srv, err := NewServer(cfg)
 	if err != nil {
 		b.Fatalf("NewServer failed: %v", err)

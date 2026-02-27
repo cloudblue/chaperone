@@ -6,6 +6,7 @@ package proxy
 import (
 	"io"
 	"log/slog"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -39,4 +40,19 @@ func silenceLogs(b *testing.B) {
 	b.Cleanup(func() {
 		slog.SetDefault(prev)
 	})
+}
+
+func mustBenchTargetHostPort(b *testing.B, targetURL string) string {
+	b.Helper()
+
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		b.Fatalf("failed to parse target URL %q: %v", targetURL, err)
+	}
+
+	if parsed.Host == "" {
+		b.Fatalf("target URL %q is missing host", targetURL)
+	}
+
+	return parsed.Host
 }
