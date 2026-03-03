@@ -91,9 +91,13 @@ func main() {
 GOEOF
 
 # --- Step 3: Point to local checkout ---
-echo "[3/5] Configuring module replacements (local checkout)..."
-go mod edit -replace "github.com/cloudblue/chaperone=$REPO_ROOT"
-go mod edit -replace "github.com/cloudblue/chaperone/sdk=$REPO_ROOT/sdk"
+# Uses go.work to resolve both modules from the local checkout.
+# This tests the "Own Repo" compile-and-link contract against HEAD,
+# without depending on the Go module proxy.  Real Distributors use
+# published modules (no replace / workspace needed).
+echo "[3/5] Configuring Go workspace (local checkout)..."
+go work init .
+go work edit -use "$REPO_ROOT" -use "$REPO_ROOT/sdk"
 go mod tidy
 
 # --- Step 4: Build the binary ---

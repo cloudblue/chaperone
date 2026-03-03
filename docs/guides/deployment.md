@@ -82,56 +82,6 @@ That's it — Go resolves `github.com/cloudblue/chaperone` and
 `github.com/cloudblue/chaperone/sdk` from the module proxy during the
 build. No local Chaperone source needed.
 
-#### Pre-publication: local Chaperone source
-
-If Chaperone modules are **not yet published** on a Go package registry
-(e.g., during early adoption), your `go.mod` uses `replace` directives
-that point to a local copy of the Chaperone source
-(see [Plugin Development Guide — Step 2](plugin-development.md#step-2-initialize-the-go-module)).
-The Dockerfile needs access to the Chaperone source alongside your
-project. Use Docker BuildKit's `--build-context` flag to pull it in
-without changing your working directory:
-
-```dockerfile
-FROM golang:1.25-alpine AS builder
-WORKDIR /build
-
-# Pull Chaperone source from the named build context (--build-context).
-# Needed because go.mod has: replace ... => ../chaperone
-COPY --from=chaperone / ./chaperone/
-
-# Copy your plugin project.
-COPY . ./my-proxy/
-WORKDIR /build/my-proxy
-
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" -o proxy .
-
-FROM gcr.io/distroless/static:nonroot
-COPY --from=builder /build/my-proxy/proxy /app/proxy
-USER nonroot:nonroot
-EXPOSE 8443 9090
-ENTRYPOINT ["/app/proxy"]
-```
-
-Build from your project directory, passing the Chaperone source as a
-named context:
-
-```bash
-cd my-proxy
-docker build -t my-proxy:latest \
-  --build-context chaperone=../chaperone \
-  .
-```
-
-> **Requires Docker BuildKit** (default since Docker 23+). If you're on
-> an older version, enable it with `DOCKER_BUILDKIT=1` or build from the
-> parent directory instead:
-> `cd ~/projects && docker build -t my-proxy:latest -f my-proxy/Dockerfile .`
-
-> **Once Chaperone is published**, remove the `replace` directives from
-> your `go.mod`, switch to the simpler Dockerfile above, and build
-> normally with `docker build -t my-proxy:latest .`.
-
 ## How to Configure for Deployment
 
 ### Configuration file

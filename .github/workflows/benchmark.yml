@@ -54,6 +54,9 @@ jobs:
             go.sum
             sdk/go.sum
 
+      - name: Set up Go workspace
+        run: go work init . ./sdk
+
       - name: Install benchstat
         # golang.org/x/perf does not publish semver tags; pin to a pseudo-version
         # for reproducible benchmark output. Update deliberately when needed.
@@ -71,6 +74,7 @@ jobs:
       - name: Run benchmarks on base
         run: |
           cd base
+          go work init . ./sdk 2>/dev/null || true
           # Guard: skip comparison if base branch benchmarks don't compile or don't exist.
           # This can happen when a merged PR changed an API signature but the bench
           # file on the base branch still uses the old signature.
