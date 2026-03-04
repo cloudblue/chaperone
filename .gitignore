@@ -10,6 +10,8 @@
 /dist/
 /chaperone
 /chaperone-onboard
+/chaperone-admin
+admin/chaperone-admin
 
 # Test binary, built with `go test -c`
 *.test
@@ -69,3 +71,12 @@ test/load/results/
 
 # PID files for background processes
 .target-server.pid
+
+# SQLite database artifacts
+*.db
+*.db-shm
+*.db-wal
+
+# Admin portal frontend
+admin/ui/node_modules/
+admin/ui/dist/
