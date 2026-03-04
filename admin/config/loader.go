@@ -63,10 +63,10 @@ func loadYAML(path string, cfg *Config) error {
 
 func applyDefaults(cfg *Config) {
 	if cfg.Server.Addr == "" {
-		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.Server.Addr = DefaultAddr
 	}
 	if cfg.Database.Path == "" {
-		cfg.Database.Path = "./chaperone-admin.db"
+		cfg.Database.Path = DefaultDBPath
 	}
 	if cfg.Scraper.Interval == 0 {
 		cfg.Scraper.Interval = Duration(10 * time.Second)
@@ -84,10 +84,10 @@ func applyDefaults(cfg *Config) {
 		cfg.Audit.RetentionDays = intPtr(90)
 	}
 	if cfg.Log.Level == "" {
-		cfg.Log.Level = "info"
+		cfg.Log.Level = DefaultLogLevel
 	}
 	if cfg.Log.Format == "" {
-		cfg.Log.Format = "json"
+		cfg.Log.Format = DefaultLogFormat
 	}
 }
 
@@ -100,38 +100,12 @@ func applyEnvOverrides(cfg *Config) error {
 	if v := getEnv("DATABASE_PATH"); v != "" {
 		cfg.Database.Path = v
 	}
-	if v := getEnv("SCRAPER_INTERVAL"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("SCRAPER_INTERVAL: %w", err))
-		} else {
-			cfg.Scraper.Interval = Duration(d)
-		}
-	}
-	if v := getEnv("SCRAPER_TIMEOUT"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("SCRAPER_TIMEOUT: %w", err))
-		} else {
-			cfg.Scraper.Timeout = Duration(d)
-		}
-	}
-	if v := getEnv("SESSION_MAX_AGE"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("SESSION_MAX_AGE: %w", err))
-		} else {
-			cfg.Session.MaxAge = Duration(d)
-		}
-	}
-	if v := getEnv("SESSION_IDLE_TIMEOUT"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("SESSION_IDLE_TIMEOUT: %w", err))
-		} else {
-			cfg.Session.IdleTimeout = Duration(d)
-		}
-	}
+
+	parseDuration(&cfg.Scraper.Interval, "SCRAPER_INTERVAL", &errs)
+	parseDuration(&cfg.Scraper.Timeout, "SCRAPER_TIMEOUT", &errs)
+	parseDuration(&cfg.Session.MaxAge, "SESSION_MAX_AGE", &errs)
+	parseDuration(&cfg.Session.IdleTimeout, "SESSION_IDLE_TIMEOUT", &errs)
+
 	if v := getEnv("AUDIT_RETENTION_DAYS"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
@@ -148,6 +122,19 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+func parseDuration(dst *Duration, envKey string, errs *[]error) {
+	v := getEnv(envKey)
+	if v == "" {
+		return
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		*errs = append(*errs, fmt.Errorf("%s: %w", envKey, err))
+		return
+	}
+	*dst = Duration(d)
 }
 
 func getEnv(key string) string {

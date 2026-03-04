@@ -4,6 +4,7 @@
 package store
 
 import (
+	"context"
 	"path/filepath"
 	"sort"
 	"testing"
@@ -12,7 +13,7 @@ import (
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	st, err := Open(dbPath)
+	st, err := Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("Open(%q) failed: %v", dbPath, err)
 	}
@@ -27,7 +28,7 @@ func TestOpen_CreatesAllTables(t *testing.T) {
 	st := openTestStore(t)
 
 	// Assert — query sqlite_master for expected tables
-	rows, err := st.DB().Query(
+	rows, err := st.DB().QueryContext(context.Background(),
 		`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
 	)
 	if err != nil {
@@ -66,14 +67,14 @@ func TestOpen_MigrationIdempotent(t *testing.T) {
 	// Arrange — open twice on same DB to verify re-run is safe
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
-	st1, err := Open(dbPath)
+	st1, err := Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("first Open failed: %v", err)
 	}
 	st1.Close()
 
 	// Act — open again (should re-run migrate without error)
-	st2, err := Open(dbPath)
+	st2, err := Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("second Open failed: %v", err)
 	}
@@ -81,7 +82,7 @@ func TestOpen_MigrationIdempotent(t *testing.T) {
 
 	// Assert — schema_migrations still has exactly one entry
 	var count int
-	if err := st2.DB().QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
+	if err := st2.DB().QueryRowContext(context.Background(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("counting migrations: %v", err)
 	}
 	if count != 1 {
@@ -97,7 +98,7 @@ func TestOpen_WALMode_Enabled(t *testing.T) {
 
 	// Assert
 	var mode string
-	if err := st.DB().QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
+	if err := st.DB().QueryRowContext(context.Background(), "PRAGMA journal_mode").Scan(&mode); err != nil {
 		t.Fatalf("querying journal_mode: %v", err)
 	}
 	if mode != "wal" {
@@ -113,7 +114,7 @@ func TestOpen_SchemaMigrations_TracksVersion(t *testing.T) {
 
 	// Assert
 	var version int
-	if err := st.DB().QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
+	if err := st.DB().QueryRowContext(context.Background(), "SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("querying schema version: %v", err)
 	}
 	if version != 1 {
@@ -128,7 +129,7 @@ func TestOpen_InvalidPath_ReturnsError(t *testing.T) {
 	dbPath := "/nonexistent/dir/test.db"
 
 	// Act
-	_, err := Open(dbPath)
+	_, err := Open(context.Background(), dbPath)
 
 	// Assert
 	if err == nil {

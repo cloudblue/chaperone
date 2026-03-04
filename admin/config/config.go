@@ -13,6 +13,15 @@ import (
 // EnvPrefix is the environment variable prefix for admin portal configuration.
 const EnvPrefix = "CHAPERONE_ADMIN"
 
+// Default configuration values.
+const (
+	DefaultAddr      = "127.0.0.1:8080"
+	DefaultDBPath    = "./chaperone-admin.db"
+	DefaultLogLevel  = "info"
+	DefaultLogFormat = "json"
+	LogFormatText    = "text"
+)
+
 // Config holds the admin portal configuration.
 type Config struct {
 	Server   ServerConfig   `yaml:"server"`
