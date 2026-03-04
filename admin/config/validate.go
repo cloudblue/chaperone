@@ -46,13 +46,13 @@ func (c *Config) Validate() error {
 	}
 
 	switch c.Log.Level {
-	case "debug", "info", "warn", "error":
+	case "debug", DefaultLogLevel, "warn", "error":
 	default:
 		errs = append(errs, fmt.Errorf("log.level: unknown level %q (valid: debug, info, warn, error)", c.Log.Level))
 	}
 
 	switch c.Log.Format {
-	case "json", "text":
+	case DefaultLogFormat, LogFormatText:
 	default:
 		errs = append(errs, fmt.Errorf("log.format: unknown format %q (valid: json, text)", c.Log.Format))
 	}
