@@ -10,13 +10,12 @@ on:
       - 'release/**'
     paths:
       - 'admin/**'
+      - 'Makefile'
       - '.github/workflows/ci-admin.yml'
   pull_request:
-    branches:
-      - master
-      - 'release/**'
     paths:
       - 'admin/**'
+      - 'Makefile'
       - '.github/workflows/ci-admin.yml'
 
 concurrency:
@@ -28,6 +27,7 @@ permissions:
 
 env:
   GOLANGCI_LINT_VERSION: 'v2.8.0'
+  PNPM_VERSION: '10.28.2'
 
 jobs:
   lint-go:
@@ -44,10 +44,13 @@ jobs:
           cache-dependency-path: admin/go.sum
 
       - name: Run golangci-lint (admin module)
+        # The admin module embeds ui/dist in !dev builds; use dev tags for
+        # backend lint/test so checks do not depend on prebuilt UI artifacts.
         uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           working-directory: admin
+          args: --build-tags=dev
 
   lint-ui:
     name: Lint (UI)
@@ -62,7 +65,7 @@ jobs:
           node-version: 24
 
       - name: Install pnpm
-        run: corepack enable && corepack prepare pnpm@latest --activate
+        run: corepack enable && corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
 
       - name: Install dependencies
         working-directory: admin/ui
@@ -86,7 +89,8 @@ jobs:
           cache-dependency-path: admin/go.sum
 
       - name: Run tests
-        run: cd admin && go test -race ./...
+        # Keep Go test path independent from ui/dist embed requirements.
+        run: cd admin && go test -race -tags dev ./...
 
   test-ui:
     name: Test (UI)
@@ -101,7 +105,7 @@ jobs:
           node-version: 24
 
       - name: Install pnpm
-        run: corepack enable && corepack prepare pnpm@latest --activate
+        run: corepack enable && corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
 
       - name: Install dependencies
         working-directory: admin/ui
@@ -131,7 +135,7 @@ jobs:
           node-version: 24
 
       - name: Install pnpm
-        run: corepack enable && corepack prepare pnpm@latest --activate
+        run: corepack enable && corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
 
       - name: Build admin portal
         run: make build-admin
