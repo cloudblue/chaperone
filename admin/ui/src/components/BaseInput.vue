@@ -10,10 +10,12 @@
 			:value="modelValue"
 			:placeholder="placeholder"
 			:disabled="disabled"
+			:aria-invalid="error ? 'true' : undefined"
+			:aria-describedby="error ? errorId : undefined"
 			v-bind="$attrs"
 			@input="$emit('update:modelValue', $event.target.value)"
 		/>
-		<p v-if="error" :class="$style.errorText">{{ error }}</p>
+		<p v-if="error" :id="errorId" :class="$style.errorText">{{ error }}</p>
 	</div>
 </template>
 
@@ -58,6 +60,7 @@ const props = defineProps({
 defineEmits(["update:modelValue"]);
 
 const inputId = computed(() => props.id ?? generatedId);
+const errorId = computed(() => `${inputId.value}-error`);
 </script>
 
 <style module>
