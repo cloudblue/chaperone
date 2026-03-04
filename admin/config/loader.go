@@ -80,8 +80,8 @@ func applyDefaults(cfg *Config) {
 	if cfg.Session.IdleTimeout == 0 {
 		cfg.Session.IdleTimeout = Duration(2 * time.Hour)
 	}
-	if cfg.Audit.RetentionDays == 0 {
-		cfg.Audit.RetentionDays = 90
+	if cfg.Audit.RetentionDays == nil {
+		cfg.Audit.RetentionDays = intPtr(90)
 	}
 	if cfg.Log.Level == "" {
 		cfg.Log.Level = "info"
@@ -137,7 +137,7 @@ func applyEnvOverrides(cfg *Config) error {
 		if err != nil {
 			errs = append(errs, fmt.Errorf("AUDIT_RETENTION_DAYS: %w", err))
 		} else {
-			cfg.Audit.RetentionDays = n
+			cfg.Audit.RetentionDays = &n
 		}
 	}
 	if v := getEnv("LOG_LEVEL"); v != "" {
@@ -153,3 +153,5 @@ func applyEnvOverrides(cfg *Config) error {
 func getEnv(key string) string {
 	return os.Getenv(EnvPrefix + "_" + key)
 }
+
+func intPtr(v int) *int { return &v }

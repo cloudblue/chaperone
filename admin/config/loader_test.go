@@ -51,8 +51,8 @@ func TestLoad_NoFile_AppliesDefaults(t *testing.T) {
 	if cfg.Session.IdleTimeout.Unwrap() != 2*time.Hour {
 		t.Errorf("Session.IdleTimeout = %v, want %v", cfg.Session.IdleTimeout.Unwrap(), 2*time.Hour)
 	}
-	if cfg.Audit.RetentionDays != 90 {
-		t.Errorf("Audit.RetentionDays = %d, want %d", cfg.Audit.RetentionDays, 90)
+	if *cfg.Audit.RetentionDays != 90 {
+		t.Errorf("Audit.RetentionDays = %d, want %d", *cfg.Audit.RetentionDays, 90)
 	}
 	if cfg.Log.Level != "info" {
 		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "info")
@@ -109,14 +109,51 @@ log:
 	if cfg.Session.IdleTimeout.Unwrap() != 1*time.Hour {
 		t.Errorf("Session.IdleTimeout = %v, want %v", cfg.Session.IdleTimeout.Unwrap(), 1*time.Hour)
 	}
-	if cfg.Audit.RetentionDays != 30 {
-		t.Errorf("Audit.RetentionDays = %d, want %d", cfg.Audit.RetentionDays, 30)
+	if *cfg.Audit.RetentionDays != 30 {
+		t.Errorf("Audit.RetentionDays = %d, want %d", *cfg.Audit.RetentionDays, 30)
 	}
 	if cfg.Log.Level != "debug" {
 		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "debug")
 	}
 	if cfg.Log.Format != "text" {
 		t.Errorf("Log.Format = %q, want %q", cfg.Log.Format, "text")
+	}
+}
+
+func TestLoad_ZeroRetention_PreservedAsKeepForever(t *testing.T) {
+	t.Parallel()
+
+	// Arrange — explicit retention_days: 0 means "keep forever"
+	path := writeTestConfig(t, `
+server:
+  addr: "127.0.0.1:8080"
+database:
+  path: "./test.db"
+scraper:
+  interval: "10s"
+  timeout: "5s"
+session:
+  max_age: "24h"
+  idle_timeout: "2h"
+audit:
+  retention_days: 0
+log:
+  level: "info"
+  format: "json"
+`)
+
+	// Act
+	cfg, err := Load(path)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Audit.RetentionDays == nil {
+		t.Fatal("Audit.RetentionDays is nil, want 0")
+	}
+	if *cfg.Audit.RetentionDays != 0 {
+		t.Errorf("Audit.RetentionDays = %d, want 0 (keep forever)", *cfg.Audit.RetentionDays)
 	}
 }
 
@@ -160,8 +197,8 @@ func TestLoad_EnvOverrides_AllFields(t *testing.T) {
 	if cfg.Session.IdleTimeout.Unwrap() != 4*time.Hour {
 		t.Errorf("Session.IdleTimeout = %v, want %v", cfg.Session.IdleTimeout.Unwrap(), 4*time.Hour)
 	}
-	if cfg.Audit.RetentionDays != 60 {
-		t.Errorf("Audit.RetentionDays = %d, want %d", cfg.Audit.RetentionDays, 60)
+	if *cfg.Audit.RetentionDays != 60 {
+		t.Errorf("Audit.RetentionDays = %d, want %d", *cfg.Audit.RetentionDays, 60)
 	}
 	if cfg.Log.Level != "warn" {
 		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "warn")
@@ -230,8 +267,8 @@ func TestApplyDefaults_ZeroConfig_SetsAllDefaults(t *testing.T) {
 	if cfg.Session.IdleTimeout.Unwrap() != 2*time.Hour {
 		t.Errorf("Session.IdleTimeout = %v, want 2h", cfg.Session.IdleTimeout.Unwrap())
 	}
-	if cfg.Audit.RetentionDays != 90 {
-		t.Errorf("Audit.RetentionDays = %d, want 90", cfg.Audit.RetentionDays)
+	if *cfg.Audit.RetentionDays != 90 {
+		t.Errorf("Audit.RetentionDays = %d, want 90", *cfg.Audit.RetentionDays)
 	}
 	if cfg.Log.Level != "info" {
 		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "info")

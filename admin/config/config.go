@@ -47,7 +47,7 @@ type SessionConfig struct {
 
 // AuditConfig configures the audit log.
 type AuditConfig struct {
-	RetentionDays int `yaml:"retention_days"`
+	RetentionDays *int `yaml:"retention_days"`
 }
 
 // LogConfig configures structured logging.
