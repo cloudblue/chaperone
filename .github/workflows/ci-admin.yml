@@ -1,0 +1,142 @@
+# Copyright 2026 CloudBlue LLC
+# SPDX-License-Identifier: Apache-2.0
+
+name: CI (Admin Portal)
+
+on:
+  push:
+    branches:
+      - master
+      - 'release/**'
+    paths:
+      - 'admin/**'
+      - '.github/workflows/ci-admin.yml'
+  pull_request:
+    branches:
+      - master
+      - 'release/**'
+    paths:
+      - 'admin/**'
+      - '.github/workflows/ci-admin.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GOLANGCI_LINT_VERSION: 'v2.8.0'
+
+jobs:
+  lint-go:
+    name: Lint (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: admin/go.mod
+          cache-dependency-path: admin/go.sum
+
+      - name: Run golangci-lint (admin module)
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          working-directory: admin
+
+  lint-ui:
+    name: Lint (UI)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@latest --activate
+
+      - name: Install dependencies
+        working-directory: admin/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        working-directory: admin/ui
+        run: pnpm lint
+
+  test-go:
+    name: Test (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: admin/go.mod
+          cache-dependency-path: admin/go.sum
+
+      - name: Run tests
+        run: cd admin && go test -race ./...
+
+  test-ui:
+    name: Test (UI)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@latest --activate
+
+      - name: Install dependencies
+        working-directory: admin/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        working-directory: admin/ui
+        run: pnpm test --passWithNoTests
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint-go, lint-ui, test-go, test-ui]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: admin/go.mod
+          cache-dependency-path: admin/go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@latest --activate
+
+      - name: Build admin portal
+        run: make build-admin
+
+      - name: Verify binary exists
+        run: |
+          test -f bin/chaperone-admin
+          ./bin/chaperone-admin --help || true
