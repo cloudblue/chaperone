@@ -41,7 +41,7 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("session.idle_timeout must be at least 1m"))
 	}
 
-	if c.Audit.RetentionDays < 0 {
+	if *c.Audit.RetentionDays < 0 {
 		errs = append(errs, errors.New("audit.retention_days must be non-negative (0 = keep forever)"))
 	}
 
