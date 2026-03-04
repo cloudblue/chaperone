@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -15,18 +16,20 @@ import (
 //
 // The command is launched with Start (fire-and-forget) rather than Run
 // because some implementations (e.g., xdg-open on certain Linux desktops)
-// block until the browser process exits. A context timeout would kill the
-// browser itself in that case, so we avoid it entirely.
+// block until the browser process exits. We use context.Background() so
+// the context never cancels — a real timeout would kill the browser itself.
 func openBrowser(url string) error {
+	ctx := context.Background()
+
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url) // #nosec G204 -- url is from CLI flags, not external input
+		cmd = exec.CommandContext(ctx, "open", url) // #nosec G204 -- url is from CLI flags, not external input
 	case "linux":
-		cmd = exec.Command("xdg-open", url) // #nosec G204 -- url is from CLI flags, not external input
+		cmd = exec.CommandContext(ctx, "xdg-open", url) // #nosec G204 -- url is from CLI flags, not external input
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url) // #nosec G204 -- url is from CLI flags, not external input
+		cmd = exec.CommandContext(ctx, "cmd", "/c", "start", url) // #nosec G204 -- url is from CLI flags, not external input
 	default:
 		return fmt.Errorf("unsupported platform %s", runtime.GOOS)
 	}
