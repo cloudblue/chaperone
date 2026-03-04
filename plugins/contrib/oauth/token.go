@@ -43,10 +43,10 @@ type oauthErrorResponse struct {
 
 // tokenResponse represents the JSON body from an OAuth2 token endpoint.
 type tokenResponse struct {
-	AccessToken  string `json:"access_token"` // #nosec G117 -- OAuth2 token response field
-	ExpiresIn    int64  `json:"expires_in"`
-	TokenType    string `json:"token_type"`
-	RefreshToken string `json:"refresh_token"` // #nosec G117 -- OAuth2 token response field
+	AccessToken  string      `json:"access_token"` // #nosec G117 -- OAuth2 token response field
+	ExpiresIn    json.Number `json:"expires_in"`
+	TokenType    string      `json:"token_type"`
+	RefreshToken string      `json:"refresh_token"` // #nosec G117 -- OAuth2 token response field
 }
 
 // tokenResult is the parsed and validated output of a token endpoint exchange.
@@ -308,14 +308,18 @@ func (tf *tokenFetcher) parseTokenResponse(body []byte) (*tokenResult, error) {
 		return nil, fmt.Errorf("token response missing access_token")
 	}
 
-	if tokenResp.ExpiresIn == 0 {
-		return nil, fmt.Errorf("token response missing expires_in")
+	expiresIn, err := tokenResp.ExpiresIn.Int64()
+	if err != nil {
+		return nil, fmt.Errorf("parsing expires_in %q: %w", tokenResp.ExpiresIn, err)
+	}
+	if expiresIn <= 0 {
+		return nil, fmt.Errorf("token response missing or non-positive expires_in")
 	}
 
-	expiresInDuration := time.Duration(tokenResp.ExpiresIn) * time.Second
+	expiresInDuration := time.Duration(expiresIn) * time.Second
 	if expiresInDuration <= tf.expiryMargin {
 		return nil, fmt.Errorf("token expires_in (%ds) <= expiry margin (%s): %w",
-			tokenResp.ExpiresIn, tf.expiryMargin, contrib.ErrTokenExpiredOnArrival)
+			expiresIn, tf.expiryMargin, contrib.ErrTokenExpiredOnArrival)
 	}
 
 	expiresAt := time.Now().Add(expiresInDuration - tf.expiryMargin)

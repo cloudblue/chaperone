@@ -30,6 +30,38 @@ func validTokenHandler() http.HandlerFunc {
 	}
 }
 
+func TestGetCredentials_StringExpiresIn_ReturnsCredential(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Some providers (e.g., Microsoft) return expires_in as a string.
+		fmt.Fprint(w, `{"access_token":"test-token-abc","expires_in":"3600","token_type":"Bearer"}`)
+	}))
+	defer srv.Close()
+
+	cc := NewClientCredentials(ClientCredentialsConfig{
+		TokenURL:     srv.URL,
+		ClientID:     "test-id",
+		ClientSecret: "test-secret",
+	})
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{VendorID: "test-vendor"}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com", http.NoBody)
+
+	cred, err := cc.GetCredentials(ctx, tx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := cred.Headers["Authorization"]; got != "Bearer test-token-abc" {
+		t.Errorf("Authorization = %q, want %q", got, "Bearer test-token-abc")
+	}
+
+	if cred.ExpiresAt.IsZero() || cred.ExpiresAt.Before(time.Now()) {
+		t.Error("ExpiresAt should be in the future")
+	}
+}
+
 func TestGetCredentials_ValidResponse_ReturnsCredential(t *testing.T) {
 	srv := httptest.NewServer(validTokenHandler())
 	defer srv.Close()
