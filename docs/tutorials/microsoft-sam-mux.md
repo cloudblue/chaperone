@@ -11,7 +11,7 @@ Build a Chaperone proxy that authenticates requests to Microsoft APIs using the 
 | **Go** | 1.25+ | Building the proxy binary ([install Go](https://go.dev/doc/install)) |
 | **Chaperone source** | — | SDK, Core, and Contrib modules (cloned in [Getting Started](../getting-started.md)) |
 | **curl** | any | Sending test requests |
-| **Azure AD app registration** | — | Client ID, client secret, and an account with admin consent permissions |
+| **Microsoft Entra ID app registration** | — | Client ID, client secret, and an account with admin consent permissions ([quickstart](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app)) |
 | **Target resource URI** | — | e.g., `https://graph.microsoft.com` |
 | **Tenant ID** | — | e.g., `contoso.onmicrosoft.com` |
 
@@ -25,39 +25,14 @@ Create a new directory next to the Chaperone source:
 cd ~/projects
 mkdir sam-proxy
 cd sam-proxy
+go mod init github.com/acme/sam-proxy
 ```
-
-Create `go.mod` with dependencies on all three Chaperone modules. The `replace` directives point to your local source until the modules are published:
-
-```go
-module github.com/acme/sam-proxy
-
-go 1.25
-
-require (
-    github.com/cloudblue/chaperone                v0.0.0
-    github.com/cloudblue/chaperone/sdk            v0.0.0
-    github.com/cloudblue/chaperone/plugins/contrib v0.0.0
-)
-
-replace (
-    github.com/cloudblue/chaperone                => ../chaperone
-    github.com/cloudblue/chaperone/sdk            => ../chaperone/sdk
-    github.com/cloudblue/chaperone/plugins/contrib => ../chaperone/plugins/contrib
-)
-```
-
-Resolve dependencies:
-
-```bash
-go mod tidy
-```
-
-You should see `go.sum` appear with no errors.
 
 ## Step 2: Write `main.go`
 
-Create `main.go`. This wires the Microsoft refresh token source into the Mux and passes it to `chaperone.Run`:
+Create `main.go` first — `go mod tidy` needs it to resolve imports.
+
+The file wires the Microsoft refresh token source into the Mux and passes it to `chaperone.Run`:
 
 ```go
 package main
@@ -97,6 +72,23 @@ func main() {
 
 The Mux routes requests by matching the target URL. Any request to `graph.microsoft.com` goes to the Microsoft SAM source, which extracts `TenantID` and `Resource` from the transaction context data map and returns a bearer token.
 
+Now add the `replace` directives (needed until all modules are published) and resolve dependencies:
+
+```bash
+cat >> go.mod << 'EOF'
+
+replace (
+    github.com/cloudblue/chaperone                => ../chaperone
+    github.com/cloudblue/chaperone/sdk            => ../chaperone/sdk
+    github.com/cloudblue/chaperone/plugins/contrib => ../chaperone/plugins/contrib
+)
+EOF
+
+go mod tidy
+```
+
+The command creates `go.sum` with no errors.
+
 Build the binary:
 
 ```bash
@@ -130,7 +122,7 @@ Build the onboarding CLI from the Chaperone source:
 (cd ~/projects/chaperone && make build-onboard)
 ```
 
-Run it with your Azure AD credentials. The tool opens your browser for admin consent and prints the refresh token to stdout:
+Run it with your Entra ID credentials. The tool opens your browser for admin consent and prints the refresh token to stdout:
 
 ```bash
 export CHAPERONE_ONBOARD_CLIENT_SECRET='your-app-secret'
@@ -161,11 +153,11 @@ Verify:
 ls tokens/contoso.onmicrosoft.com/
 ```
 
-You should see `graph.microsoft.com`. The resource filename is the URL with the scheme stripped — `https://graph.microsoft.com` becomes `graph.microsoft.com`. See [FileStore reference](../reference/contrib-plugins.md#microsoft-filestore) for the full sanitization rules.
+You should see `graph.microsoft.com`. The resource filename is derived by stripping the URL scheme and replacing any character outside `[a-zA-Z0-9._-]` with an underscore — `https://graph.microsoft.com` becomes `graph.microsoft.com` (no replacements needed in this case, but a resource like `https://api.example.com/v1` would become `api.example.com_v1`). See [FileStore reference](../reference/contrib-plugins.md#microsoft-filestore) for the full sanitization rules.
 
 ## Step 6: Run the proxy
 
-Set your Azure AD credentials and start the proxy:
+Set your Entra ID credentials and start the proxy:
 
 ```bash
 export AZURE_CLIENT_ID='12345678-abcd-1234-abcd-1234567890ab'
@@ -184,7 +176,7 @@ Open a new terminal and send a request through the proxy. The `X-Connect-Context
 curl -s http://localhost:8443/proxy \
   -H "X-Connect-Target-URL: https://graph.microsoft.com/v1.0/me" \
   -H "X-Connect-Vendor-ID: microsoft-partner" \
-  -H "X-Connect-Context-Data: $(echo -n '{"TenantID":"contoso.onmicrosoft.com","Resource":"https://graph.microsoft.com"}' | base64)"
+  -H "X-Connect-Context-Data: $(echo -n '{"TenantID":"contoso.onmicrosoft.com","Resource":"https://graph.microsoft.com"}' | base64 | tr -d '\n')"
 ```
 
 Two outcomes confirm the setup works:
@@ -192,9 +184,7 @@ Two outcomes confirm the setup works:
 - **A Microsoft Graph response** (e.g., user profile JSON) — the bearer token was injected and accepted.
 - **A `401` or `403` from Microsoft** — the proxy, mux, and token exchange all worked; the token lacks the required permissions for this specific API call. Adjust your app registration's API permissions and try again.
 
-## Step 8: Clean up
-
-Press `Ctrl+C` to stop the proxy.
+When you are done testing, press `Ctrl+C` to stop the proxy.
 
 ## What you built
 
