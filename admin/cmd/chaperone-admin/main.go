@@ -5,8 +5,8 @@ package main
 
 import (
 	"context"
-	"flag"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -56,7 +56,7 @@ func run() error {
 		"built", BuildDate,
 	)
 
-	st, err := store.Open(cfg.Database.Path)
+	st, err := store.Open(context.Background(), cfg.Database.Path)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}

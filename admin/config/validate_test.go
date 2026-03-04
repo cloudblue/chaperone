@@ -13,7 +13,7 @@ import (
 // Tests mutate a single field to test specific validation rules.
 func validConfig() *Config {
 	return &Config{
-		Server:   ServerConfig{Addr: "127.0.0.1:8080"},
+		Server:   ServerConfig{Addr: DefaultAddr},
 		Database: DatabaseConfig{Path: "./test.db"},
 		Scraper: ScraperConfig{
 			Interval: Duration(10 * time.Second),
@@ -24,7 +24,7 @@ func validConfig() *Config {
 			IdleTimeout: Duration(2 * time.Hour),
 		},
 		Audit: AuditConfig{RetentionDays: intPtr(90)},
-		Log:   LogConfig{Level: "info", Format: "json"},
+		Log:   LogConfig{Level: DefaultLogLevel, Format: DefaultLogFormat},
 	}
 }
 

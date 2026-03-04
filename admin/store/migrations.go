@@ -4,6 +4,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 )
@@ -66,21 +67,14 @@ CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
 	},
 }
 
-func (s *Store) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS schema_migrations (
-			version INTEGER PRIMARY KEY,
-			applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)
-	`)
-	if err != nil {
-		return fmt.Errorf("creating schema_migrations table: %w", err)
+func (s *Store) migrate(ctx context.Context) error {
+	if err := s.ensureMigrationsTable(ctx); err != nil {
+		return err
 	}
 
-	var current int
-	err = s.db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&current)
+	current, err := s.currentSchemaVersion(ctx)
 	if err != nil {
-		return fmt.Errorf("reading current schema version: %w", err)
+		return err
 	}
 
 	for _, m := range migrations {
@@ -93,28 +87,58 @@ func (s *Store) migrate() error {
 			"description", m.Description,
 		)
 
-		tx, err := s.db.Begin()
-		if err != nil {
-			return fmt.Errorf("beginning transaction for migration %d: %w", m.Version, err)
+		if err := s.applyMigration(ctx, m); err != nil {
+			return err
 		}
+	}
 
-		if _, err := tx.Exec(m.SQL); err != nil {
-			if rbErr := tx.Rollback(); rbErr != nil {
-				slog.Error("rolling back migration", "version", m.Version, "error", rbErr)
-			}
-			return fmt.Errorf("applying migration %d (%s): %w", m.Version, m.Description, err)
-		}
+	return nil
+}
 
-		if _, err := tx.Exec("INSERT INTO schema_migrations (version) VALUES (?)", m.Version); err != nil {
-			if rbErr := tx.Rollback(); rbErr != nil {
-				slog.Error("rolling back migration", "version", m.Version, "error", rbErr)
-			}
-			return fmt.Errorf("recording migration %d: %w", m.Version, err)
-		}
+func (s *Store) ensureMigrationsTable(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			version INTEGER PRIMARY KEY,
+			applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("creating schema_migrations table: %w", err)
+	}
+	return nil
+}
 
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("committing migration %d: %w", m.Version, err)
+func (s *Store) currentSchemaVersion(ctx context.Context) (int, error) {
+	var current int
+	err := s.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&current)
+	if err != nil {
+		return 0, fmt.Errorf("reading current schema version: %w", err)
+	}
+	return current, nil
+}
+
+func (s *Store) applyMigration(ctx context.Context, m migration) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning transaction for migration %d: %w", m.Version, err)
+	}
+
+	if _, err := tx.ExecContext(ctx, m.SQL); err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			slog.Error("rolling back migration", "version", m.Version, "error", rbErr)
 		}
+		return fmt.Errorf("applying migration %d (%s): %w", m.Version, m.Description, err)
+	}
+
+	if _, err := tx.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (?)", m.Version); err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			slog.Error("rolling back migration", "version", m.Version, "error", rbErr)
+		}
+		return fmt.Errorf("recording migration %d: %w", m.Version, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing migration %d: %w", m.Version, err)
 	}
 
 	return nil
