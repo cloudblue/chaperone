@@ -62,9 +62,6 @@ jobs:
             sdk/go.sum
             plugins/contrib/go.sum
 
-      - name: Set up Go workspace
-        run: go work init . ./sdk
-
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
 

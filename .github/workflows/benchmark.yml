@@ -55,9 +55,6 @@ jobs:
             sdk/go.sum
             plugins/contrib/go.sum
 
-      - name: Set up Go workspace
-        run: go work init . ./sdk
-
       - name: Install benchstat
         # golang.org/x/perf does not publish semver tags; pin to a pseudo-version
         # for reproducible benchmark output. Update deliberately when needed.

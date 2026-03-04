@@ -63,9 +63,6 @@ jobs:
         with:
           k6-version: ${{ env.K6_VERSION }}
 
-      - name: Set up Go workspace
-        run: go work init . ./sdk
-
       - name: Generate certificates
         run: make gencerts
 
