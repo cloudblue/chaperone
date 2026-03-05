@@ -438,6 +438,7 @@ type Config struct {
     ExpiryMargin  time.Duration
     HTTPClient    *http.Client
     Logger        *slog.Logger
+    OnSaveError   func(ctx context.Context, tenantID, resource string, err error)
 }
 ```
 
@@ -446,11 +447,12 @@ type Config struct {
 | `TokenEndpoint` | `string` | `"https://login.microsoftonline.com"` | Base URL for the Microsoft token service. Override for sovereign clouds (e.g., `"https://login.microsoftonline.us"`). |
 | `ClientID` | `string` | — (required) | Azure AD application (client) ID. |
 | `ClientSecret` | `string` | — (required) | Azure AD application secret. |
-| `Store` | [`TokenStore`](#tokenstoremicrosoft) | — (required) | Per-tenant, per-resource refresh token persistence. |
-| `MaxPoolSize` | `int` | `10,000` | Maximum `oauth.RefreshToken` instances in the LRU pool. |
+| `Store` | [`TokenStore`](#tokenstoremicrosoft) | — (required) | Per-tenant refresh token persistence. One refresh token per tenant (MRRT model). |
+| `MaxPoolSize` | `int` | `10,000` | Maximum per-tenant entries in the LRU pool. |
 | `ExpiryMargin` | [`time.Duration`][dur] | 5 minutes | Subtracted from `expires_in` before setting `ExpiresAt`. Matches the Python connector's 300-second margin. |
 | `HTTPClient` | [`*http.Client`][client] | 10s timeout, TLS 1.3+ | HTTP client for token requests. |
 | `Logger` | [`*slog.Logger`][slog] | `slog.Default()` | Logger for debug, warning, and error messages. |
+| `OnSaveError` | `func(ctx context.Context, tenantID, resource string, err error)` | `nil` | Optional callback invoked when a rotated refresh token fails to persist. Use for metrics or alerting. The request still succeeds with the access token; only logging occurs if nil. |
 
 ### `NewRefreshTokenSource`
 
@@ -493,12 +495,17 @@ Example: `https://login.microsoftonline.com/contoso.onmicrosoft.com/oauth2/token
 
 The `resource` parameter is sent as a form parameter (v1 style), not as a v2 `scope`.
 
-**Instance pool:**
+**MRRT model:**
 
-Each unique `(TenantID, Resource)` pair gets its own `oauth.RefreshToken` instance with independent access token cache and singleflight group. Instances are kept in a bounded LRU pool:
+Azure AD refresh tokens are Multi-Resource Refresh Tokens (MRRTs): a single refresh token per tenant can be exchanged for access tokens to any consented resource. The `RefreshTokenSource` stores one refresh token per tenant and caches access tokens per (tenant, resource) pair.
 
-- On access, the instance moves to the front.
-- When the pool reaches `MaxPoolSize`, the least recently used instance is evicted. The refresh token remains safe in the `TokenStore` — only the in-memory access token cache is lost.
+**Tenant pool:**
+
+Each unique `TenantID` gets a per-tenant entry with a per-resource access token cache and a singleflight group. Entries are kept in a bounded LRU pool:
+
+- On access, the entry moves to the front.
+- When the pool reaches `MaxPoolSize`, the least recently used entry is evicted. The refresh token remains safe in the `TokenStore` — only the in-memory access token caches are lost.
+- Concurrent requests for the same (tenant, resource) are deduplicated via singleflight. Concurrent requests for different resources on the same tenant run in parallel (safe because Microsoft does not revoke old refresh tokens on exchange).
 
 <a id="tokenstoremicrosoft"></a>
 
@@ -506,19 +513,19 @@ Each unique `(TenantID, Resource)` pair gets its own `oauth.RefreshToken` instan
 
 ```go
 type TokenStore interface {
-    Load(ctx context.Context, tenantID, resource string) (refreshToken string, err error)
-    Save(ctx context.Context, tenantID, resource string, refreshToken string) error
+    Load(ctx context.Context, tenantID string) (refreshToken string, err error)
+    Save(ctx context.Context, tenantID string, refreshToken string) error
 }
 ```
 
-Multi-tenant refresh token persistence keyed by tenant and resource.
+Multi-tenant refresh token persistence keyed by tenant only. Because Azure AD refresh tokens are MRRTs (Multi-Resource Refresh Tokens), a single refresh token per tenant suffices for all resources.
 
 | Method | Parameters | Description |
 |--------|-----------|-------------|
-| `Load` | `tenantID`, `resource` | Retrieves the current refresh token for this tenant+resource pair. Returns [`ErrTenantNotFound`](#sentinel-errors) if no token exists. |
-| `Save` | `tenantID`, `resource`, `refreshToken` | Persists a rotated refresh token after a successful exchange. |
+| `Load` | `tenantID` | Retrieves the current refresh token for this tenant. Returns [`ErrTenantNotFound`](#sentinel-errors) if no token exists. |
+| `Save` | `tenantID`, `refreshToken` | Persists a rotated refresh token after a successful exchange. |
 
-Implementations must be safe for concurrent use and should be durable. A failed `Save` after a successful exchange means the rotated token is lost — the old one has been invalidated by Microsoft's token endpoint.
+Implementations must be safe for concurrent use and should be durable. A failed `Save` after a successful exchange means the rotated token may be lost if the old one has been invalidated.
 
 ### Microsoft `FileStore`
 
@@ -526,15 +533,7 @@ Implementations must be safe for concurrent use and should be durable. A failed 
 type FileStore struct{ /* unexported */ }
 ```
 
-A file-backed [`TokenStore`](#tokenstoremicrosoft) that organizes refresh tokens in a directory tree:
-
-```
-baseDir/
-  {tenantID}/
-    {sanitizedResource}
-```
-
-Each `(tenantID, resource)` pair maps to a separate plain text file.
+A file-backed [`TokenStore`](#tokenstoremicrosoft) that stores one refresh token per tenant as a plain text file at `baseDir/{tenantID}`.
 
 #### `NewFileStore`
 
@@ -544,21 +543,17 @@ func NewFileStore(baseDir string) *FileStore
 
 Creates a `FileStore` rooted at `baseDir`. Panics if `baseDir` is empty.
 
-`Save` creates the tenant subdirectory automatically, so the directory tree does not need to exist before the first write.
+`Save` creates the `baseDir` directory automatically if it doesn't exist.
 
-#### Directory layout
+#### File layout
 
-`tenantID` is used as a subdirectory name directly — it is validated against `^[a-zA-Z0-9][a-zA-Z0-9.\-]*$` to prevent path traversal.
+Each tenant gets a single file directly under `baseDir`. The `tenantID` is used as the filename — it is validated against `^[a-zA-Z0-9][a-zA-Z0-9.\-]*$` to prevent path traversal.
 
-The resource URL is converted to a filename by stripping the scheme (`https://`, `http://`) and replacing characters outside `[a-zA-Z0-9.-]` with underscores. Examples:
-
-| Resource | Filename |
-|----------|----------|
-| `https://graph.microsoft.com` | `graph.microsoft.com` |
-| `https://management.azure.com` | `management.azure.com` |
-| `https://api.partnercenter.microsoft.com/v1` | `api.partnercenter.microsoft.com_v1` |
-
-Sanitized filenames that exceed 200 bytes are rejected with a validation error to prevent OS-level `ENAMETOOLONG` errors.
+```
+baseDir/
+  contoso.onmicrosoft.com      ← one MRRT for all resources
+  fabrikam.onmicrosoft.com
+```
 
 #### Atomic writes
 
@@ -570,7 +565,6 @@ Same pattern as [`oauth.FileStore`](#oauth-filestore): temp file, fsync, rename.
 |--------|-----------|-------|
 | `Load` | File does not exist | Wraps [`ErrTenantNotFound`](#sentinel-errors) |
 | `Load` / `Save` | Invalid `tenantID` | Validation error (not `ErrTenantNotFound`) |
-| `Load` / `Save` | Empty or scheme-only `resource` | Validation error |
 | `Save` | Empty `refreshToken` | Returns an error |
 
 #### Example
@@ -585,15 +579,12 @@ source := microsoft.NewRefreshTokenSource(microsoft.Config{
 })
 ```
 
-Seed each tenant with [`chaperone-onboard microsoft`](../guides/onboarding-refresh-tokens.md). The resulting directory tree looks like:
+Seed each tenant with [`chaperone-onboard microsoft`](../guides/onboarding-refresh-tokens.md). The resulting file layout:
 
 ```
 /var/lib/chaperone/tokens/
-  contoso.onmicrosoft.com/
-    graph.microsoft.com
-  fabrikam.onmicrosoft.com/
-    graph.microsoft.com
-    management.azure.com
+  contoso.onmicrosoft.com
+  fabrikam.onmicrosoft.com
 ```
 
 ---
@@ -703,8 +694,8 @@ type VaultTokenStore struct {
     mount  string
 }
 
-func (v *VaultTokenStore) Load(ctx context.Context, tenantID, resource string) (string, error) {
-    path := fmt.Sprintf("tenants/%s/%s", tenantID, resource)
+func (v *VaultTokenStore) Load(ctx context.Context, tenantID string) (string, error) {
+    path := fmt.Sprintf("tenants/%s", tenantID)
     secret, err := v.client.KVv2(v.mount).Get(ctx, path)
     if err != nil {
         return "", fmt.Errorf("vault read %s: %w", path, err)
@@ -716,8 +707,8 @@ func (v *VaultTokenStore) Load(ctx context.Context, tenantID, resource string) (
     return token, nil
 }
 
-func (v *VaultTokenStore) Save(ctx context.Context, tenantID, resource, refreshToken string) error {
-    path := fmt.Sprintf("tenants/%s/%s", tenantID, resource)
+func (v *VaultTokenStore) Save(ctx context.Context, tenantID, refreshToken string) error {
+    path := fmt.Sprintf("tenants/%s", tenantID)
     _, err := v.client.KVv2(v.mount).Put(ctx, path, map[string]any{
         "refresh_token": refreshToken,
     })

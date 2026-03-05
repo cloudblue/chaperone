@@ -165,6 +165,72 @@ func TestBuild_MicrosoftInvalidTenant_ExitsWithError(t *testing.T) {
 	assertExitCode(t, err, 1)
 }
 
+// TestBuild_MicrosoftE2E_WithoutResource runs a full end-to-end test without -resource.
+//
+//nolint:funlen // E2E test, acceptable to be longer
+func TestBuild_MicrosoftE2E_WithoutResource(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping E2E test in short mode")
+	}
+
+	binary := buildTestBinary(t)
+
+	// Start mock Microsoft endpoint that does NOT require resource param
+	mockProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/oauth2/token") {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"access_token":  "mock-access-token",
+				"refresh_token": "mock-refresh-token-no-resource",
+				"expires_in":    3600,
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockProvider.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Note: no -resource flag
+	cmd := exec.CommandContext(ctx, binary, "microsoft",
+		"-tenant", "contoso.onmicrosoft.com",
+		"-client-id", "test-app-id",
+		"-endpoint", mockProvider.URL,
+		"-no-browser",
+		"-allow-http",
+		"-timeout", "15s")
+	cmd.Env = append(os.Environ(), "CHAPERONE_ONBOARD_CLIENT_SECRET=test-secret")
+
+	authURL, stdout := runE2EConsent(t, cmd)
+
+	// Verify auth URL does NOT contain resource param
+	parsed, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatalf("failed to parse auth URL: %v", err)
+	}
+	state := parsed.Query().Get("state")
+	redirectURI := parsed.Query().Get("redirect_uri")
+	if state == "" || redirectURI == "" {
+		t.Fatalf("missing state or redirect_uri in auth URL: %s", authURL)
+	}
+	if parsed.Query().Get("resource") != "" {
+		t.Errorf("auth URL should not contain resource param when omitted: %s", authURL)
+	}
+
+	// Simulate the provider callback
+	simulateCallback(ctx, t, redirectURI, state, "msft-auth-code")
+
+	if waitErr := cmd.Wait(); waitErr != nil {
+		t.Fatalf("binary exited with error: %v", waitErr)
+	}
+
+	if got := stdout.String(); got != "mock-refresh-token-no-resource" {
+		t.Errorf("stdout = %q, want mock-refresh-token-no-resource", got)
+	}
+}
+
 // TestBuild_OAuthE2E runs a full end-to-end test with a mock OAuth2 provider.
 //
 //nolint:funlen // E2E test, acceptable to be longer

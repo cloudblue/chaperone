@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cloudblue/chaperone/plugins/contrib/internal/oauthutil"
 	"github.com/cloudblue/chaperone/sdk"
 )
 
@@ -74,7 +75,7 @@ var _ sdk.CredentialProvider = (*RefreshToken)(nil)
 // It is safe for concurrent use from multiple goroutines.
 type RefreshToken struct {
 	tm          *tokenManager
-	fetcher     *tokenFetcher
+	fetcher     *oauthutil.TokenFetcher
 	store       TokenStore
 	logger      *slog.Logger
 	onSaveError func(ctx context.Context, tokenURL string, err error)
@@ -82,26 +83,26 @@ type RefreshToken struct {
 
 // NewRefreshToken creates a new refresh token provider.
 func NewRefreshToken(cfg RefreshTokenConfig) *RefreshToken {
-	f := newTokenFetcher(tokenFetcher{
-		tokenURL:     cfg.TokenURL,
-		clientID:     cfg.ClientID,
-		clientSecret: cfg.ClientSecret,
-		authMode:     cfg.AuthMode,
-		scopes:       cfg.Scopes,
-		extraParams:  cfg.ExtraParams,
-		expiryMargin: cfg.ExpiryMargin,
-		client:       cfg.HTTPClient,
-		logger:       cfg.Logger,
+	f := oauthutil.NewTokenFetcher(oauthutil.TokenFetcher{
+		TokenURL:     cfg.TokenURL,
+		ClientID:     cfg.ClientID,
+		ClientSecret: cfg.ClientSecret,
+		UseBasicAuth: cfg.AuthMode == AuthModeBasic,
+		Scopes:       cfg.Scopes,
+		ExtraParams:  cfg.ExtraParams,
+		ExpiryMargin: cfg.ExpiryMargin,
+		Client:       cfg.HTTPClient,
+		Logger:       cfg.Logger,
 	})
 
 	rt := &RefreshToken{
 		fetcher:     f,
 		store:       cfg.Store,
-		logger:      f.logger,
+		logger:      f.Logger,
 		onSaveError: cfg.OnSaveError,
 	}
 
-	rt.tm = newTokenManager(cfg.TokenURL, f.logger, rt.fetch)
+	rt.tm = newTokenManager(cfg.TokenURL, f.Logger, rt.fetch)
 
 	return rt
 }
@@ -131,28 +132,28 @@ func (rt *RefreshToken) fetch(ctx context.Context) (*cachedToken, error) {
 		return nil, fmt.Errorf("loading refresh token: %w", err)
 	}
 
-	form := rt.fetcher.buildForm("refresh_token")
+	form := rt.fetcher.BuildForm("refresh_token")
 	form.Set("refresh_token", refreshToken)
 
-	result, err := rt.fetcher.exchange(ctx, form)
+	result, err := rt.fetcher.Exchange(ctx, form)
 	if err != nil {
 		return nil, err
 	}
 
-	if result.refreshToken != "" {
-		if saveErr := rt.store.Save(ctx, result.refreshToken); saveErr != nil {
+	if result.RefreshToken != "" {
+		if saveErr := rt.store.Save(ctx, result.RefreshToken); saveErr != nil {
 			rt.logger.LogAttrs(ctx, slog.LevelError, "failed to save rotated refresh token",
-				slog.String("token_url", rt.fetcher.tokenURL),
+				slog.String("token_url", rt.fetcher.TokenURL),
 				slog.String("error", saveErr.Error()))
 
 			if rt.onSaveError != nil {
-				rt.onSaveError(ctx, rt.fetcher.tokenURL, saveErr)
+				rt.onSaveError(ctx, rt.fetcher.TokenURL, saveErr)
 			}
 		}
 	}
 
 	return &cachedToken{
-		accessToken: result.accessToken,
-		expiresAt:   result.expiresAt,
+		accessToken: result.AccessToken,
+		expiresAt:   result.ExpiresAt,
 	}, nil
 }

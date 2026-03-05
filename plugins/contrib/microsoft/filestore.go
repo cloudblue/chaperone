@@ -14,12 +14,8 @@ import (
 	"github.com/cloudblue/chaperone/plugins/contrib"
 )
 
-// maxResourceFilenameLen is the maximum length of a sanitized resource
-// filename. This prevents ENAMETOOLONG from the OS on crafted inputs.
-const maxResourceFilenameLen = 200
-
-// FileStore is a file-backed [TokenStore] that organizes refresh tokens in a
-// directory tree: baseDir/{tenantID}/{sanitizedResource}.
+// FileStore is a file-backed [TokenStore] that stores one refresh token per
+// tenant at baseDir/{tenantID}.
 //
 // Writes are atomic: the token is written to a temporary file in the same
 // directory, synced to disk, and then renamed to the target path. This
@@ -42,23 +38,20 @@ func NewFileStore(baseDir string) *FileStore {
 	return &FileStore{baseDir: baseDir}
 }
 
-// Load retrieves the current refresh token for the given tenant and resource.
+// Load retrieves the current refresh token for the given tenant.
 // Returns [contrib.ErrTenantNotFound] if no token file exists.
-func (f *FileStore) Load(_ context.Context, tenantID, resource string) (string, error) {
+func (f *FileStore) Load(_ context.Context, tenantID string) (string, error) {
 	if err := validateTenantID(tenantID); err != nil {
 		return "", err
 	}
-	if err := validateResource(resource); err != nil {
-		return "", err
-	}
 
-	path := f.tokenPath(tenantID, resource)
+	path := f.tokenPath(tenantID)
 
-	data, err := os.ReadFile(path) // #nosec G304 -- path is built from validated tenantID and sanitized resource under baseDir
+	data, err := os.ReadFile(path) // #nosec G304 -- path is built from validated tenantID under baseDir
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("no token for tenant %s, resource %s: %w",
-				tenantID, resource, contrib.ErrTenantNotFound)
+			return "", fmt.Errorf("no token for tenant %s: %w",
+				tenantID, contrib.ErrTenantNotFound)
 		}
 		return "", fmt.Errorf("loading token for tenant %s: %w", tenantID, err)
 	}
@@ -67,18 +60,15 @@ func (f *FileStore) Load(_ context.Context, tenantID, resource string) (string, 
 }
 
 // Save persists a rotated refresh token to disk atomically.
-func (f *FileStore) Save(_ context.Context, tenantID, resource, refreshToken string) error {
+func (f *FileStore) Save(_ context.Context, tenantID, refreshToken string) error {
 	if err := validateTenantID(tenantID); err != nil {
-		return err
-	}
-	if err := validateResource(resource); err != nil {
 		return err
 	}
 	if refreshToken == "" {
 		return errors.New("refusing to save empty refresh token")
 	}
 
-	path := f.tokenPath(tenantID, resource)
+	path := f.tokenPath(tenantID)
 	dir := filepath.Dir(path)
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -112,7 +102,7 @@ func (f *FileStore) Save(_ context.Context, tenantID, resource, refreshToken str
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("closing temp file: %w", err)
 	}
-	if err := os.Rename(tmpPath, path); err != nil { // #nosec G703 -- tenantID is validated, resource is sanitized
+	if err := os.Rename(tmpPath, path); err != nil { // #nosec G703 -- tenantID is validated
 		return fmt.Errorf("renaming token file: %w", err)
 	}
 
@@ -120,8 +110,8 @@ func (f *FileStore) Save(_ context.Context, tenantID, resource, refreshToken str
 	return nil
 }
 
-func (f *FileStore) tokenPath(tenantID, resource string) string {
-	return filepath.Join(f.baseDir, tenantID, sanitizeResource(resource))
+func (f *FileStore) tokenPath(tenantID string) string {
+	return filepath.Join(f.baseDir, tenantID)
 }
 
 // validateTenantID rejects tenant IDs that could cause path traversal.
@@ -137,45 +127,4 @@ func validateTenantID(tenantID string) error {
 			display, validTenantID.String())
 	}
 	return nil
-}
-
-// validateResource rejects empty or scheme-only resource strings that would
-// produce an empty filename after sanitization, collapsing the file path
-// into the tenant directory itself.
-func validateResource(resource string) error {
-	if resource == "" {
-		return errors.New("resource must not be empty")
-	}
-
-	name := sanitizeResource(resource)
-	if name == "" {
-		return fmt.Errorf("resource %q produces an empty filename after sanitization", resource)
-	}
-	if len(name) > maxResourceFilenameLen {
-		return fmt.Errorf("sanitized resource filename exceeds %d bytes", maxResourceFilenameLen)
-	}
-	return nil
-}
-
-// sanitizeResource converts a resource URL into a filesystem-safe filename.
-// It strips the URL scheme and replaces characters outside [a-zA-Z0-9._-]
-// with underscores.
-//
-// Note: different resource URLs can theoretically produce the same filename
-// (e.g., "https://api.example.com/v1" and "https://api.example.com?v1" both
-// become "api.example.com_v1"). This is acceptable for real Microsoft
-// resource URIs, which are clean hostnames like "https://graph.microsoft.com".
-func sanitizeResource(resource string) string {
-	s := strings.TrimPrefix(resource, "https://")
-	s = strings.TrimPrefix(s, "http://")
-
-	return strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') ||
-			(r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') ||
-			r == '.' || r == '-' {
-			return r
-		}
-		return '_'
-	}, s)
 }

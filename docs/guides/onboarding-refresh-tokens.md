@@ -9,7 +9,7 @@ How to bootstrap the initial refresh token for `oauth.RefreshToken` or `microsof
 - An Azure AD app registration with the appropriate API permissions
 - Admin consent capability for the target tenant
 - The app's client ID and client secret
-- The target resource URI (e.g., `https://graph.microsoft.com`)
+- (Optional) A target resource URI (e.g., `https://graph.microsoft.com`) to scope the initial consent
 
 ### For generic OAuth2 (`oauth` subcommand)
 
@@ -31,11 +31,12 @@ export CHAPERONE_ONBOARD_CLIENT_SECRET='your-app-secret'
 chaperone-onboard microsoft \
   -tenant contoso.onmicrosoft.com \
   -client-id 12345678-abcd-1234-abcd-1234567890ab \
-  -resource https://graph.microsoft.com \
   > refresh-token.txt
 ```
 
 The tool prints only the refresh token to stdout, so you can redirect to a file (as above) or pipe to your secrets manager. See [Store the refresh token](#store-the-refresh-token) for where to place the file.
+
+The resulting refresh token is an MRRT (Multi-Resource Refresh Token) — one consent per tenant is sufficient for all resources. You can optionally pass `-resource https://graph.microsoft.com` to scope the initial consent to a specific resource.
 
 The command opens your default browser to the Azure AD consent page. Sign in as an admin and grant consent. After granting consent, the browser shows a "You may close this tab and return to the terminal" page.
 
@@ -45,7 +46,6 @@ For sovereign clouds (Azure Government, Azure China), override the endpoint:
 chaperone-onboard microsoft \
   -tenant contoso.onmicrosoft.us \
   -client-id 12345678-abcd-1234-abcd-1234567890ab \
-  -resource https://graph.microsoft.us \
   -endpoint https://login.microsoftonline.us
 ```
 
@@ -103,14 +103,14 @@ Then configure the provider to read from that path:
 store := oauth.NewFileStore("/var/lib/chaperone/refresh-token.txt")
 ```
 
-**For Microsoft SAM** — a directory tree with one file per tenant+resource pair:
+**For Microsoft SAM** — one file per tenant (MRRT model):
 
 ```bash
+mkdir -p /var/lib/chaperone/tokens
 chaperone-onboard microsoft \
   -tenant contoso.onmicrosoft.com \
   -client-id ... \
-  -resource https://graph.microsoft.com \
-  > /var/lib/chaperone/tokens/contoso.onmicrosoft.com/graph.microsoft.com
+  > /var/lib/chaperone/tokens/contoso.onmicrosoft.com
 ```
 
 Then point the store at the base directory:
@@ -119,9 +119,7 @@ Then point the store at the base directory:
 store := microsoft.NewFileStore("/var/lib/chaperone/tokens")
 ```
 
-The shell `>` redirect does not create parent directories, so create the tenant directory first: `mkdir -p /var/lib/chaperone/tokens/contoso.onmicrosoft.com`. At runtime, `FileStore.Save` calls `os.MkdirAll` and creates directories automatically when Microsoft rotates the token.
-
-The resource filename is derived by stripping the URL scheme and replacing any character outside `[a-zA-Z0-9.-]` with an underscore. For example, `https://graph.microsoft.com` becomes `graph.microsoft.com`, while `https://api.example.com/v1` becomes `api.example.com_v1`. See the [FileStore reference](../reference/contrib-plugins.md#microsoft-filestore) for the full sanitization rules.
+Each tenant gets a single file. The refresh token is an MRRT — one token per tenant covers all consented resources. At runtime, `FileStore.Save` calls `os.MkdirAll` and creates the base directory automatically when Microsoft rotates the token.
 
 ### Other backends
 

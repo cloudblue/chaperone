@@ -25,9 +25,10 @@ import (
 // --- Test helpers ---
 
 // memoryTokenStore is a keyed in-memory TokenStore for testing.
+// Keyed by tenantID only (MRRT model).
 type memoryTokenStore struct {
 	mu     sync.Mutex
-	tokens map[string]string // key: "tenantID|resource"
+	tokens map[string]string // key: tenantID
 
 	loadErr   error
 	saveErr   error
@@ -38,40 +39,40 @@ func newMemoryTokenStore() *memoryTokenStore {
 	return &memoryTokenStore{tokens: make(map[string]string)}
 }
 
-func (s *memoryTokenStore) set(tenantID, resource, token string) {
+func (s *memoryTokenStore) set(tenantID, token string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.tokens[tenantID+"|"+resource] = token
+	s.tokens[tenantID] = token
 }
 
-func (s *memoryTokenStore) get(tenantID, resource string) string {
+func (s *memoryTokenStore) get(tenantID string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.tokens[tenantID+"|"+resource]
+	return s.tokens[tenantID]
 }
 
-func (s *memoryTokenStore) Load(_ context.Context, tenantID, resource string) (string, error) {
+func (s *memoryTokenStore) Load(_ context.Context, tenantID string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.loadErr != nil {
 		return "", s.loadErr
 	}
-	tok, ok := s.tokens[tenantID+"|"+resource]
+	tok, ok := s.tokens[tenantID]
 	if !ok {
-		return "", fmt.Errorf("no token for tenant %s, resource %s: %w",
-			tenantID, resource, contrib.ErrTenantNotFound)
+		return "", fmt.Errorf("no token for tenant %s: %w",
+			tenantID, contrib.ErrTenantNotFound)
 	}
 	return tok, nil
 }
 
-func (s *memoryTokenStore) Save(_ context.Context, tenantID, resource, refreshToken string) error {
+func (s *memoryTokenStore) Save(_ context.Context, tenantID, refreshToken string) error {
 	s.saveCalls.Add(1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.saveErr != nil {
 		return s.saveErr
 	}
-	s.tokens[tenantID+"|"+resource] = refreshToken
+	s.tokens[tenantID] = refreshToken
 	return nil
 }
 
@@ -379,7 +380,7 @@ func TestGetCredentials_ValidTenantIDFormats(t *testing.T) {
 			defer srv.Close()
 
 			store := newMemoryTokenStore()
-			store.set(tt.tenantID, "https://graph.microsoft.com", "refresh-tok")
+			store.set(tt.tenantID, "refresh-tok")
 
 			src := NewRefreshTokenSource(Config{
 				TokenEndpoint: srv.URL,
@@ -412,7 +413,7 @@ func TestGetCredentials_V1TokenEndpointURLConstruction(t *testing.T) {
 	defer srv.Close()
 
 	store := newMemoryTokenStore()
-	store.set("contoso.onmicrosoft.com", "https://graph.microsoft.com", "refresh-tok")
+	store.set("contoso.onmicrosoft.com", "refresh-tok")
 
 	src := NewRefreshTokenSource(Config{
 		TokenEndpoint: srv.URL,
@@ -449,7 +450,7 @@ func TestGetCredentials_ResourceParameterInRequestBody(t *testing.T) {
 	defer srv.Close()
 
 	store := newMemoryTokenStore()
-	store.set("tenant-1", "https://graph.microsoft.com", "refresh-tok")
+	store.set("tenant-1", "refresh-tok")
 
 	src := NewRefreshTokenSource(Config{
 		TokenEndpoint: srv.URL,
@@ -488,7 +489,7 @@ func TestGetCredentials_CustomTokenEndpoint_GovernmentCloud(t *testing.T) {
 	defer srv.Close()
 
 	store := newMemoryTokenStore()
-	store.set("gov-tenant", "https://graph.microsoft.us", "refresh-tok")
+	store.set("gov-tenant", "refresh-tok")
 
 	src := NewRefreshTokenSource(Config{
 		TokenEndpoint: srv.URL, // simulates government cloud endpoint
@@ -522,8 +523,7 @@ func TestGetCredentials_PoolAtMaxCapacity_EvictsLRU(t *testing.T) {
 	store := newMemoryTokenStore()
 	// Pre-populate 3 tenants
 	for i := range 3 {
-		store.set(fmt.Sprintf("tenant-%d", i), "https://graph.microsoft.com",
-			fmt.Sprintf("refresh-tok-%d", i))
+		store.set(fmt.Sprintf("tenant-%d", i), fmt.Sprintf("refresh-tok-%d", i))
 	}
 
 	src := NewRefreshTokenSource(Config{
@@ -558,9 +558,9 @@ func TestGetCredentials_PoolAtMaxCapacity_EvictsLRU(t *testing.T) {
 
 	src.mu.Lock()
 	poolSize := len(src.pool)
-	_, hasTenant0 := src.pool[poolKey{tenantID: "tenant-0", resource: "https://graph.microsoft.com"}]
-	_, hasTenant1 := src.pool[poolKey{tenantID: "tenant-1", resource: "https://graph.microsoft.com"}]
-	_, hasTenant2 := src.pool[poolKey{tenantID: "tenant-2", resource: "https://graph.microsoft.com"}]
+	_, hasTenant0 := src.pool["tenant-0"]
+	_, hasTenant1 := src.pool["tenant-1"]
+	_, hasTenant2 := src.pool["tenant-2"]
 	src.mu.Unlock()
 
 	if poolSize != 2 {
@@ -600,8 +600,8 @@ func TestGetCredentials_DifferentTenants_SeparateInstances(t *testing.T) {
 	defer srv.Close()
 
 	store := newMemoryTokenStore()
-	store.set("tenant-a", "https://graph.microsoft.com", "tok-a")
-	store.set("tenant-b", "https://graph.microsoft.com", "tok-b")
+	store.set("tenant-a", "tok-a")
+	store.set("tenant-b", "tok-b")
 
 	src := NewRefreshTokenSource(Config{
 		TokenEndpoint: srv.URL,
@@ -649,7 +649,7 @@ func TestGetCredentials_Singleflight_SameTenantResource(t *testing.T) {
 	defer srv.Close()
 
 	store := newMemoryTokenStore()
-	store.set("tenant-sf", "https://graph.microsoft.com", "refresh-tok")
+	store.set("tenant-sf", "refresh-tok")
 
 	src := NewRefreshTokenSource(Config{
 		TokenEndpoint: srv.URL,
@@ -685,44 +685,12 @@ func TestGetCredentials_Singleflight_SameTenantResource(t *testing.T) {
 	}
 }
 
-func TestKeyedStoreAdapter_BridgesKeyedToKeyless(t *testing.T) {
-	store := newMemoryTokenStore()
-	store.set("tenant-x", "resource-y", "original-tok")
-
-	adapter := &keyedStoreAdapter{
-		store:    store,
-		tenantID: "tenant-x",
-		resource: "resource-y",
-	}
-
-	ctx := context.Background()
-
-	// Load should delegate with bound keys
-	tok, err := adapter.Load(ctx)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if tok != "original-tok" {
-		t.Errorf("Load = %q, want %q", tok, "original-tok")
-	}
-
-	// Save should delegate with bound keys
-	err = adapter.Save(ctx, "rotated-tok")
-	if err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	if got := store.get("tenant-x", "resource-y"); got != "rotated-tok" {
-		t.Errorf("store token = %q, want %q", got, "rotated-tok")
-	}
-}
-
 func TestGetCredentials_EndToEnd_RefreshTokenRotation(t *testing.T) {
 	srv := httptest.NewServer(tokenHandler("new-refresh-tok"))
 	defer srv.Close()
 
 	store := newMemoryTokenStore()
-	store.set("contoso", "https://graph.microsoft.com", "initial-refresh-tok")
+	store.set("contoso", "initial-refresh-tok")
 
 	src := NewRefreshTokenSource(Config{
 		TokenEndpoint: srv.URL,
@@ -747,8 +715,8 @@ func TestGetCredentials_EndToEnd_RefreshTokenRotation(t *testing.T) {
 		t.Error("ExpiresAt should be in the future")
 	}
 
-	// Verify rotated refresh token was saved back to the keyed store
-	if got := store.get("contoso", "https://graph.microsoft.com"); got != "new-refresh-tok" {
+	// Verify rotated refresh token was saved back to the store keyed by tenantID only
+	if got := store.get("contoso"); got != "new-refresh-tok" {
 		t.Errorf("store token = %q, want %q", got, "new-refresh-tok")
 	}
 }
@@ -784,7 +752,7 @@ func TestGetCredentials_StoreSaveFailure_LogsErrorAndReturnsToken(t *testing.T) 
 	defer srv.Close()
 
 	store := newMemoryTokenStore()
-	store.set("tenant-s", "https://graph.microsoft.com", "initial-tok")
+	store.set("tenant-s", "initial-tok")
 	store.saveErr = errors.New("vault write failed")
 
 	capture := &logCapture{}
@@ -828,14 +796,245 @@ func TestGetCredentials_StoreSaveFailure_LogsErrorAndReturnsToken(t *testing.T) 
 	}
 }
 
+func TestGetCredentials_OnSaveError_InvokedOnSaveFailure(t *testing.T) {
+	srv := httptest.NewServer(tokenHandler("rotated-tok"))
+	defer srv.Close()
+
+	store := newMemoryTokenStore()
+	store.set("tenant-cb", "initial-tok")
+	store.saveErr = errors.New("vault write failed")
+
+	var (
+		callbackCalled   bool
+		callbackTenantID string
+		callbackResource string
+		callbackErr      error
+	)
+
+	src := NewRefreshTokenSource(Config{
+		TokenEndpoint: srv.URL,
+		ClientID:      "id",
+		ClientSecret:  "secret",
+		Store:         store,
+		OnSaveError: func(_ context.Context, tenantID, resource string, err error) {
+			callbackCalled = true
+			callbackTenantID = tenantID
+			callbackResource = resource
+			callbackErr = err
+		},
+	})
+
+	ctx := context.Background()
+	tx := makeTx("tenant-cb", "https://graph.microsoft.com")
+
+	cred, err := src.GetCredentials(ctx, tx, makeReq(ctx))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := cred.Headers["Authorization"]; got != "Bearer access-tok" {
+		t.Errorf("Authorization = %q, want Bearer access-tok", got)
+	}
+
+	if !callbackCalled {
+		t.Fatal("OnSaveError callback was not invoked")
+	}
+
+	if callbackTenantID != "tenant-cb" {
+		t.Errorf("callback tenantID = %q, want %q", callbackTenantID, "tenant-cb")
+	}
+
+	if callbackResource != "https://graph.microsoft.com" {
+		t.Errorf("callback resource = %q, want %q", callbackResource, "https://graph.microsoft.com")
+	}
+
+	if callbackErr == nil || callbackErr.Error() != "vault write failed" {
+		t.Errorf("callback err = %v, want 'vault write failed'", callbackErr)
+	}
+}
+
+func TestGetCredentials_OnSaveError_Nil_DoesNotPanic(t *testing.T) {
+	srv := httptest.NewServer(tokenHandler("rotated-tok"))
+	defer srv.Close()
+
+	store := newMemoryTokenStore()
+	store.set("tenant-np", "initial-tok")
+	store.saveErr = errors.New("vault write failed")
+
+	src := NewRefreshTokenSource(Config{
+		TokenEndpoint: srv.URL,
+		ClientID:      "id",
+		ClientSecret:  "secret",
+		Store:         store,
+		// OnSaveError intentionally nil — should not panic.
+	})
+
+	ctx := context.Background()
+	tx := makeTx("tenant-np", "https://graph.microsoft.com")
+
+	cred, err := src.GetCredentials(ctx, tx, makeReq(ctx))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := cred.Headers["Authorization"]; got != "Bearer access-tok" {
+		t.Errorf("Authorization = %q, want Bearer access-tok", got)
+	}
+}
+
+func TestGetCredentials_CrossResourceCache_SameTenant(t *testing.T) {
+	var callCount atomic.Int32
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount.Add(1)
+		b, _ := io.ReadAll(r.Body)
+		body := string(b)
+
+		// Return different access tokens per resource.
+		accessTok := "graph-tok"
+		if strings.Contains(body, "management.azure.com") {
+			accessTok = "mgmt-tok"
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"access_token":%q,"expires_in":3600}`, accessTok)
+	})
+
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	store := newMemoryTokenStore()
+	store.set("contoso", "refresh-tok")
+
+	src := NewRefreshTokenSource(Config{
+		TokenEndpoint: srv.URL,
+		ClientID:      "id",
+		ClientSecret:  "secret",
+		Store:         store,
+	})
+
+	ctx := context.Background()
+
+	// First resource: Graph API
+	cred1, err := src.GetCredentials(ctx,
+		makeTx("contoso", "https://graph.microsoft.com"), makeReq(ctx))
+	if err != nil {
+		t.Fatalf("graph: %v", err)
+	}
+
+	// Second resource: Management API (same tenant)
+	cred2, err := src.GetCredentials(ctx,
+		makeTx("contoso", "https://management.azure.com"), makeReq(ctx))
+	if err != nil {
+		t.Fatalf("management: %v", err)
+	}
+
+	// Should have made 2 HTTP calls (different resources).
+	if got := callCount.Load(); got != 2 {
+		t.Errorf("expected 2 HTTP calls, got %d", got)
+	}
+
+	// Each resource should get its own access token.
+	if got := cred1.Headers["Authorization"]; got != "Bearer graph-tok" {
+		t.Errorf("graph Authorization = %q, want Bearer graph-tok", got)
+	}
+	if got := cred2.Headers["Authorization"]; got != "Bearer mgmt-tok" {
+		t.Errorf("management Authorization = %q, want Bearer mgmt-tok", got)
+	}
+
+	// Third call for Graph (same tenant, same resource) — should be a cache hit.
+	cred3, err := src.GetCredentials(ctx,
+		makeTx("contoso", "https://graph.microsoft.com"), makeReq(ctx))
+	if err != nil {
+		t.Fatalf("graph cached: %v", err)
+	}
+
+	if got := callCount.Load(); got != 2 {
+		t.Errorf("expected 2 HTTP calls (third should be cached), got %d", got)
+	}
+
+	if got := cred3.Headers["Authorization"]; got != "Bearer graph-tok" {
+		t.Errorf("cached graph Authorization = %q, want Bearer graph-tok", got)
+	}
+}
+
+func TestGetCredentials_ConcurrentDifferentResources_BothSucceed(t *testing.T) {
+	var callCount atomic.Int32
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount.Add(1)
+		time.Sleep(100 * time.Millisecond)
+		b, _ := io.ReadAll(r.Body)
+		body := string(b)
+
+		accessTok := "tok-a"
+		if strings.Contains(body, "resource-b") {
+			accessTok = "tok-b"
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"access_token":%q,"expires_in":3600,"refresh_token":"new-rt"}`, accessTok)
+	})
+
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	store := newMemoryTokenStore()
+	store.set("tenant-c", "refresh-tok")
+
+	src := NewRefreshTokenSource(Config{
+		TokenEndpoint: srv.URL,
+		ClientID:      "id",
+		ClientSecret:  "secret",
+		Store:         store,
+	})
+
+	var wg sync.WaitGroup
+	var err1, err2 error
+	var cred1, cred2 *sdk.Credential
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		ctx := context.Background()
+		cred1, err1 = src.GetCredentials(ctx, makeTx("tenant-c", "resource-a"), makeReq(ctx))
+	}()
+	go func() {
+		defer wg.Done()
+		ctx := context.Background()
+		cred2, err2 = src.GetCredentials(ctx, makeTx("tenant-c", "resource-b"), makeReq(ctx))
+	}()
+
+	wg.Wait()
+
+	if err1 != nil {
+		t.Fatalf("resource-a: %v", err1)
+	}
+	if err2 != nil {
+		t.Fatalf("resource-b: %v", err2)
+	}
+
+	// Both should succeed and return different access tokens.
+	if got := cred1.Headers["Authorization"]; got != "Bearer tok-a" {
+		t.Errorf("resource-a Authorization = %q, want Bearer tok-a", got)
+	}
+	if got := cred2.Headers["Authorization"]; got != "Bearer tok-b" {
+		t.Errorf("resource-b Authorization = %q, want Bearer tok-b", got)
+	}
+
+	// Both calls should have hit the token endpoint (different resources = different singleflight keys).
+	if got := callCount.Load(); got != 2 {
+		t.Errorf("expected 2 HTTP calls (different resources), got %d", got)
+	}
+}
+
 func TestGetCredentials_ConcurrentSafety(t *testing.T) {
 	srv := httptest.NewServer(tokenHandler("rotated"))
 	defer srv.Close()
 
 	store := newMemoryTokenStore()
 	for i := range 5 {
-		store.set(fmt.Sprintf("tenant-%d", i), "https://graph.microsoft.com",
-			fmt.Sprintf("tok-%d", i))
+		store.set(fmt.Sprintf("tenant-%d", i), fmt.Sprintf("tok-%d", i))
 	}
 
 	src := NewRefreshTokenSource(Config{
@@ -927,12 +1126,75 @@ func TestGetCredentials_DefaultExpiryMargin(t *testing.T) {
 	}
 }
 
+func TestGetCredentials_ResourceCacheBound_PurgesExpired(t *testing.T) {
+	var callCount atomic.Int32
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		n := callCount.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		// Return a short-lived token so entries expire quickly.
+		// expires_in=3 with margin=1s gives effective TTL of 2s.
+		fmt.Fprintf(w, `{"access_token":"tok-%d","expires_in":3}`, n)
+	})
+
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	store := newMemoryTokenStore()
+	store.set("tenant-bound", "refresh-tok")
+
+	src := NewRefreshTokenSource(Config{
+		TokenEndpoint: srv.URL,
+		ClientID:      "id",
+		ClientSecret:  "secret",
+		Store:         store,
+		ExpiryMargin:  1 * time.Second, // margin < expires_in so tokens are accepted
+	})
+
+	ctx := context.Background()
+
+	// Fill the cache with maxResourcesPerTenant entries.
+	for i := range maxResourcesPerTenant {
+		resource := fmt.Sprintf("https://resource-%d.example.com", i)
+		_, err := src.GetCredentials(ctx, makeTx("tenant-bound", resource), makeReq(ctx))
+		if err != nil {
+			t.Fatalf("resource %d: %v", i, err)
+		}
+	}
+
+	// Verify the cache is full.
+	entry := src.getOrCreate(ctx, "tenant-bound")
+	entry.mu.RLock()
+	cacheSize := len(entry.tokens)
+	entry.mu.RUnlock()
+	if cacheSize != maxResourcesPerTenant {
+		t.Fatalf("cache size = %d, want %d", cacheSize, maxResourcesPerTenant)
+	}
+
+	// Wait for all cached tokens to expire (effective TTL is 2s).
+	time.Sleep(3 * time.Second)
+
+	// Request one more resource — should trigger purge of expired entries.
+	_, err := src.GetCredentials(ctx, makeTx("tenant-bound", "https://new-resource.example.com"), makeReq(ctx))
+	if err != nil {
+		t.Fatalf("new resource: %v", err)
+	}
+
+	// After purge, the cache should only contain the one new entry.
+	entry.mu.RLock()
+	newSize := len(entry.tokens)
+	entry.mu.RUnlock()
+	if newSize > 2 {
+		t.Errorf("cache size after purge = %d, expected ≤ 2 (most expired entries should be purged)", newSize)
+	}
+}
+
 func TestRefreshTokenSource_Compliance(t *testing.T) {
 	srv := httptest.NewServer(tokenHandler("rotated-tok"))
 	defer srv.Close()
 
 	store := newMemoryTokenStore()
-	store.set("compliance-tenant", "https://graph.microsoft.com", "initial-tok")
+	store.set("compliance-tenant", "initial-tok")
 
 	src := NewRefreshTokenSource(Config{
 		TokenEndpoint: srv.URL,

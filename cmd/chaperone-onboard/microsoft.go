@@ -23,7 +23,7 @@ func microsoftCmd(args []string) error {
 
 	tenant := fs.String("tenant", "", "Azure AD tenant ID (GUID or domain, required)")
 	clientID := fs.String("client-id", "", "Azure AD application (client) ID (required)")
-	resource := fs.String("resource", "", "Target resource URI (e.g. https://graph.microsoft.com) (required)")
+	resource := fs.String("resource", "", "Target resource URI (e.g. https://graph.microsoft.com) (optional; scopes initial consent to this resource)")
 	endpoint := fs.String("endpoint", defaultMicrosoftEndpoint, "Token endpoint base URL (override for sovereign clouds)")
 	port := fs.Int("port", 0, "Local callback port (default: OS-assigned)")
 	timeout := fs.Duration("timeout", 5*time.Minute, "Consent timeout")
@@ -39,12 +39,20 @@ Derives authorization and token URLs from the tenant ID. Uses the v1 endpoint
 with the resource parameter. For v2 endpoints (scope-based), use the generic
 oauth subcommand with -scope instead.
 
+Azure AD refresh tokens are Multi-Resource Refresh Tokens (MRRTs): a single
+consent per tenant is sufficient, regardless of how many resources the proxy
+needs tokens for. If -resource is provided, it scopes the initial consent to
+that resource. If omitted, consent covers the app's portal-configured permissions.
+
 Required:
   -tenant      Azure AD tenant ID (GUID or domain, e.g. contoso.onmicrosoft.com)
   -client-id   Azure AD application (client) ID
-  -resource    Target resource URI (e.g. https://graph.microsoft.com)
 
 Optional:
+  -resource    Target resource URI (e.g. https://graph.microsoft.com). If
+               provided, scopes the consent prompt and initial token exchange
+               to this resource. The resulting refresh token is an MRRT usable
+               for any consented resource.
   -endpoint    Token endpoint base URL (default: https://login.microsoftonline.com;
                override for sovereign clouds, e.g. https://login.microsoftonline.us)
   -port        Local callback port (default: 0 = OS-assigned; use fixed port
@@ -55,11 +63,17 @@ Optional:
 
 Client secret: read from CHAPERONE_ONBOARD_CLIENT_SECRET env var.
 
-Example:
+Examples:
+  # With resource (scopes consent to Graph API):
   CHAPERONE_ONBOARD_CLIENT_SECRET=s3cret chaperone-onboard microsoft \
     -tenant contoso.onmicrosoft.com \
     -client-id 12345678-abcd-1234-abcd-1234567890ab \
     -resource https://graph.microsoft.com
+
+  # Without resource (consent covers app's portal-configured permissions):
+  CHAPERONE_ONBOARD_CLIENT_SECRET=s3cret chaperone-onboard microsoft \
+    -tenant contoso.onmicrosoft.com \
+    -client-id 12345678-abcd-1234-abcd-1234567890ab
 `)
 	}
 
@@ -75,9 +89,6 @@ Example:
 		return fmt.Errorf("%w: -tenant: %w", errUsage, err)
 	}
 	if err := validateNonEmpty("client-id", *clientID); err != nil {
-		return fmt.Errorf("%w: -%w", errUsage, err)
-	}
-	if err := validateNonEmpty("resource", *resource); err != nil {
 		return fmt.Errorf("%w: -%w", errUsage, err)
 	}
 	if err := validateURL(*endpoint, *allowHTTP); err != nil {
@@ -98,11 +109,13 @@ Example:
 	authorizeURL := fmt.Sprintf("%s/%s/oauth2/authorize", *endpoint, *tenant)
 	tokenURL := fmt.Sprintf("%s/%s/oauth2/token", *endpoint, *tenant)
 
-	// resource is both an authorize URL param and a token exchange param
+	// resource is optional; when set, it scopes the consent and token exchange
 	extraAuth := url.Values{}
-	extraAuth.Set("resource", *resource)
 	extraToken := url.Values{}
-	extraToken.Set("resource", *resource)
+	if *resource != "" {
+		extraAuth.Set("resource", *resource)
+		extraToken.Set("resource", *resource)
+	}
 
 	cfg := consentConfig{
 		authorizeURL:     authorizeURL,

@@ -55,7 +55,7 @@ func validateURL(u string, allowHTTP bool) error {
 
 // validateNonEmpty checks that value is not empty. The name parameter is used
 // in the error message to identify the field.
-func validateNonEmpty(name, value string) error {
+func validateNonEmpty(name, value string) error { //nolint:unparam // name varies by call site in future subcommands
 	if value == "" {
 		return fmt.Errorf("%s is required", name)
 	}

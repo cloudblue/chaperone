@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cloudblue/chaperone/plugins/contrib/internal/oauthutil"
 	"github.com/cloudblue/chaperone/sdk"
 )
 
@@ -42,10 +43,6 @@ const (
 	// header (client_secret_basic).
 	AuthModeBasic
 )
-
-// defaultExpiryMargin is subtracted from the token's expires_in to prevent
-// using tokens that are about to expire due to clock skew or network latency.
-const defaultExpiryMargin = 1 * time.Minute
 
 // ClientCredentialsConfig configures an OAuth2 client credentials grant.
 type ClientCredentialsConfig struct {
@@ -94,32 +91,32 @@ type ClientCredentials struct {
 
 // NewClientCredentials creates a new client credentials provider.
 func NewClientCredentials(cfg ClientCredentialsConfig) *ClientCredentials {
-	f := newTokenFetcher(tokenFetcher{
-		tokenURL:     cfg.TokenURL,
-		clientID:     cfg.ClientID,
-		clientSecret: cfg.ClientSecret,
-		authMode:     cfg.AuthMode,
-		scopes:       cfg.Scopes,
-		extraParams:  cfg.ExtraParams,
-		expiryMargin: cfg.ExpiryMargin,
-		client:       cfg.HTTPClient,
-		logger:       cfg.Logger,
+	f := oauthutil.NewTokenFetcher(oauthutil.TokenFetcher{
+		TokenURL:     cfg.TokenURL,
+		ClientID:     cfg.ClientID,
+		ClientSecret: cfg.ClientSecret,
+		UseBasicAuth: cfg.AuthMode == AuthModeBasic,
+		Scopes:       cfg.Scopes,
+		ExtraParams:  cfg.ExtraParams,
+		ExpiryMargin: cfg.ExpiryMargin,
+		Client:       cfg.HTTPClient,
+		Logger:       cfg.Logger,
 	})
 
 	fetchFunc := func(ctx context.Context) (*cachedToken, error) {
-		form := f.buildForm("client_credentials")
-		result, err := f.exchange(ctx, form)
+		form := f.BuildForm("client_credentials")
+		result, err := f.Exchange(ctx, form)
 		if err != nil {
 			return nil, err
 		}
 		return &cachedToken{
-			accessToken: result.accessToken,
-			expiresAt:   result.expiresAt,
+			accessToken: result.AccessToken,
+			expiresAt:   result.ExpiresAt,
 		}, nil
 	}
 
 	return &ClientCredentials{
-		tm: newTokenManager(cfg.TokenURL, f.logger, fetchFunc),
+		tm: newTokenManager(cfg.TokenURL, f.Logger, fetchFunc),
 	}
 }
 

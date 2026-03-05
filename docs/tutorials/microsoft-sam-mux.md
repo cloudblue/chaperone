@@ -12,7 +12,7 @@ Build a Chaperone proxy that authenticates requests to Microsoft APIs using the 
 | **Chaperone source** | — | SDK, Core, and Contrib modules (cloned in [Getting Started](../getting-started.md)) |
 | **curl** | any | Sending test requests |
 | **Microsoft Entra ID app registration** | — | Client ID, client secret, and an account with admin consent permissions ([quickstart](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app)) |
-| **Target resource URI** | — | e.g., `https://graph.microsoft.com` |
+| **Target resource URI** | — | e.g., `https://graph.microsoft.com` (optional for onboarding; required at runtime in `tx.Data`) |
 | **Tenant ID** | — | e.g., `contoso.onmicrosoft.com` |
 
 > **New to Chaperone?** Complete the [Getting Started](../getting-started.md) tutorial first. It introduces the proxy, configuration, allow-lists, and request flow.
@@ -130,30 +130,31 @@ export CHAPERONE_ONBOARD_CLIENT_SECRET='your-app-secret'
 ~/projects/chaperone/bin/chaperone-onboard microsoft \
   -tenant contoso.onmicrosoft.com \
   -client-id 12345678-abcd-1234-abcd-1234567890ab \
-  -resource https://graph.microsoft.com \
   > refresh-token.txt
 ```
 
-Sign in as an admin and grant consent. The browser shows a completion page, and `refresh-token.txt` appears with the token.
+Sign in as an admin and grant consent. The browser shows a completion page, and `refresh-token.txt` appears with the token. The resulting refresh token is an MRRT (Multi-Resource Refresh Token) — one consent per tenant is sufficient for all resources.
+
+> You can optionally pass `-resource https://graph.microsoft.com` to scope the initial consent to a specific resource. If omitted, consent covers the app's portal-configured permissions.
 
 > For sovereign clouds (Azure Government, Azure China), add `-endpoint https://login.microsoftonline.us`. See [Onboarding Refresh Tokens](../guides/onboarding-refresh-tokens.md) for troubleshooting.
 
 ## Step 5: Seed the token store
 
-The `microsoft.FileStore` expects tokens in a `{baseDir}/{tenantID}/{sanitizedResource}` directory tree. Create the directory and move the token file:
+The `microsoft.FileStore` stores one refresh token per tenant at `{baseDir}/{tenantID}`. Move the token file:
 
 ```bash
-mkdir -p tokens/contoso.onmicrosoft.com
-mv refresh-token.txt tokens/contoso.onmicrosoft.com/graph.microsoft.com
+mkdir -p tokens
+mv refresh-token.txt tokens/contoso.onmicrosoft.com
 ```
 
 Verify:
 
 ```bash
-ls tokens/contoso.onmicrosoft.com/
+ls tokens/
 ```
 
-You should see `graph.microsoft.com`. The resource filename is derived by stripping the URL scheme and replacing any character outside `[a-zA-Z0-9._-]` with an underscore — `https://graph.microsoft.com` becomes `graph.microsoft.com` (no replacements needed in this case, but a resource like `https://api.example.com/v1` would become `api.example.com_v1`). See [FileStore reference](../reference/contrib-plugins.md#microsoft-filestore) for the full sanitization rules.
+You should see `contoso.onmicrosoft.com`. Each tenant gets a single file — the refresh token is an MRRT usable for all consented resources.
 
 ## Step 6: Run the proxy
 
@@ -198,8 +199,7 @@ sam-proxy/
 ├── sam-proxy
 ├── config.yaml
 └── tokens/
-    └── contoso.onmicrosoft.com/
-        └── graph.microsoft.com
+    └── contoso.onmicrosoft.com
 ```
 
 The proxy handles the full auth lifecycle:
@@ -212,7 +212,7 @@ The proxy handles the full auth lifecycle:
 
 ## Going further
 
-- **Add more tenants or resources** — Run `chaperone-onboard microsoft` for each tenant+resource pair and place the token in the directory tree. The `RefreshTokenSource` manages an LRU pool of token sessions automatically.
+- **Add more tenants** — Run `chaperone-onboard microsoft` for each tenant and place the token file in the `tokens/` directory. One onboarding per tenant covers all resources (MRRT). The `RefreshTokenSource` manages an LRU pool of per-tenant entries automatically.
 - **Route multiple vendors** — Register additional `mux.Handle` calls with different routes and providers. See the [Mux reference](../reference/contrib-plugins.md#mux) for route specificity and glob patterns.
 - **Onboarding details** — [Onboarding Refresh Tokens](../guides/onboarding-refresh-tokens.md) covers sovereign clouds, troubleshooting, and alternative storage backends.
 - **Full API surface** — [Contrib Plugins Reference](../reference/contrib-plugins.md) documents all `Config` fields, sentinel errors, and the Vault-backed `TokenStore` skeleton.
