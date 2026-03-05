@@ -51,6 +51,7 @@ func resolveConfigPath(path string) string {
 }
 
 func loadYAML(path string, cfg *Config) error {
+	// #nosec G304 -- path comes from trusted sources: CLI flag, env var, or hardcoded default.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err

@@ -101,13 +101,17 @@ jobs:
         #   into message strings. Log injection is not possible.
         #   Safety net: the "no-raw-logging" step below enforces that all
         #   production code uses slog, not fmt.Print*/log.Print*.
-        run: gosec -exclude=G706 -exclude-dir=sdk -exclude-dir=plugins ./...
+        run: gosec -exclude=G706 -exclude-dir=sdk -exclude-dir=plugins -exclude-dir=admin ./...
 
       - name: Run gosec (SDK module)
         run: cd sdk && gosec ./...
 
       - name: Run gosec (Contrib module)
         run: cd plugins/contrib && gosec ./...
+
+      - name: Run gosec (admin module)
+        # Use -tags=dev so the embed directive for ui/dist is not required.
+        run: cd admin && gosec -tags=dev -exclude=G706 ./...
 
   # TODO: Enable when repo is public (requires GitHub Advanced Security)
   # dependency-review:
