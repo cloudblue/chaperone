@@ -37,19 +37,19 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 	}
 	for _, p := range pragmas {
 		if _, err := db.ExecContext(ctx, p); err != nil {
-			db.Close()
+			_ = db.Close() // best-effort cleanup; primary error is the pragma failure
 			return nil, fmt.Errorf("setting pragma %q: %w", p, err)
 		}
 	}
 
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close() // best-effort cleanup; primary error is the ping failure
 		return nil, fmt.Errorf("pinging database: %w", err)
 	}
 
 	s := &Store{db: db}
 	if err := s.migrate(ctx); err != nil {
-		db.Close()
+		_ = db.Close() // best-effort cleanup; primary error is the migration failure
 		return nil, fmt.Errorf("running migrations: %w", err)
 	}
 
