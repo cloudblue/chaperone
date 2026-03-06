@@ -299,7 +299,7 @@ lint: ## Run linters (all modules)
 		$(GOLANGCI_LINT) run && \
 		(cd sdk && $(GOLANGCI_LINT) run) && \
 		(cd plugins/contrib && $(GOLANGCI_LINT) run) && \
-		(cd admin && $(GOLANGCI_LINT) run); \
+		(cd admin && $(GOLANGCI_LINT) run --build-tags=dev); \
 	else \
 		echo "golangci-lint not installed. Run: make tools"; \
 		exit 1; \
@@ -310,7 +310,7 @@ lint-fix: ## Run linters and fix issues
 	$(GOLANGCI_LINT) run --fix
 	cd sdk && $(GOLANGCI_LINT) run --fix
 	cd plugins/contrib && $(GOLANGCI_LINT) run --fix
-	cd admin && $(GOLANGCI_LINT) run --fix
+	cd admin && $(GOLANGCI_LINT) run --fix --build-tags=dev
 
 .PHONY: fmt
 fmt: ## Format code (all modules)
@@ -328,7 +328,7 @@ vet: ## Run go vet (all modules)
 	go vet ./...
 	cd sdk && go vet ./...
 	cd plugins/contrib && go vet ./...
-	cd admin && go vet ./...
+	cd admin && go vet -tags dev ./...
 
 .PHONY: tidy
 tidy: ## Tidy and verify go.mod (all modules)
@@ -341,9 +341,9 @@ tidy: ## Tidy and verify go.mod (all modules)
 .PHONY: gosec
 gosec: ## Run gosec security scanner (all modules)
 	@if [ -x "$(GOSEC)" ]; then \
-		$(GOSEC) -exclude=G706 -exclude-dir=sdk -exclude-dir=plugins ./... && \
+		$(GOSEC) -exclude=G706 -exclude-dir=sdk -exclude-dir=plugins -exclude-dir=admin ./... && \
 		(cd sdk && $(GOSEC) ./...) && \
-		(cd admin && $(GOSEC) ./...); \
+		(cd admin && $(GOSEC) -tags=dev ./...); \
 	else \
 		echo "gosec not installed. Run: make tools"; \
 		exit 1; \
