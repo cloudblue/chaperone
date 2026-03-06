@@ -81,6 +81,11 @@ type Config struct {
 	// is used.
 	Logger *slog.Logger
 
+	// KeyResolver resolves the tenant ID from transaction context when
+	// TenantID is not present in tx.Data. If nil, TenantID must always
+	// be provided in tx.Data.
+	KeyResolver contrib.KeyResolver
+
 	// OnSaveError is an optional callback invoked when a rotated refresh
 	// token fails to persist. This allows operators to hook metrics or
 	// alerting for this degraded state. The current request still succeeds
@@ -113,6 +118,7 @@ type RefreshTokenSource struct {
 	clientID      string
 	clientSecret  string
 	store         TokenStore
+	keyResolver   contrib.KeyResolver
 	maxPoolSize   int
 	expiryMargin  time.Duration
 	httpClient    *http.Client
@@ -172,6 +178,7 @@ func NewRefreshTokenSource(cfg Config) *RefreshTokenSource {
 		clientID:      cfg.ClientID,
 		clientSecret:  cfg.ClientSecret,
 		store:         cfg.Store,
+		keyResolver:   cfg.KeyResolver,
 		maxPoolSize:   maxPool,
 		expiryMargin:  margin,
 		httpClient:    client,
@@ -194,7 +201,7 @@ func (s *RefreshTokenSource) GetCredentials(
 	tx sdk.TransactionContext,
 	_ *http.Request,
 ) (*sdk.Credential, error) {
-	tenantID, err := extractString(tx.Data, "TenantID")
+	tenantID, err := contrib.ResolveFromContext(ctx, tx, "TenantID", s.keyResolver)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +211,7 @@ func (s *RefreshTokenSource) GetCredentials(
 			contrib.ErrInvalidContextData)
 	}
 
-	resource, err := extractString(tx.Data, "Resource")
+	resource, err := contrib.ResolveFromContext(ctx, tx, "Resource", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -380,26 +387,4 @@ func purgeExpiredTokens(entry *tenantEntry) {
 			delete(entry.tokens, resource)
 		}
 	}
-}
-
-// extractString extracts a required string field from the context data map.
-func extractString(data map[string]any, key string) (string, error) {
-	raw, ok := data[key]
-	if !ok {
-		return "", fmt.Errorf("%s not present in transaction context: %w",
-			key, contrib.ErrMissingContextData)
-	}
-
-	s, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("%s must be a string, got %T: %w",
-			key, raw, contrib.ErrInvalidContextData)
-	}
-
-	if s == "" {
-		return "", fmt.Errorf("%s is empty in transaction context: %w",
-			key, contrib.ErrInvalidContextData)
-	}
-
-	return s, nil
 }

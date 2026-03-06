@@ -1238,3 +1238,211 @@ func (w *complianceWrapper) GetCredentials(
 	tx.Data["Resource"] = w.resource
 	return w.src.GetCredentials(ctx, tx, req)
 }
+
+// --- KeyResolver integration tests ---
+
+// staticResolver is a test KeyResolver that always returns a fixed key.
+type staticResolver struct {
+	key string
+	err error
+}
+
+func (r *staticResolver) ResolveKey(_ context.Context, _ sdk.TransactionContext) (string, error) {
+	return r.key, r.err
+}
+
+func TestGetCredentials_KeyResolver_UsedWhenTenantIDAbsent(t *testing.T) {
+	srv := httptest.NewServer(tokenHandler(""))
+	defer srv.Close()
+
+	store := newMemoryTokenStore()
+	store.set("resolved-tenant", "refresh-tok")
+
+	src := NewRefreshTokenSource(Config{
+		TokenEndpoint: srv.URL,
+		ClientID:      "id",
+		ClientSecret:  "secret",
+		Store:         store,
+		KeyResolver:   &staticResolver{key: "resolved-tenant"},
+	})
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{
+		Data: map[string]any{
+			"Resource": "https://graph.microsoft.com",
+		},
+		VendorID: "test",
+	}
+
+	cred, err := src.GetCredentials(ctx, tx, makeReq(ctx))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := cred.Headers["Authorization"]; got != "Bearer access-tok" {
+		t.Errorf("Authorization = %q, want Bearer access-tok", got)
+	}
+}
+
+func TestGetCredentials_KeyResolver_TxDataOverridesResolver(t *testing.T) {
+	var gotPath string
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"access_token":"tok","expires_in":3600}`)
+	})
+
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	store := newMemoryTokenStore()
+	store.set("explicit-tenant", "refresh-tok")
+
+	src := NewRefreshTokenSource(Config{
+		TokenEndpoint: srv.URL,
+		ClientID:      "id",
+		ClientSecret:  "secret",
+		Store:         store,
+		KeyResolver:   &staticResolver{key: "resolved-tenant"},
+	})
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{
+		Data: map[string]any{
+			"TenantID": "explicit-tenant",
+			"Resource": "https://graph.microsoft.com",
+		},
+	}
+
+	_, err := src.GetCredentials(ctx, tx, makeReq(ctx))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantPath := "/explicit-tenant/oauth2/token"
+	if gotPath != wantPath {
+		t.Errorf("token endpoint path = %q, want %q (tx.Data should override resolver)", gotPath, wantPath)
+	}
+}
+
+func TestGetCredentials_KeyResolver_MalformedTxDataErrorsEvenWithResolver(t *testing.T) {
+	store := newMemoryTokenStore()
+
+	src := NewRefreshTokenSource(Config{
+		ClientID:     "id",
+		ClientSecret: "secret",
+		Store:        store,
+		KeyResolver:  &staticResolver{key: "resolved-tenant"},
+	})
+
+	tests := []struct {
+		name     string
+		tenantID any
+	}{
+		{"empty string", ""},
+		{"wrong type", float64(12345)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			tx := sdk.TransactionContext{
+				Data: map[string]any{
+					"TenantID": tt.tenantID,
+					"Resource": "https://graph.microsoft.com",
+				},
+			}
+
+			_, err := src.GetCredentials(ctx, tx, makeReq(ctx))
+			if err == nil {
+				t.Fatal("expected error")
+			}
+
+			if !errors.Is(err, contrib.ErrInvalidContextData) {
+				t.Errorf("error = %v, want errors.Is(ErrInvalidContextData)", err)
+			}
+		})
+	}
+}
+
+func TestGetCredentials_KeyResolver_NoResolverNoTxData_ReturnsError(t *testing.T) {
+	store := newMemoryTokenStore()
+
+	src := NewRefreshTokenSource(Config{
+		ClientID:     "id",
+		ClientSecret: "secret",
+		Store:        store,
+		// KeyResolver intentionally nil
+	})
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{
+		Data: map[string]any{
+			"Resource": "https://graph.microsoft.com",
+		},
+	}
+
+	_, err := src.GetCredentials(ctx, tx, makeReq(ctx))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !errors.Is(err, contrib.ErrMissingContextData) {
+		t.Errorf("error = %v, want errors.Is(ErrMissingContextData)", err)
+	}
+}
+
+func TestGetCredentials_KeyResolver_ErrorPropagated(t *testing.T) {
+	store := newMemoryTokenStore()
+
+	src := NewRefreshTokenSource(Config{
+		ClientID:     "id",
+		ClientSecret: "secret",
+		Store:        store,
+		KeyResolver:  &staticResolver{err: fmt.Errorf("lookup failed: %w", contrib.ErrTenantNotFound)},
+	})
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{
+		Data: map[string]any{
+			"Resource": "https://graph.microsoft.com",
+		},
+	}
+
+	_, err := src.GetCredentials(ctx, tx, makeReq(ctx))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !errors.Is(err, contrib.ErrTenantNotFound) {
+		t.Errorf("error = %v, want errors.Is(ErrTenantNotFound)", err)
+	}
+}
+
+func TestGetCredentials_KeyResolver_ValidTenantIDCheck_RejectsBadResolverValue(t *testing.T) {
+	store := newMemoryTokenStore()
+
+	src := NewRefreshTokenSource(Config{
+		ClientID:     "id",
+		ClientSecret: "secret",
+		Store:        store,
+		KeyResolver:  &staticResolver{key: "../../admin"},
+	})
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{
+		Data: map[string]any{
+			"Resource": "https://graph.microsoft.com",
+		},
+	}
+
+	_, err := src.GetCredentials(ctx, tx, makeReq(ctx))
+	if err == nil {
+		t.Fatal("expected error for path traversal tenant from resolver")
+	}
+
+	if !errors.Is(err, contrib.ErrInvalidContextData) {
+		t.Errorf("error = %v, want errors.Is(ErrInvalidContextData)", err)
+	}
+}
