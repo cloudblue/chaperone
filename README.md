@@ -94,6 +94,9 @@ make test         # Run all tests
 make test-race    # Tests with race detector
 make lint         # Run linters (Core + SDK modules)
 make fmt          # Format code
+make gosec        # Run gosec security scanner
+make govulncheck  # Run govulncheck vulnerability scanner
+make ci           # Run all CI checks locally
 make gencerts     # Generate test certificates for mTLS
 make docker-test  # End-to-end Docker validation suite (18 tests)
 make help         # Show all available targets
