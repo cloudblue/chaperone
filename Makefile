@@ -43,6 +43,9 @@ LDFLAGS_DEV := -ldflags "\
 .PHONY: all
 all: lint test build
 
+.PHONY: ci
+ci: fmt license-check lint test-race gosec govulncheck build ## Run all CI checks locally
+
 # ============================================================================
 # Build
 # ============================================================================
@@ -227,12 +230,14 @@ docker-clean: ## Remove Docker images (production, test, and echoserver)
 # Tool binary locations (installed via go install)
 GOLANGCI_LINT := $(shell go env GOPATH)/bin/golangci-lint
 ADDLICENSE := $(shell go env GOPATH)/bin/addlicense
+GOSEC := $(shell go env GOPATH)/bin/gosec
+GOVULNCHECK := $(shell go env GOPATH)/bin/govulncheck
 
 .PHONY: lint
 lint: ## Run linters (both modules)
 	@if [ -x "$(GOLANGCI_LINT)" ]; then \
-		$(GOLANGCI_LINT) run; \
-		cd sdk && $(GOLANGCI_LINT) run; \
+		$(GOLANGCI_LINT) run && \
+		(cd sdk && $(GOLANGCI_LINT) run); \
 	else \
 		echo "golangci-lint not installed. Run: make tools"; \
 		exit 1; \
@@ -261,6 +266,26 @@ tidy: ## Tidy and verify go.mod (both modules)
 	go mod verify
 	cd sdk && go mod tidy
 
+.PHONY: gosec
+gosec: ## Run gosec security scanner (all modules)
+	@if [ -x "$(GOSEC)" ]; then \
+		$(GOSEC) -exclude=G706 -exclude-dir=sdk -exclude-dir=plugins ./... && \
+		(cd sdk && $(GOSEC) ./...); \
+	else \
+		echo "gosec not installed. Run: make tools"; \
+		exit 1; \
+	fi
+
+.PHONY: govulncheck
+govulncheck: ## Run govulncheck vulnerability scanner (all modules)
+	@if [ -x "$(GOVULNCHECK)" ]; then \
+		$(GOVULNCHECK) ./... && \
+		(cd sdk && $(GOVULNCHECK) ./...); \
+	else \
+		echo "govulncheck not installed. Run: make tools"; \
+		exit 1; \
+	fi
+
 # Common addlicense flags
 ADDLICENSE_FLAGS := -f .copyright-header.tmpl \
 	-ignore 'test/load/lib/**' \
@@ -276,6 +301,7 @@ ADDLICENSE_FLAGS := -f .copyright-header.tmpl \
 	-ignore '**/*.yaml' \
 	-ignore 'bin/**' \
 	-ignore 'certs/**' \
+	-ignore '.ai/**' \
 	-ignore '.claude/**'
 
 .PHONY: license-check
@@ -300,8 +326,10 @@ license-fix: ## Add missing copyright headers to source files
 # Development Tools
 # ============================================================================
 
-# golangci-lint version to install
+# Tool versions to install (keep in sync with CI workflows)
 GOLANGCI_LINT_VERSION := v2.8.0
+GOSEC_VERSION := v2.23.0
+GOVULNCHECK_VERSION := v1.1.4
 
 .PHONY: tools
 tools: ## Install development tools
@@ -309,6 +337,10 @@ tools: ## Install development tools
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(shell go env GOPATH)/bin $(GOLANGCI_LINT_VERSION)
 	@echo "Installing addlicense..."
 	go install github.com/google/addlicense@latest
+	@echo "Installing gosec $(GOSEC_VERSION)..."
+	go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)
+	@echo "Installing govulncheck $(GOVULNCHECK_VERSION)..."
+	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	@echo "Installing benchstat..."
 	go install golang.org/x/perf/cmd/benchstat@latest
 
