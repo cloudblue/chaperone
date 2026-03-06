@@ -101,6 +101,11 @@ func TestStaticMapping_TieBreaking_FirstRegisteredWins(t *testing.T) {
 		{MarketplaceID: "EU-*", Key: "second-registered"},
 	}, WithMappingLogger(logger))
 
+	// Ambiguous rules should be warned about at construction time.
+	if !capture.hasWarning() {
+		t.Error("expected warning log at construction time for ambiguous rules")
+	}
+
 	tx := sdk.TransactionContext{MarketplaceID: "EU-germany"}
 
 	got, err := sm.ResolveKey(context.Background(), tx)
@@ -110,10 +115,6 @@ func TestStaticMapping_TieBreaking_FirstRegisteredWins(t *testing.T) {
 
 	if got != "first-registered" {
 		t.Errorf("got %q, want %q (first registered should win tie)", got, "first-registered")
-	}
-
-	if !capture.hasWarning() {
-		t.Error("expected warning log for tie-breaking")
 	}
 }
 
@@ -310,7 +311,52 @@ func TestStaticMapping_EmptyRules_ReturnsErrNoMappingMatch(t *testing.T) {
 	}
 }
 
-// mappingLogCapture captures log entries for testing tie-breaking warnings.
+func TestNewStaticMapping_DisjointLiterals_NoWarning(t *testing.T) {
+	capture := &mappingLogCapture{}
+	logger := slog.New(capture)
+
+	// Same specificity but disjoint literal MarketplaceID — no overlap possible.
+	NewStaticMapping([]MappingRule{
+		{MarketplaceID: "EU-germany", Key: "eu"},
+		{MarketplaceID: "US-east", Key: "us"},
+	}, WithMappingLogger(logger))
+
+	if capture.hasWarning() {
+		t.Error("should not warn for disjoint literal rules")
+	}
+}
+
+func TestNewStaticMapping_GlobOverlap_WarnsAtStartup(t *testing.T) {
+	capture := &mappingLogCapture{}
+	logger := slog.New(capture)
+
+	// Same specificity, glob patterns that could overlap.
+	NewStaticMapping([]MappingRule{
+		{MarketplaceID: "EU-*", Key: "first"},
+		{MarketplaceID: "EU-*", Key: "second"},
+	}, WithMappingLogger(logger))
+
+	if !capture.hasWarning() {
+		t.Error("expected warning for potentially overlapping glob rules")
+	}
+}
+
+func TestNewStaticMapping_DifferentSpecificity_NoWarning(t *testing.T) {
+	capture := &mappingLogCapture{}
+	logger := slog.New(capture)
+
+	// Different specificity — can never tie, no warning needed.
+	NewStaticMapping([]MappingRule{
+		{MarketplaceID: "EU-*", Key: "spec-1"},
+		{MarketplaceID: "EU-*", VendorID: "acme", Key: "spec-2"},
+	}, WithMappingLogger(logger))
+
+	if capture.hasWarning() {
+		t.Error("should not warn for rules with different specificity")
+	}
+}
+
+// mappingLogCapture captures log entries for testing ambiguous-rule warnings.
 type mappingLogCapture struct {
 	warned bool
 }

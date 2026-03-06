@@ -229,7 +229,7 @@ type StaticMapping struct{ /* unexported */ }
 
 Implements [`KeyResolver`](#keyresolver) with a declarative rule table. Each rule maps a pattern of transaction context fields to a credential key using [glob patterns](#glob-patterns).
 
-Rules are evaluated by specificity (most non-empty fields wins). When multiple rules match with equal specificity, the first registered rule wins and a warning is logged. If no rule matches, `ResolveKey` returns [`ErrNoMappingMatch`](#sentinel-errors) — fail-closed by design.
+Rules are evaluated by specificity (most non-empty fields wins). When multiple rules match with equal specificity, the first registered rule wins. Potentially ambiguous rule pairs (equal specificity with overlapping patterns) are detected and warned about at construction time. If no rule matches, `ResolveKey` returns [`ErrNoMappingMatch`](#sentinel-errors) — fail-closed by design.
 
 Safe for concurrent use. Rules are set at construction time and only read during `ResolveKey`.
 

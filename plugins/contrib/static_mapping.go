@@ -73,7 +73,9 @@ var _ KeyResolver = (*StaticMapping)(nil)
 //
 // Rules are evaluated by specificity: a rule with more non-empty fields
 // wins over one with fewer. When multiple rules match with equal specificity,
-// the first registered rule wins and a warning is logged.
+// the first registered rule wins. Potentially ambiguous rule pairs (equal
+// specificity with overlapping patterns) are detected and warned about at
+// construction time.
 //
 // StaticMapping is safe for concurrent use. Rules are set at construction
 // time and only read during ResolveKey.
@@ -85,7 +87,7 @@ type StaticMapping struct {
 // StaticMappingOption configures a StaticMapping at construction time.
 type StaticMappingOption func(*StaticMapping)
 
-// WithMappingLogger sets the logger used for tie-breaking warnings.
+// WithMappingLogger sets the logger used for ambiguous-rule warnings at construction time.
 func WithMappingLogger(l *slog.Logger) StaticMappingOption {
 	return func(sm *StaticMapping) { sm.logger = l }
 }
@@ -111,6 +113,23 @@ func NewStaticMapping(rules []MappingRule, opts ...StaticMappingOption) *StaticM
 		opt(sm)
 	}
 
+	// Detect ambiguous rules at startup (same pattern as Mux.Handle).
+	for i := range sm.rules {
+		for j := i + 1; j < len(sm.rules); j++ {
+			if sm.rules[i].Specificity() == sm.rules[j].Specificity() &&
+				rulesMayOverlap(sm.rules[i], sm.rules[j]) {
+				sm.logger.Warn(
+					"mapping rules with equal specificity may overlap, first registered wins on tie",
+					"rule_a_index", i,
+					"rule_a_key", sm.rules[i].Key,
+					"rule_b_index", j,
+					"rule_b_key", sm.rules[j].Key,
+				)
+				break
+			}
+		}
+	}
+
 	return sm
 }
 
@@ -120,7 +139,6 @@ func (sm *StaticMapping) ResolveKey(_ context.Context, tx sdk.TransactionContext
 	var (
 		best     *MappingRule
 		bestSpec int
-		tied     bool
 	)
 
 	for i := range sm.rules {
@@ -134,9 +152,6 @@ func (sm *StaticMapping) ResolveKey(_ context.Context, tx sdk.TransactionContext
 		if best == nil || spec > bestSpec {
 			best = r
 			bestSpec = spec
-			tied = false
-		} else if spec == bestSpec {
-			tied = true
 		}
 	}
 
@@ -144,14 +159,27 @@ func (sm *StaticMapping) ResolveKey(_ context.Context, tx sdk.TransactionContext
 		return "", ErrNoMappingMatch
 	}
 
-	if tied {
-		sm.logger.Warn("multiple mapping rules matched with equal specificity, using first registered",
-			"vendor_id", tx.VendorID,
-			"marketplace_id", tx.MarketplaceID,
-			"environment_id", tx.EnvironmentID,
-			"resolved_key", best.Key,
-		)
-	}
-
 	return best.Key, nil
+}
+
+// rulesMayOverlap reports whether two mapping rules could potentially match
+// the same request. Same heuristic as routesMayOverlap (mux.go), extended
+// to the five MappingRule fields.
+func rulesMayOverlap(a, b MappingRule) bool {
+	if a.VendorID != "" && b.VendorID != "" && !fieldsMayOverlap(a.VendorID, b.VendorID) {
+		return false
+	}
+	if a.MarketplaceID != "" && b.MarketplaceID != "" && !fieldsMayOverlap(a.MarketplaceID, b.MarketplaceID) {
+		return false
+	}
+	if a.EnvironmentID != "" && b.EnvironmentID != "" && !fieldsMayOverlap(a.EnvironmentID, b.EnvironmentID) {
+		return false
+	}
+	if a.ProductID != "" && b.ProductID != "" && !fieldsMayOverlap(a.ProductID, b.ProductID) {
+		return false
+	}
+	if a.TargetURL != "" && b.TargetURL != "" && !fieldsMayOverlap(a.TargetURL, b.TargetURL) {
+		return false
+	}
+	return true
 }
