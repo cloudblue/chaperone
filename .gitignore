@@ -80,3 +80,9 @@ test/load/results/
 # Admin portal frontend
 admin/ui/node_modules/
 admin/ui/dist/
+
+# Playwright MCP output
+.playwright-mcp/
+
+# Admin QA test logs
+.admin-qa-logs/
