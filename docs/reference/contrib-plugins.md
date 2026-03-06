@@ -11,7 +11,7 @@ Sub-packages:
 
 | Package | Import path | Purpose |
 |---------|-------------|---------|
-| `contrib` | `github.com/cloudblue/chaperone/plugins/contrib` | Mux, Route, errors, adapter |
+| `contrib` | `github.com/cloudblue/chaperone/plugins/contrib` | Mux, Route, KeyResolver, errors, adapter |
 | `contrib/oauth` | `github.com/cloudblue/chaperone/plugins/contrib/oauth` | Generic OAuth2 grants |
 | `contrib/microsoft` | `github.com/cloudblue/chaperone/plugins/contrib/microsoft` | Microsoft Secure Application Model |
 
@@ -41,7 +41,7 @@ type Mux struct{ /* unexported */ }
 
 A request multiplexer that dispatches to the most specific matching [`CredentialProvider`][cp] based on transaction context fields. `Mux` implements [`Plugin`][plugin] and can be passed directly to `chaperone.Run()`.
 
-Safe for concurrent use after route registration is complete. Register all routes before serving traffic.
+Safe for concurrent use after construction. `Handle` and `Default` are not safe for concurrent calls — register all routes before serving traffic.
 
 ### `NewMux`
 
@@ -186,6 +186,140 @@ func GlobMatch(pattern, input string, sep byte) bool
 ```
 
 Package-level function. Tests whether `input` matches the glob `pattern` using `sep` as the segment separator. Route fields call this function internally with `/` as the separator.
+
+---
+
+## KeyResolver
+
+```go
+type KeyResolver interface {
+    ResolveKey(ctx context.Context, tx sdk.TransactionContext) (string, error)
+}
+```
+
+Maps a [`TransactionContext`][tx] to a credential key (e.g., a tenant ID, session name, or account identifier). Providers call `ResolveKey` when the request does not carry an explicit override in `tx.Data`.
+
+A successful return must be a non-empty string. Return [`ErrMissingContextData`](#sentinel-errors) if the transaction lacks enough information to resolve a key.
+
+### `ResolveFromContext`
+
+```go
+func ResolveFromContext(
+    ctx context.Context,
+    tx sdk.TransactionContext,
+    dataField string,
+    resolver KeyResolver,
+) (string, error)
+```
+
+Shared helper that providers call instead of reading `tx.Data` directly. It implements a strict fallback chain:
+
+1. If `tx.Data[dataField]` is present and is a valid non-empty string, return it (explicit connector override).
+2. If `tx.Data[dataField]` is present but has the wrong type or is empty, return [`ErrInvalidContextData`](#sentinel-errors). Malformed overrides never fall through to the resolver.
+3. If `tx.Data[dataField]` is absent and `resolver` is not nil, call `resolver.ResolveKey`. Resolver errors are wrapped with field context (e.g., `"resolving TenantID: ..."`). An empty string from the resolver returns [`ErrMissingContextData`](#sentinel-errors).
+4. If absent and `resolver` is nil, return [`ErrMissingContextData`](#sentinel-errors).
+
+---
+
+## StaticMapping
+
+```go
+type StaticMapping struct{ /* unexported */ }
+```
+
+Implements [`KeyResolver`](#keyresolver) with a declarative rule table. Each rule maps a pattern of transaction context fields to a credential key using [glob patterns](#glob-patterns).
+
+Rules are evaluated by specificity (most non-empty fields wins). When multiple rules match with equal specificity, the first registered rule wins and a warning is logged. If no rule matches, `ResolveKey` returns [`ErrNoMappingMatch`](#sentinel-errors) — fail-closed by design.
+
+Safe for concurrent use. Rules are set at construction time and only read during `ResolveKey`.
+
+### `NewStaticMapping`
+
+```go
+func NewStaticMapping(rules []MappingRule, opts ...StaticMappingOption) *StaticMapping
+```
+
+Creates a `StaticMapping` from the given rules. Panics if any rule has an empty `Key` field (catches misconfiguration at startup).
+
+### `StaticMappingOption`
+
+```go
+type StaticMappingOption func(*StaticMapping)
+```
+
+#### `WithMappingLogger`
+
+```go
+func WithMappingLogger(l *slog.Logger) StaticMappingOption
+```
+
+Sets the logger for tie-breaking warnings. Defaults to [`slog.Default()`][slog].
+
+### `MappingRule`
+
+```go
+type MappingRule struct {
+    VendorID      string // glob pattern
+    MarketplaceID string // glob pattern
+    EnvironmentID string // glob pattern
+    ProductID     string // glob pattern
+    TargetURL     string // glob pattern (scheme stripped before matching)
+    Key           string // resolved credential key
+}
+```
+
+Each non-empty field must match the corresponding [`TransactionContext`][tx] field. Empty fields act as wildcards. All fields support [glob patterns](#glob-patterns) with `/` as the separator. `TargetURL` strips the scheme before matching, same as [`Route`](#route).
+
+| Field | Matches against | Example pattern |
+|-------|----------------|-----------------|
+| `VendorID` | `tx.VendorID` | `"acme"` |
+| `MarketplaceID` | `tx.MarketplaceID` | `"EU-*"` |
+| `EnvironmentID` | `tx.EnvironmentID` | `"prod"` |
+| `ProductID` | `tx.ProductID` | `"sku-*"` |
+| `TargetURL` | `tx.TargetURL` (scheme stripped) | `"*.graph.microsoft.com/**"` |
+| `Key` | — | The credential key returned on match. Required (panics if empty). |
+
+#### `Specificity`
+
+```go
+func (r MappingRule) Specificity() int
+```
+
+Returns the number of non-empty matching fields, excluding `Key` (range 0–5).
+
+| Rule | Specificity |
+|------|-------------|
+| `MappingRule{Key: "default"}` | 0 (catch-all) |
+| `MappingRule{MarketplaceID: "EU-*", Key: "..."}` | 1 |
+| `MappingRule{MarketplaceID: "EU-*", VendorID: "acme", Key: "..."}` | 2 |
+| `MappingRule{MarketplaceID: "EU-*", VendorID: "acme", TargetURL: "*.graph.microsoft.com/**", Key: "..."}` | 3 |
+
+#### Catch-all rule
+
+To provide a default key when no specific rule matches, add a rule with all matching fields empty:
+
+```go
+contrib.MappingRule{Key: "default-tenant.onmicrosoft.com"}
+```
+
+This has specificity 0 and matches any transaction context. Without a catch-all, unmatched requests return [`ErrNoMappingMatch`](#sentinel-errors).
+
+#### Example
+
+```go
+resolver := contrib.NewStaticMapping([]contrib.MappingRule{
+    {MarketplaceID: "EU-*", Key: "contoso-eu.onmicrosoft.com"},
+    {MarketplaceID: "US-*", Key: "contoso-us.onmicrosoft.com"},
+    {MarketplaceID: "AP-*", Key: "contoso-ap.onmicrosoft.com"},
+})
+
+source := microsoft.NewRefreshTokenSource(microsoft.Config{
+    ClientID:     os.Getenv("MS_CLIENT_ID"),
+    ClientSecret: os.Getenv("MS_CLIENT_SECRET"),
+    Store:        store,
+    KeyResolver:  resolver,
+})
+```
 
 ---
 
@@ -438,6 +572,7 @@ type Config struct {
     ExpiryMargin  time.Duration
     HTTPClient    *http.Client
     Logger        *slog.Logger
+    KeyResolver   contrib.KeyResolver
     OnSaveError   func(ctx context.Context, tenantID, resource string, err error)
 }
 ```
@@ -452,6 +587,7 @@ type Config struct {
 | `ExpiryMargin` | [`time.Duration`][dur] | 5 minutes | Subtracted from `expires_in` before setting `ExpiresAt`. Matches the Python connector's 300-second margin. |
 | `HTTPClient` | [`*http.Client`][client] | 10s timeout, TLS 1.3+ | HTTP client for token requests. |
 | `Logger` | [`*slog.Logger`][slog] | `slog.Default()` | Logger for debug, warning, and error messages. |
+| `KeyResolver` | [`KeyResolver`](#keyresolver) | `nil` | Resolves the tenant ID from transaction context when `TenantID` is not present in `tx.Data`. If nil, `TenantID` must be present in `tx.Data`; otherwise `GetCredentials` returns [`ErrMissingContextData`](#sentinel-errors). See [`StaticMapping`](#staticmapping) for the built-in rule-based implementation. |
 | `OnSaveError` | `func(ctx context.Context, tenantID, resource string, err error)` | `nil` | Optional callback invoked when a rotated refresh token fails to persist. Use for metrics or alerting. The request still succeeds with the access token; only logging occurs if nil. |
 
 ### `NewRefreshTokenSource`
@@ -476,14 +612,14 @@ Implements [`CredentialProvider`][cp]. Safe for concurrent use.
 func (s *RefreshTokenSource) GetCredentials(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error)
 ```
 
-Extracts `TenantID` and `Resource` from [`tx.Data`][tx] and returns a cacheable [`Credential`][cred] (Fast Path).
+Resolves `TenantID` and `Resource` from the transaction context and returns a cacheable [`Credential`][cred] (Fast Path).
 
 **Context data contract:**
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `"TenantID"` | `string` | Azure AD tenant (e.g., `"contoso.onmicrosoft.com"`). Required. Returns [`ErrMissingContextData`](#sentinel-errors) if absent, [`ErrInvalidContextData`](#sentinel-errors) if not a string, empty, or contains invalid characters. Must match `^[a-zA-Z0-9][a-zA-Z0-9.\-]*$` (GUIDs, domain names, `common`/`organizations`/`consumers`). |
-| `"Resource"` | `string` | Target resource (e.g., `"https://graph.microsoft.com"`). Required. Returns [`ErrMissingContextData`](#sentinel-errors) if absent, [`ErrInvalidContextData`](#sentinel-errors) if not a string or empty. |
+| Key | Type | Resolution | Description |
+|-----|------|------------|-------------|
+| `"TenantID"` | `string` | `tx.Data` override → [`KeyResolver`](#keyresolver) → error | Azure AD tenant (e.g., `"contoso.onmicrosoft.com"`). If present in `tx.Data`, that value is used (connector override). If absent, the configured `KeyResolver` is called. If no resolver is configured, returns [`ErrMissingContextData`](#sentinel-errors). Malformed overrides (wrong type, empty) return [`ErrInvalidContextData`](#sentinel-errors) and never fall through to the resolver. The resolved value must match `^[a-zA-Z0-9][a-zA-Z0-9.\-]*$` regardless of source. |
+| `"Resource"` | `string` | `tx.Data` only | Target resource (e.g., `"https://graph.microsoft.com"`). Always required in `tx.Data` — no resolver fallback. This is a per-request concern (which API the connector is calling). Returns [`ErrMissingContextData`](#sentinel-errors) if absent, [`ErrInvalidContextData`](#sentinel-errors) if not a string or empty. |
 
 **Token endpoint URL construction:**
 
@@ -600,7 +736,8 @@ import "github.com/cloudblue/chaperone/plugins/contrib"
 | Error | Value | Cause | Retryable |
 |-------|-------|-------|-----------|
 | `ErrNoRouteMatch` | `"no route matched"` | No mux route matched and no default is configured. Proxy configuration issue. | No |
-| `ErrMissingContextData` | `"missing required context data"` | Required key (`TenantID`, `Resource`) absent from `tx.Data`. Platform/caller issue. | No |
+| `ErrNoMappingMatch` | `"no mapping rule matched"` | No [`StaticMapping`](#staticmapping) rule matched the transaction context. Fail-closed by design — add a catch-all rule if a default key is desired. Proxy configuration issue. | No |
+| `ErrMissingContextData` | `"missing required context data"` | Required key (`TenantID`, `Resource`) absent from `tx.Data` and no resolver is configured, or resolver returned an empty string. Platform/caller issue. | No |
 | `ErrInvalidContextData` | `"invalid context data type"` | Required key present but has wrong type (e.g., number instead of string), is an empty string, or contains invalid characters (TenantID must match `^[a-zA-Z0-9][a-zA-Z0-9.\-]*$`). Platform/caller issue. | No |
 | `ErrTenantNotFound` | `"tenant not found"` | Tenant not in store or resolver. Proxy configuration issue. | No |
 | `ErrInvalidCredentials` | `"invalid client credentials"` | OAuth2 token endpoint returned HTTP 401. Client secret is wrong or expired. | No |
@@ -654,7 +791,8 @@ import (
 func main() {
     mux := contrib.NewMux()
 
-    // Microsoft vendors via Secure Application Model
+    // Microsoft vendors via Secure Application Model.
+    // StaticMapping resolves TenantID from marketplace when not in tx.Data.
     msStore := microsoft.NewFileStore("/var/lib/chaperone/tokens")
     mux.Handle(
         contrib.Route{VendorID: "microsoft-*"},
@@ -662,6 +800,10 @@ func main() {
             ClientID:     os.Getenv("MS_CLIENT_ID"),
             ClientSecret: os.Getenv("MS_CLIENT_SECRET"),
             Store:        msStore,
+            KeyResolver: contrib.NewStaticMapping([]contrib.MappingRule{
+                {MarketplaceID: "MP-12345", Key: "contoso-eu.onmicrosoft.com"},
+                {MarketplaceID: "MP-67890", Key: "contoso-us.onmicrosoft.com"},
+            }),
         }),
     )
 
