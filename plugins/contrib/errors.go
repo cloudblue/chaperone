@@ -43,6 +43,12 @@ var ErrInvalidCredentials = errors.New("invalid client credentials")
 // with expires_in <= ExpiryMargin. The token is too short-lived to cache.
 var ErrTokenExpiredOnArrival = errors.New("token expired on arrival")
 
+// ErrNoMappingMatch indicates no mapping rule matched the transaction
+// context. This is fail-closed by design — in a multi-tenant auth path,
+// a silent fallback can authorize requests under the wrong credential set.
+// Add an explicit catch-all rule if a default key is desired.
+var ErrNoMappingMatch = errors.New("no mapping rule matched")
+
 // ErrTokenEndpointUnavailable indicates a transient failure reaching the
 // token endpoint (network error, HTTP 5xx, HTTP 429). Retrying may help.
 var ErrTokenEndpointUnavailable = errors.New("token endpoint unavailable")
