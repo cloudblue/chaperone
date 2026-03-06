@@ -12,7 +12,7 @@ Build a Chaperone proxy that authenticates requests to Microsoft APIs using the 
 | **Chaperone source** | — | SDK, Core, and Contrib modules (cloned in [Getting Started](../getting-started.md)) |
 | **curl** | any | Sending test requests |
 | **Microsoft Entra ID app registration** | — | Client ID, client secret, and an account with admin consent permissions ([quickstart](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app)) |
-| **Target resource URI** | — | e.g., `https://graph.microsoft.com` (optional for onboarding; required at runtime in `tx.Data`) |
+| **Target resource URI** | — | e.g., `https://graph.microsoft.com` (optional for onboarding; required at runtime in the request's context data) |
 | **Tenant ID** | — | e.g., `contoso.onmicrosoft.com` |
 
 > **New to Chaperone?** Complete the [Getting Started](../getting-started.md) tutorial first. It introduces the proxy, configuration, allow-lists, and request flow.
@@ -89,15 +89,15 @@ go mod tidy
 
 The command creates `go.sum` with no errors.
 
-Build the binary:
+## Step 3: Build the binary
 
 ```bash
 go build -o sam-proxy .
 ```
 
-You should see `sam-proxy` in the current directory.
+The binary `sam-proxy` appears in the current directory.
 
-## Step 3: Add `config.yaml`
+## Step 4: Add `config.yaml`
 
 Create `config.yaml` with `graph.microsoft.com` in the allow-list:
 
@@ -114,7 +114,7 @@ upstream:
       - "/**"
 ```
 
-## Step 4: Bootstrap the refresh token
+## Step 5: Bootstrap the refresh token
 
 Build the onboarding CLI from the Chaperone source:
 
@@ -122,7 +122,7 @@ Build the onboarding CLI from the Chaperone source:
 (cd ~/projects/chaperone && make build-onboard)
 ```
 
-Run it with your Entra ID credentials. The tool opens your browser for admin consent and prints the refresh token to stdout:
+Run it with your Entra ID credentials. The tool opens your browser for admin consent and writes the refresh token to stdout, which the redirect below captures in `refresh-token.txt`:
 
 ```bash
 export CHAPERONE_ONBOARD_CLIENT_SECRET='your-app-secret'
@@ -139,7 +139,7 @@ Sign in as an admin and grant consent. The browser shows a completion page, and 
 
 > For sovereign clouds (Azure Government, Azure China), add `-endpoint https://login.microsoftonline.us`. See [Onboarding Refresh Tokens](../guides/onboarding-refresh-tokens.md) for troubleshooting.
 
-## Step 5: Seed the token store
+## Step 6: Seed the token store
 
 The `microsoft.FileStore` stores one refresh token per tenant at `{baseDir}/{tenantID}`. Move the token file:
 
@@ -154,9 +154,9 @@ Verify:
 ls tokens/
 ```
 
-You should see `contoso.onmicrosoft.com`. Each tenant gets a single file — the refresh token is an MRRT usable for all consented resources.
+The output lists `contoso.onmicrosoft.com`. Each tenant gets a single file.
 
-## Step 6: Run the proxy
+## Step 7: Run the proxy
 
 Set your Entra ID credentials and start the proxy:
 
@@ -169,7 +169,7 @@ export AZURE_CLIENT_SECRET='your-app-secret'
 
 Watch the JSON logs for `"server listening"` — the proxy is ready.
 
-## Step 7: Send a request
+## Step 8: Send a request
 
 Open a new terminal and send a request through the proxy. The `X-Connect-Context-Data` header carries the tenant and resource as a Base64-encoded JSON object:
 
@@ -212,7 +212,9 @@ The proxy handles the full auth lifecycle:
 
 ## Going further
 
-- **Add more tenants** — Run `chaperone-onboard microsoft` for each tenant and place the token file in the `tokens/` directory. One onboarding per tenant covers all resources (MRRT). The `RefreshTokenSource` manages an LRU pool of per-tenant entries automatically.
+- **Resolve TenantID automatically** — Instead of requiring `TenantID` in every request's context data, use a [`KeyResolver`](../reference/contrib-plugins.md#keyresolver) to map transaction fields (marketplace, vendor) to the correct tenant. The built-in [`StaticMapping`](../reference/contrib-plugins.md#staticmapping) provides a declarative rule table — see the [reference](../reference/contrib-plugins.md#staticmapping) for configuration details. Requests that include `TenantID` in context data still override the resolver. `Resource` is always required in context data (it is a per-request concern).
+
+- **Add more tenants** — Run `chaperone-onboard microsoft` for each tenant and place the token file in the `tokens/` directory. One onboarding per tenant (MRRT). The `RefreshTokenSource` manages an LRU pool of per-tenant entries automatically.
 - **Route multiple vendors** — Register additional `mux.Handle` calls with different routes and providers. See the [Mux reference](../reference/contrib-plugins.md#mux) for route specificity and glob patterns.
 - **Onboarding details** — [Onboarding Refresh Tokens](../guides/onboarding-refresh-tokens.md) covers sovereign clouds, troubleshooting, and alternative storage backends.
 - **Full API surface** — [Contrib Plugins Reference](../reference/contrib-plugins.md) documents all `Config` fields, sentinel errors, and the Vault-backed `TokenStore` skeleton.
