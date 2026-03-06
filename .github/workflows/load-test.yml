@@ -56,14 +56,12 @@ jobs:
           cache-dependency-path: |
             go.sum
             sdk/go.sum
+            plugins/contrib/go.sum
 
       - name: Install k6
         uses: grafana/setup-k6-action@ffe7d7290dfa715e48c2ccc924d068444c94bde2 # v1.1.0
         with:
           k6-version: ${{ env.K6_VERSION }}
-
-      - name: Set up Go workspace
-        run: go work init . ./sdk
 
       - name: Generate certificates
         run: make gencerts

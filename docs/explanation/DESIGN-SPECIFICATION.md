@@ -132,6 +132,7 @@ Chaperone is written in **Go** and released as open source under the **Apache 2.
     * **Reliability vs. shared libraries:** Go `.so` plugins require exact dependency and compiler version matching. This leads to runtime crashes and "dependency hell." Static recompilation eliminates this class of errors.
     * **Simplicity:** Single static binary. No sidecar processes to manage.
     * **Safety:** Distributors own the infrastructure, so strict sandboxing (WASM) adds overhead without proportional benefit.
+* **Contrib building blocks:** The [`plugins/contrib`](../reference/contrib-plugins.md) module provides reusable auth flow implementations (OAuth2 client credentials, refresh token grant, Microsoft Secure Application Model) and a request multiplexer. Distributors compose these building blocks instead of writing auth logic from scratch.
 
 ### ADR-002: Programming language selection (Go)
 
@@ -314,6 +315,7 @@ In Mode B (behind a load balancer), certificate management is offloaded to the D
 | [Configuration reference](../reference/configuration.md) | All config options, env var overrides, allow-list syntax, timeout tuning |
 | [HTTP API reference](../reference/http-api.md) | Endpoints, metrics, health checks, profiling |
 | [SDK reference](../reference/sdk.md) | Plugin interfaces, types, and public API |
+| [Contrib plugins reference](../reference/contrib-plugins.md) | Reusable auth building blocks, request multiplexer, OAuth2 and Microsoft SAM |
 | [Plugin development guide](../guides/plugin-development.md) | Build a custom credential plugin |
 | [Deployment guide](../guides/deployment.md) | Docker, Kubernetes, and bare metal deployment |
 | [Certificate management guide](../guides/certificate-management.md) | Certificate generation, enrollment, and rotation |

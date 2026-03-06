@@ -6,8 +6,10 @@
 
 # Build variables
 BINARY_NAME := chaperone
+ONBOARD_BINARY := chaperone-onboard
 BUILD_DIR := bin
 CMD_PATH := ./cmd/chaperone
+ONBOARD_CMD_PATH := ./cmd/chaperone-onboard
 
 # Prevent Go from auto-downloading a different toolchain version.
 # This avoids silent compile/tool version mismatches when the local
@@ -30,6 +32,11 @@ LDFLAGS := -ldflags "-s -w \
 	-X main.GitCommit=$(GIT_COMMIT) \
 	-X main.BuildDate=$(BUILD_DATE) \
 	-X 'github.com/cloudblue/chaperone/internal/proxy.allowInsecureTargets=$(ALLOW_INSECURE_TARGETS)'"
+
+ONBOARD_LDFLAGS := -ldflags "-s -w \
+	-X main.Version=$(VERSION) \
+	-X main.GitCommit=$(GIT_COMMIT) \
+	-X main.BuildDate=$(BUILD_DATE)"
 
 # Development build flags (allows insecure targets and profiling for testing)
 LDFLAGS_DEV := -ldflags "\
@@ -56,6 +63,12 @@ build: ## Build the production binary (HTTPS targets only)
 	@echo "  ALLOW_INSECURE_TARGETS=$(ALLOW_INSECURE_TARGETS)"
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_PATH)
+
+.PHONY: build-onboard
+build-onboard: ## Build the onboarding CLI tool
+	@echo "Building $(ONBOARD_BINARY)..."
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 go build $(ONBOARD_LDFLAGS) -o $(BUILD_DIR)/$(ONBOARD_BINARY) $(ONBOARD_CMD_PATH)
 
 .PHONY: build-dev
 build-dev: ## Build for development (allows HTTP targets, debug symbols)
@@ -87,19 +100,22 @@ gencerts: ## Generate test certificates for mTLS development (use DOMAINS="host1
 # ============================================================================
 
 .PHONY: test
-test: ## Run tests (both modules)
+test: ## Run tests (all modules)
 	go test -v ./...
 	cd sdk && go test -v ./...
+	cd plugins/contrib && go test -v ./...
 
 .PHONY: test-race
 test-race: ## Run tests with race detector
 	go test -race -v ./...
 	cd sdk && go test -race -v ./...
+	cd plugins/contrib && go test -race -v ./...
 
 .PHONY: test-cover
 test-cover: ## Run tests with coverage
 	go test -coverprofile=coverage.out ./...
 	cd sdk && go test -coverprofile=coverage-sdk.out ./...
+	cd plugins/contrib && go test -coverprofile=coverage-contrib.out ./...
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
@@ -234,10 +250,11 @@ GOSEC := $(shell go env GOPATH)/bin/gosec
 GOVULNCHECK := $(shell go env GOPATH)/bin/govulncheck
 
 .PHONY: lint
-lint: ## Run linters (both modules)
+lint: ## Run linters (all modules)
 	@if [ -x "$(GOLANGCI_LINT)" ]; then \
 		$(GOLANGCI_LINT) run && \
-		(cd sdk && $(GOLANGCI_LINT) run); \
+		(cd sdk && $(GOLANGCI_LINT) run) && \
+		(cd plugins/contrib && $(GOLANGCI_LINT) run); \
 	else \
 		echo "golangci-lint not installed. Run: make tools"; \
 		exit 1; \
@@ -247,24 +264,29 @@ lint: ## Run linters (both modules)
 lint-fix: ## Run linters and fix issues
 	$(GOLANGCI_LINT) run --fix
 	cd sdk && $(GOLANGCI_LINT) run --fix
+	cd plugins/contrib && $(GOLANGCI_LINT) run --fix
 
 .PHONY: fmt
-fmt: ## Format code (both modules)
+fmt: ## Format code (all modules)
 	go fmt ./...
 	gofmt -s -w .
 	cd sdk && go fmt ./...
 	cd sdk && gofmt -s -w .
+	cd plugins/contrib && go fmt ./...
+	cd plugins/contrib && gofmt -s -w .
 
 .PHONY: vet
 vet: ## Run go vet
 	go vet ./...
 	cd sdk && go vet ./...
+	cd plugins/contrib && go vet ./...
 
 .PHONY: tidy
-tidy: ## Tidy and verify go.mod (both modules)
+tidy: ## Tidy and verify go.mod (all modules)
 	go mod tidy
 	go mod verify
 	cd sdk && go mod tidy
+	cd plugins/contrib && go mod tidy && go mod verify
 
 .PHONY: gosec
 gosec: ## Run gosec security scanner (all modules)

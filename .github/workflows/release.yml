@@ -8,6 +8,7 @@ on:
     tags:
       - 'v*' # Core releases: v1.0.0, v1.2.3
       - 'sdk/v*' # SDK releases: sdk/v1.0.0
+      - 'plugins/contrib/v*' # Contrib releases: plugins/contrib/v0.1.0
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -39,9 +40,6 @@ jobs:
           cache-dependency-path: |
             go.sum
             sdk/go.sum
-
-      - name: Set up Go workspace
-        run: go work init . ./sdk
 
       - name: Run vulnerability check
         run: |
@@ -91,6 +89,36 @@ jobs:
             -ldflags "${LDFLAGS}" \
             -o dist/chaperone-darwin-arm64 \
             ./cmd/chaperone
+
+          # Onboard tool LDFLAGS (no proxy-specific flags)
+          ONBOARD_LDFLAGS="-s -w \
+            -X main.Version=${VERSION} \
+            -X main.GitCommit=${GIT_COMMIT} \
+            -X main.BuildDate=${BUILD_DATE}"
+
+          # chaperone-onboard: Linux AMD64
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -ldflags "${ONBOARD_LDFLAGS}" \
+            -o dist/chaperone-onboard-linux-amd64 \
+            ./cmd/chaperone-onboard
+
+          # chaperone-onboard: Linux ARM64
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -ldflags "${ONBOARD_LDFLAGS}" \
+            -o dist/chaperone-onboard-linux-arm64 \
+            ./cmd/chaperone-onboard
+
+          # chaperone-onboard: Darwin (macOS) AMD64
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build \
+            -ldflags "${ONBOARD_LDFLAGS}" \
+            -o dist/chaperone-onboard-darwin-amd64 \
+            ./cmd/chaperone-onboard
+
+          # chaperone-onboard: Darwin (macOS) ARM64 (Apple Silicon)
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+            -ldflags "${ONBOARD_LDFLAGS}" \
+            -o dist/chaperone-onboard-darwin-arm64 \
+            ./cmd/chaperone-onboard
 
       - name: Generate checksums
         run: |
@@ -150,4 +178,50 @@ jobs:
             ### Installation
             ```bash
             go get github.com/cloudblue/chaperone/sdk@${{ steps.version.outputs.sdk_version }}
+            ```
+
+  # Notify on Contrib releases (no binaries to build)
+  contrib-release:
+    name: Contrib Release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/plugins/contrib/v')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            sdk/go.sum
+            plugins/contrib/go.sum
+
+      - name: Run vulnerability check
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
+          cd plugins/contrib && govulncheck ./...
+
+      - name: Run Contrib tests
+        run: cd plugins/contrib && go test -race ./...
+
+      - name: Extract Contrib version
+        id: version
+        run: echo "contrib_version=${GITHUB_REF_NAME#plugins/contrib/}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release for Contrib
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          body: |
+            ## Contrib Release ${{ github.ref_name }}
+
+            This is a release of the Chaperone Contrib Plugins module.
+
+            ### Installation
+            ```bash
+            go get github.com/cloudblue/chaperone/plugins/contrib@${{ steps.version.outputs.contrib_version }}
             ```

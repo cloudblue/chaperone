@@ -9,6 +9,7 @@ how-to guides, reference, and explanation.
 | Document | Description |
 |----------|-------------|
 | [Getting Started](getting-started.md) | Build, run, and send your first proxied request (~10 min) |
+| [Microsoft SAM with Mux](tutorials/microsoft-sam-mux.md) | Build a proxy with Microsoft Secure Application Model and the request multiplexer (~20 min) |
 
 ## How-to Guides
 
@@ -17,6 +18,7 @@ how-to guides, reference, and explanation.
 | [Deployment](guides/deployment.md) | Docker builds, container operations, Kubernetes probes, production hardening |
 | [Certificate Management](guides/certificate-management.md) | Development certs, production CA enrollment, CSR generation |
 | [Plugin Development](guides/plugin-development.md) | Build your own credential plugin — integration methods, testing, common patterns |
+| [Onboarding Refresh Tokens](guides/onboarding-refresh-tokens.md) | Bootstrap the initial refresh token for OAuth2/Microsoft SAM building blocks |
 | [Troubleshooting](guides/troubleshooting.md) | Common errors, mTLS issues, allow-list debugging, Docker problems |
 
 ## Reference
@@ -26,6 +28,7 @@ how-to guides, reference, and explanation.
 | [Configuration](reference/configuration.md) | All config options, env var overrides, allow-list syntax, timeout tuning |
 | [HTTP API](reference/http-api.md) | All endpoints — health, version, proxy, metrics, profiling |
 | [SDK](reference/sdk.md) | Plugin interfaces, types, helper methods, public API |
+| [Contrib Plugins](reference/contrib-plugins.md) | Reusable auth building blocks (OAuth2, Microsoft SAM), request multiplexer |
 
 ## Explanation
 

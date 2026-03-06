@@ -1,0 +1,4 @@
+github.com/cloudblue/chaperone/sdk v0.1.0 h1:OsrqjLfcaP35eSRLzsmL1r6wYf4IkmE/WG17GSCdgIE=
+github.com/cloudblue/chaperone/sdk v0.1.0/go.mod h1:p6JOMXPqVfm8EqvnyDAozgrmkvhfbs1O32am/dthnFc=
+golang.org/x/sync v0.19.0 h1:vV+1eWNmZ5geRlYjzm2adRgW2/mcpevXNg50YZtPCE4=
+golang.org/x/sync v0.19.0/go.mod h1:9KTHXmSnoGruLpwFjVSX0lNNA75CykiMECbovNTZqGI=

@@ -60,9 +60,7 @@ jobs:
           cache-dependency-path: |
             go.sum
             sdk/go.sum
-
-      - name: Set up Go workspace
-        run: go work init . ./sdk
+            plugins/contrib/go.sum
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
@@ -72,6 +70,9 @@ jobs:
 
       - name: Run govulncheck (SDK module)
         run: cd sdk && govulncheck ./...
+
+      - name: Run govulncheck (Contrib module)
+        run: cd plugins/contrib && govulncheck ./...
 
   gosec:
     name: Security Scan (gosec)
@@ -89,6 +90,7 @@ jobs:
           cache-dependency-path: |
             go.sum
             sdk/go.sum
+            plugins/contrib/go.sum
 
       - name: Install gosec
         run: go install github.com/securego/gosec/v2/cmd/gosec@${{ env.GOSEC_VERSION }}
@@ -99,10 +101,13 @@ jobs:
         #   into message strings. Log injection is not possible.
         #   Safety net: the "no-raw-logging" step below enforces that all
         #   production code uses slog, not fmt.Print*/log.Print*.
-        run: gosec -exclude=G706 -exclude-dir=sdk ./...
+        run: gosec -exclude=G706 -exclude-dir=sdk -exclude-dir=plugins ./...
 
       - name: Run gosec (SDK module)
         run: cd sdk && gosec ./...
+
+      - name: Run gosec (Contrib module)
+        run: cd plugins/contrib && gosec ./...
 
   # TODO: Enable when repo is public (requires GitHub Advanced Security)
   # dependency-review:
