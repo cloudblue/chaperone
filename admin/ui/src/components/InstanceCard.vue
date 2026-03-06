@@ -1,0 +1,130 @@
+<template>
+	<BaseCard :class="$style.card">
+		<div :class="$style.header">
+			<div :class="$style.titleRow">
+				<h3 :class="$style.name">{{ instance.name }}</h3>
+				<StatusIndicator :status="isStale ? 'stale' : instance.status" :label="statusLabel" />
+			</div>
+			<div :class="$style.address">{{ instance.address }}</div>
+		</div>
+		<div :class="$style.meta">
+			<div v-if="instance.version" :class="$style.metaItem">
+				<span :class="$style.metaLabel">Version</span>
+				<span :class="$style.metaValue">{{ instance.version }}</span>
+			</div>
+			<div v-if="instance.last_seen_at" :class="$style.metaItem">
+				<span :class="$style.metaLabel">Last seen</span>
+				<span :class="[$style.metaValue, isStale && $style.staleValue]">{{ formatTime(instance.last_seen_at) }}</span>
+			</div>
+		</div>
+		<div :class="$style.actions">
+			<BaseButton size="sm" variant="secondary" @click="$emit('edit', instance)">
+				Edit
+			</BaseButton>
+			<BaseButton size="sm" variant="ghost" @click="$emit('delete', instance)">
+				Remove
+			</BaseButton>
+		</div>
+	</BaseCard>
+</template>
+
+<script setup>
+import { computed } from "vue";
+import BaseCard from "./BaseCard.vue";
+import BaseButton from "./BaseButton.vue";
+import StatusIndicator from "./StatusIndicator.vue";
+
+const props = defineProps({
+	instance: { type: Object, required: true },
+});
+
+defineEmits(["edit", "delete"]);
+
+const STALE_THRESHOLD_MS = 2 * 60 * 1000;
+
+const isStale = computed(() => {
+	if (props.instance.status !== "healthy" || !props.instance.last_seen_at) return false;
+	return Date.now() - new Date(props.instance.last_seen_at).getTime() > STALE_THRESHOLD_MS;
+});
+
+const statusLabel = computed(() => {
+	if (isStale.value) return "Stale";
+	const labels = { healthy: "Healthy", unreachable: "Unreachable", unknown: "Unknown" };
+	return labels[props.instance.status] || "Unknown";
+});
+
+function formatTime(ts) {
+	if (!ts) return "";
+	const d = new Date(ts);
+	const secs = Math.floor((Date.now() - d.getTime()) / 1000);
+	if (secs < 60) return "just now";
+	if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+	if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+	return d.toLocaleDateString();
+}
+</script>
+
+<style module>
+.card {
+	cursor: default;
+}
+
+.header {
+	margin-bottom: var(--space-3);
+}
+
+.titleRow {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+}
+
+.name {
+	font-size: var(--font-size-md);
+	font-weight: var(--font-weight-semibold);
+	margin: 0;
+}
+
+.address {
+	font-size: var(--font-size-xs);
+	color: var(--color-text-secondary);
+	font-family: var(--font-family-mono);
+	margin-top: var(--space-1);
+}
+
+.meta {
+	display: flex;
+	gap: var(--space-5);
+	margin-bottom: var(--space-3);
+}
+
+.metaItem {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.metaLabel {
+	font-size: var(--font-size-xs);
+	color: var(--color-text-tertiary);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.metaValue {
+	font-size: var(--font-size-sm);
+	color: var(--color-text-primary);
+}
+
+.staleValue {
+	color: var(--color-warning);
+}
+
+.actions {
+	display: flex;
+	gap: var(--space-2);
+	padding-top: var(--space-3);
+	border-top: 1px solid var(--color-border-light);
+}
+</style>
