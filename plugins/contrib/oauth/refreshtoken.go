@@ -82,7 +82,16 @@ type RefreshToken struct {
 }
 
 // NewRefreshToken creates a new refresh token provider.
+// It panics if Store is nil or TokenURL is empty, since these are
+// programming errors that would otherwise cause confusing runtime failures.
 func NewRefreshToken(cfg RefreshTokenConfig) *RefreshToken {
+	if cfg.Store == nil {
+		panic("oauth.NewRefreshToken: Store must not be nil")
+	}
+	if cfg.TokenURL == "" {
+		panic("oauth.NewRefreshToken: TokenURL must not be empty")
+	}
+
 	f := oauthutil.NewTokenFetcher(oauthutil.TokenFetcher{
 		TokenURL:     cfg.TokenURL,
 		ClientID:     cfg.ClientID,

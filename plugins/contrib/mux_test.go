@@ -181,7 +181,147 @@ func TestMux_GetCredentials_TargetURLGlobMatch(t *testing.T) {
 	}
 }
 
-func TestMux_GetCredentials_EqualSpecificity_FirstRegisteredWins_WarningLogged(t *testing.T) {
+// --- fieldsMayOverlap unit tests ---
+
+func TestFieldsMayOverlap(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		// Empty fields are wildcards at the route level, not a shared dimension.
+		{"both empty", "", "", false},
+		{"a empty", "", "acme", false},
+		{"b empty", "acme", "", false},
+
+		// Identical literals can match the same input.
+		{"identical literals", "acme", "acme", true},
+
+		// Different literals can never match the same input.
+		{"disjoint literals", "acme", "globex", false},
+
+		// Glob patterns: conservatively assume overlap.
+		{"both globs", "ms-*", "ms-*", true},
+		{"different globs", "acme-*", "globex-*", true},
+		{"glob vs literal", "ms-*", "ms-azure", true},
+		{"literal vs glob", "acme", "acme-*", true},
+		{"double star vs literal", "**.example.com", "api.example.com", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := fieldsMayOverlap(tt.a, tt.b); got != tt.want {
+				t.Errorf("fieldsMayOverlap(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}
+
+// --- routesMayOverlap unit tests ---
+
+func TestRoutesMayOverlap(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b Route
+		want bool
+	}{
+		// --- Single dimension (specificity 1) ---
+		{
+			name: "same dim, identical literal",
+			a:    Route{VendorID: "acme"},
+			b:    Route{VendorID: "acme"},
+			want: true,
+		},
+		{
+			name: "same dim, disjoint literals",
+			a:    Route{VendorID: "acme"},
+			b:    Route{VendorID: "globex"},
+			want: false,
+		},
+		{
+			name: "same dim, both globs",
+			a:    Route{VendorID: "ms-*"},
+			b:    Route{VendorID: "ms-azure"},
+			want: true,
+		},
+		{
+			name: "different dims, no shared field to disprove",
+			a:    Route{VendorID: "acme"},
+			b:    Route{TargetURL: "*.example.com/**"},
+			want: true,
+		},
+
+		// --- Two dimensions (specificity 2) ---
+		{
+			name: "2-field, one shared dim disjoint literal, other shared dim has globs",
+			a:    Route{VendorID: "acme", TargetURL: "*.api.com/**"},
+			b:    Route{VendorID: "globex", TargetURL: "*.other.com/**"},
+			want: false, // VendorID disjoint → impossible overlap
+		},
+		{
+			name: "2-field, all shared dims identical literals",
+			a:    Route{VendorID: "acme", EnvironmentID: "prod"},
+			b:    Route{VendorID: "acme", EnvironmentID: "prod"},
+			want: true,
+		},
+		{
+			name: "2-field, all shared dims disjoint literals",
+			a:    Route{VendorID: "acme", EnvironmentID: "prod"},
+			b:    Route{VendorID: "globex", EnvironmentID: "staging"},
+			want: false,
+		},
+		{
+			name: "2-field, shared dim identical, other dim disjoint",
+			a:    Route{VendorID: "acme", EnvironmentID: "prod"},
+			b:    Route{VendorID: "acme", EnvironmentID: "staging"},
+			want: false, // EnvironmentID disjoint
+		},
+		{
+			name: "2-field, orthogonal dims, shared VendorID identical",
+			a:    Route{VendorID: "acme", TargetURL: "*.api.com/**"},
+			b:    Route{VendorID: "acme", EnvironmentID: "prod"},
+			want: true, // shared VendorID matches, other dims unshared
+		},
+		{
+			name: "2-field, both globs in all shared dims",
+			a:    Route{VendorID: "ms-*", EnvironmentID: "prod-*"},
+			b:    Route{VendorID: "ms-*", EnvironmentID: "staging-*"},
+			want: true, // can't prove disjoint with globs
+		},
+
+		// --- Three dimensions (specificity 3) ---
+		{
+			name: "3-field, one dim disjoint literal",
+			a:    Route{VendorID: "acme", TargetURL: "*.api.com/**", EnvironmentID: "prod"},
+			b:    Route{VendorID: "globex", TargetURL: "*.api.com/**", EnvironmentID: "prod"},
+			want: false, // VendorID disjoint
+		},
+		{
+			name: "3-field, all dims may overlap",
+			a:    Route{VendorID: "ms-*", TargetURL: "*.com/**", EnvironmentID: "prod"},
+			b:    Route{VendorID: "ms-*", TargetURL: "*.net/**", EnvironmentID: "prod"},
+			want: true, // all globs, can't prove disjoint
+		},
+		{
+			name: "3-field, all identical literals",
+			a:    Route{VendorID: "acme", TargetURL: "api.acme.com/v1", EnvironmentID: "prod"},
+			b:    Route{VendorID: "acme", TargetURL: "api.acme.com/v1", EnvironmentID: "prod"},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := routesMayOverlap(tt.a, tt.b); got != tt.want {
+				t.Errorf("routesMayOverlap(%+v, %+v) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}
+
+// --- Handle overlap warning integration test ---
+
+func TestMux_Handle_OverlapWarning_FiredAtRegistrationNotDispatch(t *testing.T) {
 	capture := &logCapture{}
 	logger := slog.New(capture)
 	mux := NewMux(WithLogger(logger))
@@ -189,30 +329,37 @@ func TestMux_GetCredentials_EqualSpecificity_FirstRegisteredWins_WarningLogged(t
 	mux.Handle(Route{VendorID: "microsoft-*"}, &namedProvider{name: "first"})
 	mux.Handle(Route{VendorID: "microsoft-azure"}, &namedProvider{name: "second"})
 
+	// Warning must have been logged at registration time.
+	found := false
+	for _, entry := range capture.getEntries() {
+		if entry.level == slog.LevelWarn && entry.message == "routes registered with equal specificity may overlap, first registered wins on tie" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected warning log at Handle() time for equal-specificity overlap, got none")
+	}
+
+	// First registered wins at dispatch time.
 	ctx := context.Background()
 	tx := sdk.TransactionContext{VendorID: "microsoft-azure"}
 	cred, err := mux.GetCredentials(ctx, tx, makeTestReq(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	// First registered wins.
 	if got := cred.Headers["Authorization"]; got != "Bearer first" {
 		t.Errorf("Authorization = %q, want %q", got, "Bearer first")
 	}
 
-	// Warning must be logged.
-	found := false
-	for _, entry := range capture.getEntries() {
-		if entry.level == slog.LevelWarn && entry.message == "multiple routes matched with equal specificity, using first registered" {
-			found = true
-			if entry.attrs["vendor_id"] != "microsoft-azure" {
-				t.Errorf("log vendor_id = %q, want %q", entry.attrs["vendor_id"], "microsoft-azure")
-			}
+	// No additional warnings at dispatch time.
+	countBefore := len(capture.getEntries())
+	_, _ = mux.GetCredentials(ctx, tx, makeTestReq(ctx))
+	countAfter := len(capture.getEntries())
+
+	for _, entry := range capture.getEntries()[countBefore:countAfter] {
+		if entry.level == slog.LevelWarn {
+			t.Error("expected no warnings at dispatch time")
 		}
-	}
-	if !found {
-		t.Error("expected warning log for equal-specificity tie, got none")
 	}
 }
 
@@ -291,12 +438,12 @@ func TestMux_GetCredentials_HigherSpecificityWins_RegardlessOfOrder(t *testing.T
 
 // --- SignCSR tests ---
 
-func TestMux_SignCSR_WithoutSigner_ReturnsError(t *testing.T) {
+func TestMux_SignCSR_WithoutSigner_ReturnsErrSigningNotConfigured(t *testing.T) {
 	mux := NewMux()
 
 	cert, err := mux.SignCSR(context.Background(), []byte("fake-csr"))
-	if err == nil {
-		t.Error("SignCSR() should return error when no signer configured")
+	if !errors.Is(err, ErrSigningNotConfigured) {
+		t.Errorf("SignCSR() error = %v, want ErrSigningNotConfigured", err)
 	}
 	if cert != nil {
 		t.Errorf("SignCSR() cert = %v, want nil", cert)

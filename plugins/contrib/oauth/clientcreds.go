@@ -90,7 +90,13 @@ type ClientCredentials struct {
 }
 
 // NewClientCredentials creates a new client credentials provider.
+// It panics if TokenURL is empty, since this is a programming error that
+// would otherwise cause a confusing runtime failure.
 func NewClientCredentials(cfg ClientCredentialsConfig) *ClientCredentials {
+	if cfg.TokenURL == "" {
+		panic("oauth.NewClientCredentials: TokenURL must not be empty")
+	}
+
 	f := oauthutil.NewTokenFetcher(oauthutil.TokenFetcher{
 		TokenURL:     cfg.TokenURL,
 		ClientID:     cfg.ClientID,

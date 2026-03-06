@@ -747,3 +747,22 @@ func (lc *logCapture) getEntries() []logEntry {
 	copy(cp, lc.entries)
 	return cp
 }
+
+func TestNewClientCredentials_EmptyTokenURL_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for empty TokenURL")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "TokenURL must not be empty") {
+			t.Errorf("unexpected panic message: %v", r)
+		}
+	}()
+
+	NewClientCredentials(ClientCredentialsConfig{
+		ClientID:     "id",
+		ClientSecret: "secret",
+		// TokenURL intentionally empty.
+	})
+}

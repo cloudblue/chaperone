@@ -919,6 +919,46 @@ func TestRefreshToken_NonSuccessResponse_LogsSanitizedOAuthError(t *testing.T) {
 	}
 }
 
+func TestNewRefreshToken_NilStore_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for nil Store")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "Store must not be nil") {
+			t.Errorf("unexpected panic message: %v", r)
+		}
+	}()
+
+	NewRefreshToken(RefreshTokenConfig{
+		TokenURL:     "https://example.com/token",
+		ClientID:     "id",
+		ClientSecret: "secret",
+		// Store intentionally nil.
+	})
+}
+
+func TestNewRefreshToken_EmptyTokenURL_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for empty TokenURL")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "TokenURL must not be empty") {
+			t.Errorf("unexpected panic message: %v", r)
+		}
+	}()
+
+	NewRefreshToken(RefreshTokenConfig{
+		ClientID:     "id",
+		ClientSecret: "secret",
+		Store:        newMemoryStore("tok"),
+		// TokenURL intentionally empty.
+	})
+}
+
 func TestRefreshToken_Compliance(t *testing.T) {
 	srv := httptest.NewServer(refreshTokenHandler("rotated-tok"))
 	defer srv.Close()

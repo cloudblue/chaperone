@@ -5,6 +5,7 @@ package contrib
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -46,13 +47,13 @@ func TestAsPlugin_DelegatesGetCredentials(t *testing.T) {
 	}
 }
 
-func TestAsPlugin_SignCSR_ReturnsError(t *testing.T) {
+func TestAsPlugin_SignCSR_ReturnsErrSigningNotConfigured(t *testing.T) {
 	provider := &stubProvider{}
 	plugin := AsPlugin(provider)
 
 	_, err := plugin.SignCSR(context.Background(), []byte("fake-csr"))
-	if err == nil {
-		t.Error("SignCSR() should return error when no signer configured")
+	if !errors.Is(err, ErrSigningNotConfigured) {
+		t.Errorf("SignCSR() error = %v, want ErrSigningNotConfigured", err)
 	}
 }
 

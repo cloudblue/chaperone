@@ -118,17 +118,16 @@ func (tf *TokenFetcher) Exchange(ctx context.Context, form url.Values) (*TokenRe
 		req.SetBasicAuth(tf.ClientID, tf.ClientSecret)
 	}
 
-	resp, body, err := tf.doRequest(ctx, req)
+	statusCode, header, body, err := tf.doRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, tf.handleErrorResponse(ctx, resp, body)
+	if statusCode < 200 || statusCode >= 300 {
+		return nil, tf.handleErrorResponse(ctx, statusCode, header, body)
 	}
 
-	ct := resp.Header.Get("Content-Type")
+	ct := header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
 		return nil, fmt.Errorf("unexpected token response content-type: %s", ct)
 	}
@@ -161,40 +160,42 @@ func (tf *TokenFetcher) BuildForm(grantType string) url.Values {
 	return form
 }
 
-// doRequest executes the HTTP request and reads the response body.
-func (tf *TokenFetcher) doRequest(ctx context.Context, req *http.Request) (*http.Response, []byte, error) {
+// doRequest executes the HTTP request, reads and closes the response body,
+// and returns the status code, headers, and body bytes. The caller does not
+// need to close anything.
+func (tf *TokenFetcher) doRequest(ctx context.Context, req *http.Request) (statusCode int, header http.Header, body []byte, err error) {
 	resp, err := tf.Client.Do(req) // #nosec G704 -- tokenURL is set by plugin author at construction, not from external input
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, nil, fmt.Errorf("token request for %s: %w", tf.TokenURL, ctx.Err())
+			return 0, nil, nil, fmt.Errorf("token request for %s: %w", tf.TokenURL, ctx.Err())
 		}
 		tf.Logger.LogAttrs(ctx, slog.LevelWarn, "token endpoint request failed",
 			slog.String("token_url", tf.TokenURL),
 			slog.String("error", err.Error()))
-		return nil, nil, fmt.Errorf("token endpoint request for %s: %w",
+		return 0, nil, nil, fmt.Errorf("token endpoint request for %s: %w",
 			tf.TokenURL, contrib.ErrTokenEndpointUnavailable)
 	}
+	defer resp.Body.Close()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBody))
+	body, err = io.ReadAll(io.LimitReader(resp.Body, MaxResponseBody))
 	if err != nil {
-		_ = resp.Body.Close() // #nosec G104 -- best-effort close on read failure
 		if ctx.Err() != nil {
-			return nil, nil, fmt.Errorf("reading token response for %s: %w", tf.TokenURL, ctx.Err())
+			return 0, nil, nil, fmt.Errorf("reading token response for %s: %w", tf.TokenURL, ctx.Err())
 		}
-		return nil, nil, fmt.Errorf("reading token response from %s: %w",
+		return 0, nil, nil, fmt.Errorf("reading token response from %s: %w",
 			tf.TokenURL, contrib.ErrTokenEndpointUnavailable)
 	}
 
-	return resp, body, nil
+	return resp.StatusCode, resp.Header, body, nil
 }
 
 // handleErrorResponse processes non-2xx responses from the token endpoint.
-func (tf *TokenFetcher) handleErrorResponse(ctx context.Context, resp *http.Response, body []byte) error {
-	contentType := resp.Header.Get("Content-Type")
+func (tf *TokenFetcher) handleErrorResponse(ctx context.Context, statusCode int, header http.Header, body []byte) error {
+	contentType := header.Get("Content-Type")
 
 	if tf.Logger.Enabled(ctx, slog.LevelDebug) {
 		attrs := []slog.Attr{
-			slog.Int("status", resp.StatusCode),
+			slog.Int("status", statusCode),
 			slog.String("content_type", contentType),
 		}
 
@@ -211,21 +212,21 @@ func (tf *TokenFetcher) handleErrorResponse(ctx context.Context, resp *http.Resp
 		tf.Logger.LogAttrs(ctx, slog.LevelDebug, "token endpoint error response", attrs...)
 	}
 
-	if resp.StatusCode == http.StatusUnauthorized {
+	if statusCode == http.StatusUnauthorized {
 		return fmt.Errorf("token endpoint returned %d (content-type: %s): %w",
-			resp.StatusCode, contentType, contrib.ErrInvalidCredentials)
+			statusCode, contentType, contrib.ErrInvalidCredentials)
 	}
 
-	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError {
+	if statusCode == http.StatusTooManyRequests || statusCode >= http.StatusInternalServerError {
 		tf.Logger.LogAttrs(ctx, slog.LevelWarn, "token endpoint unavailable",
 			slog.String("token_url", tf.TokenURL),
-			slog.Int("status", resp.StatusCode))
+			slog.Int("status", statusCode))
 		return fmt.Errorf("token endpoint returned %d (content-type: %s): %w",
-			resp.StatusCode, contentType, contrib.ErrTokenEndpointUnavailable)
+			statusCode, contentType, contrib.ErrTokenEndpointUnavailable)
 	}
 
 	return fmt.Errorf("token endpoint returned %d (content-type: %s)",
-		resp.StatusCode, contentType)
+		statusCode, contentType)
 }
 
 // ParseTokenResponse unmarshals and validates the token endpoint response.

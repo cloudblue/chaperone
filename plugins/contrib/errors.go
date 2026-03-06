@@ -46,3 +46,8 @@ var ErrTokenExpiredOnArrival = errors.New("token expired on arrival")
 // ErrTokenEndpointUnavailable indicates a transient failure reaching the
 // token endpoint (network error, HTTP 5xx, HTTP 429). Retrying may help.
 var ErrTokenEndpointUnavailable = errors.New("token endpoint unavailable")
+
+// ErrSigningNotConfigured indicates no certificate signer has been set.
+// This is returned by adapters (AsPlugin, Mux) when SignCSR is called
+// without a configured signer.
+var ErrSigningNotConfigured = errors.New("certificate signing not configured")

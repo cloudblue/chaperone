@@ -5,7 +5,6 @@ package contrib
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/cloudblue/chaperone/sdk"
@@ -39,7 +38,7 @@ func (a *pluginAdapter) GetCredentials(ctx context.Context, tx sdk.TransactionCo
 }
 
 func (a *pluginAdapter) SignCSR(_ context.Context, _ []byte) ([]byte, error) {
-	return nil, fmt.Errorf("certificate signing not configured")
+	return nil, ErrSigningNotConfigured
 }
 
 func (a *pluginAdapter) ModifyResponse(_ context.Context, _ sdk.TransactionContext, _ *http.Response) (*sdk.ResponseAction, error) {
