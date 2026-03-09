@@ -38,6 +38,8 @@ The tool prints only the refresh token to stdout, so you can redirect to a file 
 
 The resulting refresh token is an MRRT (Multi-Resource Refresh Token) — one consent per tenant is sufficient for all resources. You can optionally pass `-resource https://graph.microsoft.com` to scope the initial consent to a specific resource.
 
+At runtime, a [`KeyResolver`](../reference/contrib-plugins.md#keyresolver) can map transaction context fields to the correct tenant automatically.
+
 The command opens your default browser to the Azure AD consent page. Sign in as an admin and grant consent. After granting consent, the browser shows a "You may close this tab and return to the terminal" page.
 
 For sovereign clouds (Azure Government, Azure China), override the endpoint:
@@ -85,7 +87,7 @@ chaperone-onboard oauth \
 
 ## Store the refresh token
 
-The proxy reads the refresh token from a [`TokenStore`](../reference/contrib-plugins.md#tokenstoreoauth) at runtime. You need to seed the store with the token you just obtained.
+The proxy reads the refresh token from a `TokenStore` at runtime ([OAuth variant](../reference/contrib-plugins.md#tokenstoreoauth), [Microsoft variant](../reference/contrib-plugins.md#tokenstoremicrosoft)). You need to seed the store with the token you just obtained.
 
 ### Using `FileStore` (built-in)
 
@@ -119,7 +121,7 @@ Then point the store at the base directory:
 store := microsoft.NewFileStore("/var/lib/chaperone/tokens")
 ```
 
-Each tenant gets a single file. The refresh token is an MRRT — one token per tenant covers all consented resources. At runtime, `FileStore.Save` calls `os.MkdirAll` and creates the base directory automatically when Microsoft rotates the token.
+Each tenant gets a single file. At runtime, `FileStore.Save` calls `os.MkdirAll` and creates the base directory automatically when Microsoft rotates the token.
 
 ### Other backends
 
@@ -150,7 +152,7 @@ chaperone-onboard microsoft -endpoint https://login.microsoftonline.us ...
 
 ### PKCE errors with legacy providers
 
-If your provider does not support PKCE (RFC 7636), use `-no-pkce` with the `oauth` subcommand. The `microsoft` subcommand always uses PKCE (Azure AD v1 supports it).
+If your provider does not support PKCE (Proof Key for Code Exchange, RFC 7636), use `-no-pkce` with the `oauth` subcommand. The `microsoft` subcommand always uses PKCE (Azure AD v1 supports it).
 
 ### Headless environments (no browser)
 
