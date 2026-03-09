@@ -4,7 +4,6 @@
     <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go"></a>
     <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg">
     <img src="https://github.com/cloudblue/chaperone/actions/workflows/ci.yml/badge.svg?branch=master">
-    <img src="https://github.com/cloudblue/chaperone/actions/workflows/security.yml/badge.svg?branch=master">
   </div>
   <br/>
 </div>
