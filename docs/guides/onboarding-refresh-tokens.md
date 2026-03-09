@@ -2,6 +2,8 @@
 
 How to bootstrap the initial refresh token for `oauth.RefreshToken` or `microsoft.RefreshTokenSource` using the `chaperone-onboard` CLI tool. This is a one-time step — once seeded, the proxy rotates tokens automatically.
 
+> **Already have refresh tokens?** If you are migrating from an existing system and already hold valid refresh tokens, you can skip the CLI entirely. Seed your [`TokenStore`](#store-the-refresh-token) directly — write the token to the expected file path (or Vault key, database row, etc.) and start the proxy. The `chaperone-onboard` tool is only needed when you must perform the initial OAuth2 consent flow to obtain a refresh token for the first time.
+
 ## Prerequisites
 
 ### For Microsoft Secure Application Model (`microsoft` subcommand)
