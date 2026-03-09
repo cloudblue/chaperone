@@ -134,6 +134,8 @@ Delegates to the configured modifier. Returns a nil action and nil error if no m
 ```go
 type Route struct {
     VendorID      string
+    MarketplaceID string
+    ProductID     string
     TargetURL     string
     EnvironmentID string
 }
@@ -144,6 +146,8 @@ Matching criteria for dispatching requests. Each non-empty field must match the 
 | Field | Matches against | Example pattern |
 |-------|----------------|-----------------|
 | `VendorID` | `tx.VendorID` | `"microsoft-*"` |
+| `MarketplaceID` | `tx.MarketplaceID` | `"MP-*"` |
+| `ProductID` | `tx.ProductID` | `"MICROSOFT_*"` |
 | `TargetURL` | `tx.TargetURL` (scheme stripped) | `"*.graph.microsoft.com/**"` |
 | `EnvironmentID` | `tx.EnvironmentID` | `"prod-*"` |
 
@@ -161,13 +165,13 @@ Reports whether every non-empty field in the route matches the corresponding `tx
 func (r Route) Specificity() int
 ```
 
-Returns the number of non-empty fields (0–3). The mux prefers routes with higher specificity when multiple routes match.
+Returns the number of non-empty fields (0–5). The mux prefers routes with higher specificity when multiple routes match.
 
 | Route | Specificity |
 |-------|-------------|
 | `Route{}` | 0 |
 | `Route{VendorID: "acme"}` | 1 |
-| `Route{EnvironmentID: "prod", VendorID: "acme"}` | 2 |
+| `Route{MarketplaceID: "MP-*", ProductID: "MICROSOFT_SAAS"}` | 2 |
 | `Route{EnvironmentID: "prod", VendorID: "acme", TargetURL: "api.acme.com/**"}` | 3 |
 
 ### Glob patterns
@@ -860,3 +864,65 @@ func (v *VaultTokenStore) Save(ctx context.Context, tenantID, refreshToken strin
     return nil
 }
 ```
+
+### Multiple Microsoft app registrations
+
+When different groups of tenants require separate Azure AD app registrations — for example, one per region or partner program — create a [`RefreshTokenSource`](#newrefreshtokensource) per app and route them through the [`Mux`](#mux). All sources can share a single [`FileStore`](#microsoft-filestore) because tokens are keyed by tenant, not by app registration.
+
+```go
+package main
+
+import (
+    "context"
+    "os"
+
+    "github.com/cloudblue/chaperone"
+    "github.com/cloudblue/chaperone/plugins/contrib"
+    "github.com/cloudblue/chaperone/plugins/contrib/microsoft"
+)
+
+func main() {
+    // Shared token store — keyed by tenant ID, not by app registration.
+    store := microsoft.NewFileStore("/var/lib/chaperone/tokens")
+
+    // App registration A: serves EU marketplaces.
+    sourceA := microsoft.NewRefreshTokenSource(microsoft.Config{
+        ClientID:     os.Getenv("APP_A_CLIENT_ID"),
+        ClientSecret: os.Getenv("APP_A_CLIENT_SECRET"),
+        Store:        store,
+        KeyResolver: contrib.NewStaticMapping([]contrib.MappingRule{
+            {MarketplaceID: "MP-12345", Key: "contoso-de.onmicrosoft.com"},
+            {MarketplaceID: "MP-23456", Key: "contoso-ch.onmicrosoft.com"},
+        }),
+    })
+
+    // App registration B: serves US marketplaces.
+    sourceB := microsoft.NewRefreshTokenSource(microsoft.Config{
+        ClientID:     os.Getenv("APP_B_CLIENT_ID"),
+        ClientSecret: os.Getenv("APP_B_CLIENT_SECRET"),
+        Store:        store,
+        KeyResolver: contrib.NewStaticMapping([]contrib.MappingRule{
+            {MarketplaceID: "MP-34567", Key: "contoso-us.onmicrosoft.com"},
+        }),
+    })
+
+    mux := contrib.NewMux()
+    mux.Handle(contrib.Route{MarketplaceID: "MP-12345"}, sourceA)
+    mux.Handle(contrib.Route{MarketplaceID: "MP-23456"}, sourceA)
+    mux.Handle(contrib.Route{MarketplaceID: "MP-34567"}, sourceB)
+
+    ctx := context.Background()
+    chaperone.Run(ctx, mux)
+}
+```
+
+The token directory holds one file per tenant regardless of which app registration manages it:
+
+```
+/var/lib/chaperone/tokens/
+  contoso-de.onmicrosoft.com
+  contoso-ch.onmicrosoft.com
+  contoso-us.onmicrosoft.com
+```
+
+Seed each tenant with [`chaperone-onboard microsoft`](../guides/onboarding-refresh-tokens.md) using the corresponding app registration's credentials, or write existing refresh tokens to the file directly.

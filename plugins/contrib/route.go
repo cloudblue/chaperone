@@ -19,10 +19,19 @@ import (
 //	Route{VendorID: "microsoft-*"}                           // matches microsoft-azure, microsoft-365
 //	Route{EnvironmentID: "prod", VendorID: "microsoft-*"}   // 2-field route, higher specificity
 //	Route{TargetURL: "*.graph.microsoft.com/**"}             // matches any Graph API path
+//	Route{MarketplaceID: "MP-*", ProductID: "MICROSOFT_SAAS"} // matches by marketplace and product
 type Route struct {
 	// VendorID matches against TransactionContext.VendorID.
 	// Supports glob patterns (e.g., "microsoft-*").
 	VendorID string
+
+	// MarketplaceID matches against TransactionContext.MarketplaceID.
+	// Supports glob patterns (e.g., "MP-*").
+	MarketplaceID string
+
+	// ProductID matches against TransactionContext.ProductID.
+	// Supports glob patterns (e.g., "MICROSOFT_*").
+	ProductID string
 
 	// TargetURL matches against TransactionContext.TargetURL.
 	// The URL scheme (e.g., "https://") is stripped before matching.
@@ -42,6 +51,12 @@ func (r Route) Specificity() int {
 	if r.VendorID != "" {
 		n++
 	}
+	if r.MarketplaceID != "" {
+		n++
+	}
+	if r.ProductID != "" {
+		n++
+	}
 	if r.TargetURL != "" {
 		n++
 	}
@@ -55,6 +70,12 @@ func (r Route) Specificity() int {
 // Every non-empty field must match for the route to match overall.
 func (r Route) Matches(tx sdk.TransactionContext) bool {
 	if r.VendorID != "" && !GlobMatch(r.VendorID, tx.VendorID, '/') {
+		return false
+	}
+	if r.MarketplaceID != "" && !GlobMatch(r.MarketplaceID, tx.MarketplaceID, '/') {
+		return false
+	}
+	if r.ProductID != "" && !GlobMatch(r.ProductID, tx.ProductID, '/') {
 		return false
 	}
 	if r.EnvironmentID != "" && !GlobMatch(r.EnvironmentID, tx.EnvironmentID, '/') {
