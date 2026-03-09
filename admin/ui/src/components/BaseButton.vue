@@ -13,7 +13,7 @@ defineProps({
 	variant: {
 		type: String,
 		default: "primary",
-		validator: (v) => ["primary", "secondary", "danger"].includes(v),
+		validator: (v) => ["primary", "secondary", "danger", "ghost"].includes(v),
 	},
 	size: {
 		type: String,
@@ -86,5 +86,16 @@ defineProps({
 
 .danger:hover:not(:disabled) {
 	background-color: var(--color-error-hover);
+}
+
+.ghost {
+	background-color: transparent;
+	color: var(--color-text-tertiary);
+	border-color: transparent;
+}
+
+.ghost:hover:not(:disabled) {
+	background-color: var(--color-error-bg);
+	color: var(--color-error);
 }
 </style>
