@@ -356,7 +356,7 @@ GOVULNCHECK_VERSION := v1.1.4
 .PHONY: tools
 tools: ## Install development tools
 	@echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(shell go env GOPATH)/bin $(GOLANGCI_LINT_VERSION)
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	@echo "Installing addlicense..."
 	go install github.com/google/addlicense@latest
 	@echo "Installing gosec $(GOSEC_VERSION)..."
