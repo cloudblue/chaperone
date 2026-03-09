@@ -185,6 +185,12 @@ func routesMayOverlap(a, b Route) bool {
 	if a.VendorID != "" && b.VendorID != "" && !fieldsMayOverlap(a.VendorID, b.VendorID) {
 		return false
 	}
+	if a.MarketplaceID != "" && b.MarketplaceID != "" && !fieldsMayOverlap(a.MarketplaceID, b.MarketplaceID) {
+		return false
+	}
+	if a.ProductID != "" && b.ProductID != "" && !fieldsMayOverlap(a.ProductID, b.ProductID) {
+		return false
+	}
 	if a.TargetURL != "" && b.TargetURL != "" && !fieldsMayOverlap(a.TargetURL, b.TargetURL) {
 		return false
 	}
@@ -220,6 +226,12 @@ func routeString(r Route) string {
 	var parts []string
 	if r.VendorID != "" {
 		parts = append(parts, "VendorID="+r.VendorID)
+	}
+	if r.MarketplaceID != "" {
+		parts = append(parts, "MarketplaceID="+r.MarketplaceID)
+	}
+	if r.ProductID != "" {
+		parts = append(parts, "ProductID="+r.ProductID)
 	}
 	if r.TargetURL != "" {
 		parts = append(parts, "TargetURL="+r.TargetURL)

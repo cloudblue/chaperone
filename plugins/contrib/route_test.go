@@ -31,9 +31,29 @@ func TestRoute_Specificity(t *testing.T) {
 			want:  2,
 		},
 		{
-			name:  "all three fields set",
+			name:  "all three original fields set",
 			route: Route{EnvironmentID: "prod", VendorID: "acme", TargetURL: "api.acme.com/**"},
 			want:  3,
+		},
+		{
+			name:  "marketplace only",
+			route: Route{MarketplaceID: "MP-12345"},
+			want:  1,
+		},
+		{
+			name:  "product only",
+			route: Route{ProductID: "MICROSOFT_SAAS"},
+			want:  1,
+		},
+		{
+			name:  "marketplace and product",
+			route: Route{MarketplaceID: "MP-*", ProductID: "MICROSOFT_SAAS"},
+			want:  2,
+		},
+		{
+			name:  "all five fields set",
+			route: Route{VendorID: "acme", MarketplaceID: "MP-*", ProductID: "SKU-*", EnvironmentID: "prod", TargetURL: "api.acme.com/**"},
+			want:  5,
 		},
 		{
 			name:  "only target URL",
@@ -132,6 +152,92 @@ func TestRoute_Matches_EnvironmentID(t *testing.T) {
 	}
 }
 
+func TestRoute_Matches_MarketplaceID(t *testing.T) {
+	tests := []struct {
+		name  string
+		route Route
+		tx    sdk.TransactionContext
+		want  bool
+	}{
+		{
+			name:  "exact marketplace match",
+			route: Route{MarketplaceID: "MP-12345"},
+			tx:    sdk.TransactionContext{MarketplaceID: "MP-12345"},
+			want:  true,
+		},
+		{
+			name:  "glob marketplace match",
+			route: Route{MarketplaceID: "MP-*"},
+			tx:    sdk.TransactionContext{MarketplaceID: "MP-12345"},
+			want:  true,
+		},
+		{
+			name:  "marketplace mismatch",
+			route: Route{MarketplaceID: "MP-12345"},
+			tx:    sdk.TransactionContext{MarketplaceID: "MP-67890"},
+			want:  false,
+		},
+		{
+			name:  "empty marketplace in route matches any",
+			route: Route{},
+			tx:    sdk.TransactionContext{MarketplaceID: "MP-12345"},
+			want:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.route.Matches(tt.tx)
+			if got != tt.want {
+				t.Errorf("Route.Matches() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRoute_Matches_ProductID(t *testing.T) {
+	tests := []struct {
+		name  string
+		route Route
+		tx    sdk.TransactionContext
+		want  bool
+	}{
+		{
+			name:  "exact product match",
+			route: Route{ProductID: "MICROSOFT_SAAS"},
+			tx:    sdk.TransactionContext{ProductID: "MICROSOFT_SAAS"},
+			want:  true,
+		},
+		{
+			name:  "glob product match",
+			route: Route{ProductID: "MICROSOFT_*"},
+			tx:    sdk.TransactionContext{ProductID: "MICROSOFT_SAAS"},
+			want:  true,
+		},
+		{
+			name:  "product mismatch",
+			route: Route{ProductID: "MICROSOFT_SAAS"},
+			tx:    sdk.TransactionContext{ProductID: "AZURE"},
+			want:  false,
+		},
+		{
+			name:  "empty product in route matches any",
+			route: Route{},
+			tx:    sdk.TransactionContext{ProductID: "MICROSOFT_SAAS"},
+			want:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.route.Matches(tt.tx)
+			if got != tt.want {
+				t.Errorf("Route.Matches() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRoute_Matches_TargetURL(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -201,7 +307,7 @@ func TestRoute_Matches_MultipleFields(t *testing.T) {
 			want:  false,
 		},
 		{
-			name: "all three fields match",
+			name: "all three original fields match",
 			route: Route{
 				EnvironmentID: "production",
 				VendorID:      "microsoft-*",
@@ -215,7 +321,7 @@ func TestRoute_Matches_MultipleFields(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "two of three fields match",
+			name: "two of three original fields match",
 			route: Route{
 				EnvironmentID: "production",
 				VendorID:      "microsoft-*",
@@ -227,6 +333,48 @@ func TestRoute_Matches_MultipleFields(t *testing.T) {
 				TargetURL:     "https://api.other.com/v1/data",
 			},
 			want: false,
+		},
+		{
+			name: "marketplace and product both match",
+			route: Route{
+				MarketplaceID: "MP-*",
+				ProductID:     "MICROSOFT_SAAS",
+			},
+			tx: sdk.TransactionContext{
+				MarketplaceID: "MP-12345",
+				ProductID:     "MICROSOFT_SAAS",
+			},
+			want: true,
+		},
+		{
+			name: "marketplace matches but product does not",
+			route: Route{
+				MarketplaceID: "MP-*",
+				ProductID:     "MICROSOFT_SAAS",
+			},
+			tx: sdk.TransactionContext{
+				MarketplaceID: "MP-12345",
+				ProductID:     "AZURE",
+			},
+			want: false,
+		},
+		{
+			name: "all five fields match",
+			route: Route{
+				VendorID:      "microsoft-*",
+				MarketplaceID: "MP-*",
+				ProductID:     "MICROSOFT_*",
+				EnvironmentID: "production",
+				TargetURL:     "*.graph.microsoft.com/**",
+			},
+			tx: sdk.TransactionContext{
+				VendorID:      "microsoft-azure",
+				MarketplaceID: "MP-12345",
+				ProductID:     "MICROSOFT_SAAS",
+				EnvironmentID: "production",
+				TargetURL:     "https://api.graph.microsoft.com/v1/users",
+			},
+			want: true,
 		},
 	}
 

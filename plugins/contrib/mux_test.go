@@ -289,6 +289,32 @@ func TestRoutesMayOverlap(t *testing.T) {
 			want: true, // can't prove disjoint with globs
 		},
 
+		// --- MarketplaceID and ProductID dimensions ---
+		{
+			name: "same marketplace, disjoint literals",
+			a:    Route{MarketplaceID: "MP-12345"},
+			b:    Route{MarketplaceID: "MP-67890"},
+			want: false,
+		},
+		{
+			name: "same product, disjoint literals",
+			a:    Route{ProductID: "MICROSOFT_SAAS"},
+			b:    Route{ProductID: "AZURE"},
+			want: false,
+		},
+		{
+			name: "marketplace glob, may overlap",
+			a:    Route{MarketplaceID: "MP-*"},
+			b:    Route{MarketplaceID: "MP-12345"},
+			want: true,
+		},
+		{
+			name: "marketplace disjoint, product identical",
+			a:    Route{MarketplaceID: "MP-12345", ProductID: "MICROSOFT_SAAS"},
+			b:    Route{MarketplaceID: "MP-67890", ProductID: "MICROSOFT_SAAS"},
+			want: false,
+		},
+
 		// --- Three dimensions (specificity 3) ---
 		{
 			name: "3-field, one dim disjoint literal",
@@ -412,6 +438,57 @@ func TestMux_GetCredentials_ProviderErrorPropagated(t *testing.T) {
 	_, err := mux.GetCredentials(ctx, tx, makeTestReq(ctx))
 	if !errors.Is(err, providerErr) {
 		t.Errorf("error = %v, want %v", err, providerErr)
+	}
+}
+
+func TestMux_GetCredentials_MarketplaceIDMatch(t *testing.T) {
+	mux := NewMux()
+	mux.Handle(Route{MarketplaceID: "MP-12345"}, &namedProvider{name: "eu"})
+	mux.Handle(Route{MarketplaceID: "MP-67890"}, &namedProvider{name: "us"})
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{MarketplaceID: "MP-67890"}
+	cred, err := mux.GetCredentials(ctx, tx, makeTestReq(ctx))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := cred.Headers["Authorization"]; got != "Bearer us" {
+		t.Errorf("Authorization = %q, want %q", got, "Bearer us")
+	}
+}
+
+func TestMux_GetCredentials_ProductIDMatch(t *testing.T) {
+	mux := NewMux()
+	mux.Handle(Route{ProductID: "MICROSOFT_SAAS"}, &namedProvider{name: "saas"})
+	mux.Handle(Route{ProductID: "AZURE"}, &namedProvider{name: "azure"})
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{ProductID: "AZURE"}
+	cred, err := mux.GetCredentials(ctx, tx, makeTestReq(ctx))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := cred.Headers["Authorization"]; got != "Bearer azure" {
+		t.Errorf("Authorization = %q, want %q", got, "Bearer azure")
+	}
+}
+
+func TestMux_GetCredentials_MarketplaceAndProductBeatsMarketplaceAlone(t *testing.T) {
+	mux := NewMux()
+	mux.Handle(Route{MarketplaceID: "MP-12345"}, &namedProvider{name: "marketplace-only"})
+	mux.Handle(
+		Route{MarketplaceID: "MP-12345", ProductID: "MICROSOFT_SAAS"},
+		&namedProvider{name: "marketplace-and-product"},
+	)
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{MarketplaceID: "MP-12345", ProductID: "MICROSOFT_SAAS"}
+	cred, err := mux.GetCredentials(ctx, tx, makeTestReq(ctx))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := cred.Headers["Authorization"]; got != "Bearer marketplace-and-product" {
+		t.Errorf("Authorization = %q, want %q", got, "Bearer marketplace-and-product")
 	}
 }
 
