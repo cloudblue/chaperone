@@ -107,7 +107,7 @@ Dispatches the request to the best matching route's provider:
 
 1. All registered routes are tested against `tx`.
 2. The match with the highest [specificity](#specificity) wins.
-3. If multiple matches share the highest specificity, the first registered route wins and a warning is logged.
+3. If multiple matches share the highest specificity, the first registered route wins. A warning is logged at registration time when potentially overlapping routes are detected (see [`Handle`](#handle)).
 4. If no route matches, the default provider is used.
 5. If no route matches and no default is configured, returns [`ErrNoRouteMatch`](#sentinel-errors).
 
@@ -357,7 +357,7 @@ type ClientCredentialsConfig struct {
 | `ClientID` | `string` | — (required) | OAuth2 client identifier. |
 | `ClientSecret` | `string` | — (required) | OAuth2 client secret. |
 | `Scopes` | `[]string` | `nil` | Scopes to request. Joined with space per RFC 6749. |
-| `ExtraParams` | `map[string]string` | `nil` | Extra form parameters merged into the token request. Cannot override standard fields (`grant_type`, `client_id`, `client_secret`, `scope`, `refresh_token`). |
+| `ExtraParams` | `map[string]string` | `nil` | Extra form parameters merged into the token request. Cannot override standard fields (`grant_type`, `client_id`, `client_secret`, `scope`). |
 | `AuthMode` | [`AuthMode`](#authmode) | `AuthModePost` | How credentials are sent to the token endpoint. |
 | `HTTPClient` | [`*http.Client`][client] | 10s timeout, TLS 1.3+ | HTTP client for token requests. |
 | `Logger` | [`*slog.Logger`][slog] | `slog.Default()` | Logger for debug and warning messages. |
@@ -385,7 +385,7 @@ const (
 func NewClientCredentials(cfg ClientCredentialsConfig) *ClientCredentials
 ```
 
-Creates a new client credentials provider. Applies defaults for unset optional fields (`HTTPClient`, `Logger`, `ExpiryMargin`). Does not validate required fields — an empty `TokenURL` or `ClientID` causes errors at first `GetCredentials` call, not at construction time.
+Creates a new client credentials provider. Applies defaults for unset optional fields (`HTTPClient`, `Logger`, `ExpiryMargin`). Panics if `TokenURL` is empty (catches misconfiguration at startup).
 
 ### `ClientCredentials`
 
@@ -460,7 +460,7 @@ type RefreshTokenConfig struct {
 func NewRefreshToken(cfg RefreshTokenConfig) *RefreshToken
 ```
 
-Creates a new refresh token provider. Applies defaults for unset optional fields (`HTTPClient`, `Logger`, `ExpiryMargin`). Like [`NewClientCredentials`](#newclientcredentials), required fields are validated lazily at first `GetCredentials` call.
+Creates a new refresh token provider. Applies defaults for unset optional fields (`HTTPClient`, `Logger`, `ExpiryMargin`). Panics if `TokenURL` is empty or `Store` is nil (catches misconfiguration at startup).
 
 ### `RefreshToken`
 
@@ -600,7 +600,7 @@ type Config struct {
 func NewRefreshTokenSource(cfg Config) *RefreshTokenSource
 ```
 
-Creates a new Microsoft refresh token source. Applies defaults for unset optional fields (`TokenEndpoint`, `MaxPoolSize`, `ExpiryMargin`, `HTTPClient`, `Logger`). Like [`NewClientCredentials`](#newclientcredentials), required fields are validated lazily at first `GetCredentials` call.
+Creates a new Microsoft refresh token source. Applies defaults for unset optional fields (`TokenEndpoint`, `MaxPoolSize`, `ExpiryMargin`, `HTTPClient`, `Logger`). Does not validate required fields at construction time — a missing `ClientID`, `ClientSecret`, or `Store` causes errors at first `GetCredentials` call.
 
 ### `RefreshTokenSource`
 
@@ -645,7 +645,7 @@ Each unique `TenantID` gets a per-tenant entry with a per-resource access token 
 
 - On access, the entry moves to the front.
 - When the pool reaches `MaxPoolSize`, the least recently used entry is evicted. The refresh token remains safe in the `TokenStore` — only the in-memory access token caches are lost.
-- Concurrent requests for the same (tenant, resource) are deduplicated via singleflight. Concurrent requests for different resources on the same tenant run in parallel (safe because Microsoft does not revoke old refresh tokens on exchange).
+- Concurrent requests for the same (tenant, resource) are deduplicated via singleflight. Concurrent requests for different resources on the same tenant run in parallel.
 
 <a id="tokenstoremicrosoft"></a>
 
@@ -746,6 +746,7 @@ import "github.com/cloudblue/chaperone/plugins/contrib"
 | `ErrTenantNotFound` | `"tenant not found"` | Tenant not in store or resolver. Proxy configuration issue. | No |
 | `ErrInvalidCredentials` | `"invalid client credentials"` | OAuth2 token endpoint returned HTTP 401. Client secret is wrong or expired. | No |
 | `ErrTokenExpiredOnArrival` | `"token expired on arrival"` | Token `expires_in` is less than or equal to the expiry margin. Token too short-lived to cache. | No |
+| `ErrSigningNotConfigured` | `"certificate signing not configured"` | `SignCSR` called on [`AsPlugin`](#asplugin) or [`Mux`](#mux) with no signer configured. | No |
 | `ErrTokenEndpointUnavailable` | `"token endpoint unavailable"` | Network error, HTTP 5xx, or HTTP 429 from the token endpoint. | Yes |
 
 ---

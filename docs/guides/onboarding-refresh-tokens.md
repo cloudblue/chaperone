@@ -38,9 +38,7 @@ chaperone-onboard microsoft \
 
 The tool prints only the refresh token to stdout, so you can redirect to a file (as above) or pipe to your secrets manager. See [Store the refresh token](#store-the-refresh-token) for where to place the file.
 
-The resulting refresh token is an MRRT (Multi-Resource Refresh Token) — one consent per tenant is sufficient for all resources. You can optionally pass `-resource https://graph.microsoft.com` to scope the initial consent to a specific resource.
-
-At runtime, a [`KeyResolver`](../reference/contrib-plugins.md#keyresolver) can map transaction context fields to the correct tenant automatically.
+You can optionally pass `-resource https://graph.microsoft.com` to scope the initial consent to a specific resource.
 
 The command opens your default browser to the Azure AD consent page. Sign in as an admin and grant consent. After granting consent, the browser shows a "You may close this tab and return to the terminal" page.
 
@@ -123,13 +121,15 @@ Then point the store at the base directory:
 store := microsoft.NewFileStore("/var/lib/chaperone/tokens")
 ```
 
-Each tenant gets a single file. At runtime, `FileStore.Save` calls `os.MkdirAll` and creates the base directory automatically when Microsoft rotates the token.
+Each tenant gets a single file. The base directory is created automatically at runtime when Microsoft rotates the token.
 
 ### Other backends
 
 - **Vault:** Use the Vault CLI or API to write the token to the expected KV path. See the [Vault-backed skeleton](../reference/contrib-plugins.md#vault-backed-tokenstore) in the contrib reference.
 - **Database:** Insert the token into the appropriate table.
 - **Custom:** Implement the [`TokenStore`](../reference/contrib-plugins.md#tokenstoreoauth) interface (2 methods: `Load` and `Save`).
+
+Onboarding is complete. Start the proxy and it will use the seeded token, rotating it automatically on each exchange.
 
 ## Troubleshooting
 
@@ -154,7 +154,7 @@ chaperone-onboard microsoft -endpoint https://login.microsoftonline.us ...
 
 ### PKCE errors with legacy providers
 
-If your provider does not support PKCE (Proof Key for Code Exchange, RFC 7636), use `-no-pkce` with the `oauth` subcommand. The `microsoft` subcommand always uses PKCE (Azure AD v1 supports it).
+If your provider does not support PKCE (Proof Key for Code Exchange, RFC 7636), use `-no-pkce` with the `oauth` subcommand. The `microsoft` subcommand always uses PKCE.
 
 ### Headless environments (no browser)
 

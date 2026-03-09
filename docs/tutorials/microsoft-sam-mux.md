@@ -30,9 +30,7 @@ go mod init github.com/acme/sam-proxy
 
 ## Step 2: Write `main.go`
 
-Create `main.go` first — `go mod tidy` needs it to resolve imports.
-
-The file wires the Microsoft refresh token source into the Mux and passes it to `chaperone.Run`:
+Create `main.go` first — `go mod tidy` needs it to resolve imports:
 
 ```go
 package main
@@ -69,8 +67,6 @@ func main() {
     }
 }
 ```
-
-The Mux routes requests by matching the target URL. Any request to `graph.microsoft.com` goes to the Microsoft SAM source, which extracts `TenantID` and `Resource` from the transaction context data map and returns a bearer token.
 
 Now add the `replace` directives (needed until all modules are published) and resolve dependencies:
 
@@ -114,7 +110,7 @@ upstream:
       - "/**"
 ```
 
-## Step 5: Bootstrap the refresh token
+## Step 5: Build the onboarding CLI
 
 Build the onboarding CLI from the Chaperone source:
 
@@ -122,7 +118,9 @@ Build the onboarding CLI from the Chaperone source:
 (cd ~/projects/chaperone && make build-onboard)
 ```
 
-Run it with your Entra ID credentials. The tool opens your browser for admin consent and writes the refresh token to stdout, which the redirect below captures in `refresh-token.txt`:
+## Step 6: Bootstrap the refresh token
+
+Run the CLI with your Entra ID credentials. The tool opens your browser for admin consent and writes the refresh token to stdout, which the redirect below captures in `refresh-token.txt`:
 
 ```bash
 export CHAPERONE_ONBOARD_CLIENT_SECRET='your-app-secret'
@@ -133,13 +131,13 @@ export CHAPERONE_ONBOARD_CLIENT_SECRET='your-app-secret'
   > refresh-token.txt
 ```
 
-Sign in as an admin and grant consent. The browser shows a completion page, and `refresh-token.txt` appears with the token. The resulting refresh token is an MRRT (Multi-Resource Refresh Token) — one consent per tenant is sufficient for all resources.
+Sign in as an admin and grant consent. The browser shows a completion page, and `refresh-token.txt` appears with the token.
 
 > You can optionally pass `-resource https://graph.microsoft.com` to scope the initial consent to a specific resource. If omitted, consent covers the app's portal-configured permissions.
 
 > For sovereign clouds (Azure Government, Azure China), add `-endpoint https://login.microsoftonline.us`. See [Onboarding Refresh Tokens](../guides/onboarding-refresh-tokens.md) for troubleshooting.
 
-## Step 6: Seed the token store
+## Step 7: Seed the token store
 
 The `microsoft.FileStore` stores one refresh token per tenant at `{baseDir}/{tenantID}`. Move the token file:
 
@@ -156,7 +154,7 @@ ls tokens/
 
 The output lists `contoso.onmicrosoft.com`. Each tenant gets a single file.
 
-## Step 7: Run the proxy
+## Step 8: Run the proxy
 
 Set your Entra ID credentials and start the proxy:
 
@@ -169,7 +167,7 @@ export AZURE_CLIENT_SECRET='your-app-secret'
 
 Watch the JSON logs for `"server listening"` — the proxy is ready.
 
-## Step 8: Send a request
+## Step 9: Send a request
 
 Open a new terminal and send a request through the proxy. The `X-Connect-Context-Data` header carries the tenant and resource as a Base64-encoded JSON object:
 
@@ -212,7 +210,7 @@ The proxy handles the full auth lifecycle:
 
 ## Going further
 
-- **Resolve TenantID automatically** — Instead of requiring `TenantID` in every request's context data, use a [`KeyResolver`](../reference/contrib-plugins.md#keyresolver) to map transaction fields (marketplace, vendor) to the correct tenant. The built-in [`StaticMapping`](../reference/contrib-plugins.md#staticmapping) provides a declarative rule table — see the [reference](../reference/contrib-plugins.md#staticmapping) for configuration details. Requests that include `TenantID` in context data still override the resolver. `Resource` is always required in context data (it is a per-request concern).
+- **Resolve TenantID automatically** — Instead of requiring `TenantID` in every request's context data, use a [`KeyResolver`](../reference/contrib-plugins.md#keyresolver) to map transaction fields (marketplace, vendor) to the correct tenant. The built-in [`StaticMapping`](../reference/contrib-plugins.md#staticmapping) provides a declarative rule table — see the [reference](../reference/contrib-plugins.md#staticmapping) for configuration details.
 
 - **Add more tenants** — Run `chaperone-onboard microsoft` for each tenant and place the token file in the `tokens/` directory. One onboarding per tenant (MRRT). The `RefreshTokenSource` manages an LRU pool of per-tenant entries automatically.
 - **Multiple app registrations** — If different groups of tenants require separate Azure AD app registrations (e.g., one per region or partner program), create a `RefreshTokenSource` per app and route them through the Mux. Each source gets its own `KeyResolver` for tenant resolution. All sources can share a single `FileStore` because tokens are keyed by tenant, not by app registration. See the [multiple app registrations example](../reference/contrib-plugins.md#multiple-microsoft-app-registrations) in the contrib reference for complete code.
