@@ -48,7 +48,7 @@ func TestProbe_HealthyProxy_ReturnsOK(t *testing.T) {
 	proxy := fakeProxy(t)
 	addr := strings.TrimPrefix(proxy.URL, "http://")
 
-	result := Probe(context.Background(), addr, 2*time.Second)
+	result := Probe(context.Background(), &http.Client{Timeout: 2 * time.Second}, addr)
 
 	if !result.OK {
 		t.Fatalf("expected OK=true, got error: %s", result.Error)
@@ -64,7 +64,7 @@ func TestProbe_HealthyProxy_ReturnsOK(t *testing.T) {
 func TestProbe_UnreachableAddress_ReturnsError(t *testing.T) {
 	t.Parallel()
 
-	result := Probe(context.Background(), "127.0.0.1:1", 1*time.Second)
+	result := Probe(context.Background(), &http.Client{Timeout: 1 * time.Second}, "127.0.0.1:1")
 
 	if result.OK {
 		t.Error("expected OK=false for unreachable address")
@@ -83,7 +83,7 @@ func TestProbe_HealthEndpointError_ReturnsError(t *testing.T) {
 	defer srv.Close()
 	addr := strings.TrimPrefix(srv.URL, "http://")
 
-	result := Probe(context.Background(), addr, 2*time.Second)
+	result := Probe(context.Background(), &http.Client{Timeout: 2 * time.Second}, addr)
 
 	if result.OK {
 		t.Error("expected OK=false for error status")
@@ -202,6 +202,42 @@ func TestPoller_RecoveryAfterUnreachable_SetsHealthy(t *testing.T) {
 	}
 	if got.Status != "healthy" {
 		t.Errorf("Status = %q, want %q after recovery", got.Status, "healthy")
+	}
+}
+
+func TestPoller_DeletedInstance_PrunesFailures(t *testing.T) {
+	t.Parallel()
+	st := openTestStore(t)
+
+	ctx := context.Background()
+	inst, err := st.CreateInstance(ctx, "test-proxy", "127.0.0.1:1")
+	if err != nil {
+		t.Fatalf("CreateInstance() error = %v", err)
+	}
+
+	p := New(st, 1*time.Hour, 500*time.Millisecond)
+
+	// Accumulate failures.
+	p.pollAll(ctx)
+
+	p.mu.Lock()
+	count := p.failures[inst.ID]
+	p.mu.Unlock()
+	if count != 1 {
+		t.Fatalf("failures[%d] = %d, want 1", inst.ID, count)
+	}
+
+	// Delete the instance and poll again.
+	if err := st.DeleteInstance(ctx, inst.ID); err != nil {
+		t.Fatalf("DeleteInstance() error = %v", err)
+	}
+	p.pollAll(ctx)
+
+	p.mu.Lock()
+	_, exists := p.failures[inst.ID]
+	p.mu.Unlock()
+	if exists {
+		t.Errorf("failures[%d] still present after instance deletion", inst.ID)
 	}
 }
 

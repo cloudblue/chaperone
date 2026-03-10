@@ -32,9 +32,7 @@ type ProbeResult struct {
 }
 
 // Probe performs a one-off health and version check against a proxy admin port.
-func Probe(ctx context.Context, address string, timeout time.Duration) ProbeResult {
-	client := &http.Client{Timeout: timeout}
-
+func Probe(ctx context.Context, client *http.Client, address string) ProbeResult {
 	health, err := fetchHealth(ctx, client, address)
 	if err != nil {
 		return ProbeResult{OK: false, Error: friendlyError(err)}
@@ -97,14 +95,16 @@ func (p *Poller) pollAll(ctx context.Context) {
 		slog.Error("poller: listing instances", "error", err)
 		return
 	}
+	// Prune failure counts for instances no longer in the registry.
+	p.pruneFailures(instances)
+
 	if len(instances) == 0 {
 		return
 	}
 
 	type result struct {
-		id      int64
-		probe   ProbeResult
-		version string
+		id    int64
+		probe ProbeResult
 	}
 
 	results := make(chan result, len(instances))
@@ -118,8 +118,8 @@ func (p *Poller) pollAll(ctx context.Context) {
 			jitter := time.Duration(rand.Int64N(int64(2*maxJitter))) - maxJitter
 			sleep(ctx, jitter)
 
-			pr := Probe(ctx, inst.Address, p.timeout)
-			results <- result{id: inst.ID, probe: pr, version: pr.Version}
+			pr := Probe(ctx, p.client, inst.Address)
+			results <- result{id: inst.ID, probe: pr}
 		}(inst)
 	}
 
@@ -130,6 +130,24 @@ func (p *Poller) pollAll(ctx context.Context) {
 
 	for r := range results {
 		p.applyResult(ctx, r.id, r.probe)
+	}
+}
+
+func (p *Poller) pruneFailures(active []store.Instance) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for id := range p.failures {
+		found := false
+		for _, inst := range active {
+			if inst.ID == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			delete(p.failures, id)
+		}
 	}
 }
 

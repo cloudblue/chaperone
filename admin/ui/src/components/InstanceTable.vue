@@ -14,7 +14,7 @@
 			<tbody>
 				<tr v-for="inst in instances" :key="inst.id" :class="$style.row">
 					<td :class="$style.td">
-						<StatusIndicator :status="inst.status" />
+						<StatusIndicator :status="isInstanceStale(inst) ? 'stale' : inst.status" />
 					</td>
 					<td :class="[$style.td, $style.name]">{{ inst.name }}</td>
 					<td :class="[$style.td, $style.mono]">{{ inst.address }}</td>
@@ -37,22 +37,13 @@
 <script setup>
 import StatusIndicator from "./StatusIndicator.vue";
 import BaseButton from "./BaseButton.vue";
+import { isInstanceStale, formatTime } from "../utils/instance.js";
 
 defineProps({
 	instances: { type: Array, required: true },
 });
 
 defineEmits(["edit", "delete"]);
-
-function formatTime(ts) {
-	if (!ts) return "";
-	const d = new Date(ts);
-	const secs = Math.floor((Date.now() - d.getTime()) / 1000);
-	if (secs < 60) return "just now";
-	if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-	if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
-	return d.toLocaleDateString();
-}
 </script>
 
 <style module>

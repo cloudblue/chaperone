@@ -155,6 +155,7 @@ import InstanceTable from "../components/InstanceTable.vue";
 import AddInstanceModal from "../components/AddInstanceModal.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import { useInstanceStore } from "../stores/instances.js";
+import { isInstanceStale } from "../utils/instance.js";
 
 const store = useInstanceStore();
 const showModal = ref(false);
@@ -163,15 +164,8 @@ const deletingInstance = ref(null);
 const viewMode = ref("card");
 let pollInterval = null;
 
-const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
-
 const staleInstances = computed(() => {
-	const now = Date.now();
-	return store.instances.filter((inst) => {
-		if (inst.status !== "healthy") return false;
-		if (!inst.last_seen_at) return false;
-		return now - new Date(inst.last_seen_at).getTime() > STALE_THRESHOLD_MS;
-	});
+	return store.instances.filter((inst) => isInstanceStale(inst));
 });
 
 onMounted(() => {

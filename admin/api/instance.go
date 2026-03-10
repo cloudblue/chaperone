@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -19,13 +20,16 @@ import (
 
 // InstanceHandler handles instance CRUD and test-connection endpoints.
 type InstanceHandler struct {
-	store        *store.Store
-	probeTimeout time.Duration
+	store  *store.Store
+	client *http.Client
 }
 
 // NewInstanceHandler creates a handler with the given store and probe timeout.
 func NewInstanceHandler(st *store.Store, probeTimeout time.Duration) *InstanceHandler {
-	return &InstanceHandler{store: st, probeTimeout: probeTimeout}
+	return &InstanceHandler{
+		store:  st,
+		client: &http.Client{Timeout: probeTimeout},
+	}
 }
 
 // Register mounts instance routes on the given mux.
@@ -162,8 +166,12 @@ func (h *InstanceHandler) testConnection(w http.ResponseWriter, r *http.Request)
 		respondError(w, http.StatusBadRequest, "VALIDATION_ERROR", "address is required")
 		return
 	}
+	if err := validHostPort(addr); err != nil {
+		respondError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
 
-	result := poller.Probe(r.Context(), addr, h.probeTimeout)
+	result := poller.Probe(r.Context(), h.client, addr)
 	respondJSON(w, http.StatusOK, result)
 }
 
@@ -178,8 +186,9 @@ func parseID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return id, true
 }
 
-// decodeJSON reads and decodes a JSON request body.
+// decodeJSON reads and decodes a JSON request body (max 1 MB).
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		respondError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid JSON request body")
 		return false
@@ -199,5 +208,26 @@ func validateInstanceRequest(w http.ResponseWriter, req *instanceRequest) bool {
 		respondError(w, http.StatusBadRequest, "VALIDATION_ERROR", "address is required")
 		return false
 	}
+	if err := validHostPort(req.Address); err != nil {
+		respondError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return false
+	}
 	return true
+}
+
+var errInvalidHostPort = errors.New("address must be a valid host:port (e.g. 192.168.1.10:9090)")
+
+func validHostPort(addr string) error {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return errInvalidHostPort
+	}
+	if host == "" {
+		return errInvalidHostPort
+	}
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil || port == 0 {
+		return errInvalidHostPort
+	}
+	return nil
 }

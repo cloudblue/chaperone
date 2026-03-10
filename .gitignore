@@ -80,6 +80,7 @@ test/load/results/
 # Admin portal frontend
 admin/ui/node_modules/
 admin/ui/dist/
+admin/ui/.vite/
 
 # Playwright MCP output
 .playwright-mcp/
