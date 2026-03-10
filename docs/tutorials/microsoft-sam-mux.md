@@ -8,7 +8,7 @@ Build a Chaperone proxy that authenticates requests to Microsoft APIs using the 
 
 | Requirement | Version | Purpose |
 |-------------|---------|---------|
-| **Go** | 1.25+ | Building the proxy binary ([install Go](https://go.dev/doc/install)) |
+| **Go** | 1.26+ | Building the proxy binary ([install Go](https://go.dev/doc/install)) |
 | **Chaperone source** | — | SDK, Core, and Contrib modules (cloned in [Getting Started](../getting-started.md)) |
 | **curl** | any | Sending test requests |
 | **Microsoft Entra ID app registration** | — | Client ID, client secret, and an account with admin consent permissions ([quickstart](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app)) |

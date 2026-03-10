@@ -16,7 +16,7 @@ it into a production-ready container.
 
 | Requirement | Version | Purpose |
 |-------------|---------|---------|
-| **Go** | 1.25+ | Building custom binaries |
+| **Go** | 1.26+ | Building custom binaries |
 | **Docker** | 20.10+ | Containerized deployment |
 | **A working plugin project** | — | From the [Plugin Development Guide](plugin-development.md) |
 
@@ -54,7 +54,7 @@ that compiles **your** code. This is the typical production scenario.
 Create `Dockerfile` in your plugin project root (`my-proxy/`):
 
 ```dockerfile
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 WORKDIR /build
 
 # Copy your project and build.
