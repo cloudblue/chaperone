@@ -18,10 +18,10 @@ plugin that injects a custom header into every proxied request.
 
 ## Prerequisites
 
-| Requirement | Version | Purpose |
-|-------------|---------|---------|
-| **Go** | 1.25+ | Building the plugin binary ([install Go](https://go.dev/doc/install)) |
-| **curl** | any | Sending test requests |
+| Requirement | Version                  | Purpose                                                         |
+| ----------- | ------------------------ | --------------------------------------------------------------- |
+| **Go**      | 1.26+                    | Building the plugin binary ([install Go](https://go.dev/doc/install)) |
+| **curl**    | any                      | Sending test requests                                           |
 
 > **Recommended:** Complete the [Getting Started](../getting-started.md)
 > tutorial first. It introduces the proxy, configuration, allow-lists,
@@ -71,7 +71,7 @@ This creates a `go.mod` like:
 ```go
 module github.com/acme/my-proxy
 
-go 1.25
+go 1.26
 
 require (
     github.com/cloudblue/chaperone     v0.1.0

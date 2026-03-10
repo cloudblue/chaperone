@@ -17,7 +17,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# Create a workspace under the user's home to avoid Go 1.25+ temp root
+# Create a workspace under the user's home to avoid system temp root
 # restrictions (Go ignores go.mod in system temp roots).
 WORK_DIR="${HOME}/.cache/chaperone-distributor-test"
 rm -rf "$WORK_DIR"
