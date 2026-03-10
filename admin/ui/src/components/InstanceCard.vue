@@ -33,6 +33,7 @@ import { computed } from "vue";
 import BaseCard from "./BaseCard.vue";
 import BaseButton from "./BaseButton.vue";
 import StatusIndicator from "./StatusIndicator.vue";
+import { isInstanceStale, formatTime } from "../utils/instance.js";
 
 const props = defineProps({
 	instance: { type: Object, required: true },
@@ -40,28 +41,13 @@ const props = defineProps({
 
 defineEmits(["edit", "delete"]);
 
-const STALE_THRESHOLD_MS = 2 * 60 * 1000;
-
-const isStale = computed(() => {
-	if (props.instance.status !== "healthy" || !props.instance.last_seen_at) return false;
-	return Date.now() - new Date(props.instance.last_seen_at).getTime() > STALE_THRESHOLD_MS;
-});
+const isStale = computed(() => isInstanceStale(props.instance));
 
 const statusLabel = computed(() => {
 	if (isStale.value) return "Stale";
 	const labels = { healthy: "Healthy", unreachable: "Unreachable", unknown: "Unknown" };
 	return labels[props.instance.status] || "Unknown";
 });
-
-function formatTime(ts) {
-	if (!ts) return "";
-	const d = new Date(ts);
-	const secs = Math.floor((Date.now() - d.getTime()) / 1000);
-	if (secs < 60) return "just now";
-	if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-	if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
-	return d.toLocaleDateString();
-}
 </script>
 
 <style module>

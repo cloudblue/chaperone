@@ -57,7 +57,7 @@ func (s *Store) GetInstance(ctx context.Context, id int64) (*Instance, error) {
 		`SELECT id, name, address, status, version, last_seen_at, created_at, updated_at
 		 FROM instances WHERE id = ?`, id)
 
-	inst, err := scanInstanceRow(row)
+	inst, err := scanInstance(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrInstanceNotFound
 	}
@@ -162,15 +162,6 @@ func scanInstance(s scanner) (Instance, error) {
 		return Instance{}, fmt.Errorf("scanning instance: %w", err)
 	}
 	return inst, nil
-}
-
-func scanInstanceRow(row *sql.Row) (Instance, error) {
-	var inst Instance
-	err := row.Scan(
-		&inst.ID, &inst.Name, &inst.Address, &inst.Status,
-		&inst.Version, &inst.LastSeenAt, &inst.CreatedAt, &inst.UpdatedAt,
-	)
-	return inst, err
 }
 
 func isUniqueConstraintError(err error) bool {

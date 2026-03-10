@@ -346,6 +346,60 @@ func TestTestConnection_EmptyAddress_Returns400(t *testing.T) {
 	}
 }
 
+func TestCreateInstance_InvalidAddress_Returns400(t *testing.T) {
+	t.Parallel()
+	_, mux := newTestHandler(t)
+
+	tests := []struct {
+		name    string
+		address string
+	}{
+		{"no port", "not-a-host-port"},
+		{"empty host", ":9090"},
+		{"non-numeric port", "example.com:abc"},
+		{"port zero", "example.com:0"},
+		{"port too large", "example.com:70000"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := `{"name":"proxy-1","address":"` + tt.address + `"}`
+			req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("address %q: status = %d, want %d", tt.address, rec.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
+func TestTestConnection_InvalidAddress_Returns400(t *testing.T) {
+	t.Parallel()
+	_, mux := newTestHandler(t)
+
+	tests := []struct {
+		name    string
+		address string
+	}{
+		{"no port", "no-port-here"},
+		{"empty host", ":9090"},
+		{"non-numeric port", "example.com:abc"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := `{"address":"` + tt.address + `"}`
+			req := httptest.NewRequest(http.MethodPost, "/api/instances/test", strings.NewReader(body))
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("address %q: status = %d, want %d", tt.address, rec.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
 func TestCreateInstance_WhitespaceTrimmed(t *testing.T) {
 	t.Parallel()
 	_, mux := newTestHandler(t)
