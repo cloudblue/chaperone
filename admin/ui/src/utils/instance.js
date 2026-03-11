@@ -14,3 +14,19 @@ export function formatTime(ts) {
 	if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
 	return d.toLocaleDateString();
 }
+
+const STATUS_LABELS = {
+	healthy: "Healthy",
+	unreachable: "Unreachable",
+	unknown: "Unknown",
+	stale: "Stale",
+};
+
+export function getStatusLabel(status, isStale) {
+	if (isStale) return STATUS_LABELS.stale;
+	return STATUS_LABELS[status] || STATUS_LABELS.unknown;
+}
+
+export function filterStaleInstances(instances) {
+	return instances.filter(isInstanceStale);
+}

@@ -140,14 +140,14 @@
 			:description="`This will stop monitoring &quot;${deletingInstance.name}&quot; and remove it from the registry. Metrics history for this instance will be lost.`"
 			confirm-label="Remove"
 			:destructive="true"
-			@confirm="confirmDelete"
-			@cancel="deletingInstance = null"
+			@confirm="onConfirmDelete"
+			@cancel="cancelDelete"
 		/>
 	</div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed } from "vue";
 import BaseCard from "../components/BaseCard.vue";
 import BaseButton from "../components/BaseButton.vue";
 import InstanceCard from "../components/InstanceCard.vue";
@@ -155,45 +155,28 @@ import InstanceTable from "../components/InstanceTable.vue";
 import AddInstanceModal from "../components/AddInstanceModal.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import { useInstanceStore } from "../stores/instances.js";
-import { isInstanceStale } from "../utils/instance.js";
+import { filterStaleInstances } from "../utils/instance.js";
+import { usePolling } from "../composables/usePolling.js";
+import { useConfirmDialog } from "../composables/useConfirmDialog.js";
 
 const store = useInstanceStore();
 const showModal = ref(false);
 const editingInstance = ref(null);
-const deletingInstance = ref(null);
 const viewMode = ref("card");
-let pollInterval = null;
 
-const staleInstances = computed(() => {
-	return store.instances.filter((inst) => isInstanceStale(inst));
-});
+const staleInstances = computed(() => filterStaleInstances(store.instances));
 
-onMounted(() => {
-	store.fetchInstances();
-	pollInterval = setInterval(() => store.fetchInstances(), 10000);
-});
+usePolling(() => store.fetchInstances(), 10000);
 
-onUnmounted(() => {
-	if (pollInterval) clearInterval(pollInterval);
-});
+const { pending: deletingInstance, requestConfirm: handleDelete, confirm: confirmDelete, cancel: cancelDelete } = useConfirmDialog();
 
 function handleEdit(instance) {
 	editingInstance.value = instance;
 	showModal.value = true;
 }
 
-function handleDelete(instance) {
-	deletingInstance.value = instance;
-}
-
-async function confirmDelete() {
-	const instance = deletingInstance.value;
-	deletingInstance.value = null;
-	try {
-		await store.deleteInstance(instance.id);
-	} catch {
-		// TODO: surface error in a toast/banner
-	}
+function onConfirmDelete() {
+	confirmDelete((inst) => store.deleteInstance(inst.id));
 }
 
 function handleSaved() {

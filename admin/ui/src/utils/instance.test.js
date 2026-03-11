@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { STALE_THRESHOLD_MS, isInstanceStale, formatTime } from "./instance.js";
+import { STALE_THRESHOLD_MS, isInstanceStale, formatTime, getStatusLabel, filterStaleInstances } from "./instance.js";
 
 describe("STALE_THRESHOLD_MS", () => {
 	it("is 2 minutes in milliseconds", () => {
@@ -78,5 +78,51 @@ describe("formatTime", () => {
 		// 5400 seconds = 1.5 hours → should show "1h ago"
 		const ts = new Date(Date.now() - 5400 * 1000).toISOString();
 		expect(formatTime(ts)).toBe("1h ago");
+	});
+});
+
+describe("getStatusLabel", () => {
+	it("returns correct label for each status", () => {
+		expect(getStatusLabel("healthy", false)).toBe("Healthy");
+		expect(getStatusLabel("unreachable", false)).toBe("Unreachable");
+		expect(getStatusLabel("unknown", false)).toBe("Unknown");
+	});
+
+	it('returns "Stale" when isStale is true regardless of status', () => {
+		expect(getStatusLabel("healthy", true)).toBe("Stale");
+		expect(getStatusLabel("unreachable", true)).toBe("Stale");
+		expect(getStatusLabel("unknown", true)).toBe("Stale");
+	});
+
+	it('falls back to "Unknown" for unrecognized status', () => {
+		expect(getStatusLabel("bogus", false)).toBe("Unknown");
+		expect(getStatusLabel(undefined, false)).toBe("Unknown");
+	});
+});
+
+describe("filterStaleInstances", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("returns empty array when no instances are stale", () => {
+		const recent = new Date(Date.now() - 30_000).toISOString();
+		const instances = [
+			{ status: "healthy", last_seen_at: recent },
+			{ status: "unreachable", last_seen_at: "2020-01-01T00:00:00Z" },
+		];
+		expect(filterStaleInstances(instances)).toEqual([]);
+	});
+
+	it("returns only stale instances", () => {
+		const recent = new Date(Date.now() - 30_000).toISOString();
+		const old = new Date(Date.now() - STALE_THRESHOLD_MS - 1000).toISOString();
+		const stale = { status: "healthy", last_seen_at: old };
+		const fresh = { status: "healthy", last_seen_at: recent };
+		expect(filterStaleInstances([stale, fresh])).toEqual([stale]);
+	});
+
+	it("returns empty array for empty input", () => {
+		expect(filterStaleInstances([])).toEqual([]);
 	});
 });
