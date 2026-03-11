@@ -33,7 +33,7 @@ import { computed } from "vue";
 import BaseCard from "./BaseCard.vue";
 import BaseButton from "./BaseButton.vue";
 import StatusIndicator from "./StatusIndicator.vue";
-import { isInstanceStale, formatTime } from "../utils/instance.js";
+import { isInstanceStale, formatTime, getStatusLabel } from "../utils/instance.js";
 
 const props = defineProps({
 	instance: { type: Object, required: true },
@@ -42,12 +42,7 @@ const props = defineProps({
 defineEmits(["edit", "delete"]);
 
 const isStale = computed(() => isInstanceStale(props.instance));
-
-const statusLabel = computed(() => {
-	if (isStale.value) return "Stale";
-	const labels = { healthy: "Healthy", unreachable: "Unreachable", unknown: "Unknown" };
-	return labels[props.instance.status] || "Unknown";
-});
+const statusLabel = computed(() => getStatusLabel(props.instance.status, isStale.value));
 </script>
 
 <style module>

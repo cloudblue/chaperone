@@ -61,10 +61,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from "vue";
+import { onMounted } from "vue";
 import BaseInput from "./BaseInput.vue";
 import BaseButton from "./BaseButton.vue";
 import { useInstanceStore } from "../stores/instances.js";
+import { useInstanceForm } from "../composables/useInstanceForm.js";
 
 const props = defineProps({
 	instance: { type: Object, default: null },
@@ -72,54 +73,19 @@ const props = defineProps({
 
 const emit = defineEmits(["close", "saved"]);
 const store = useInstanceStore();
+const { editing, name, address, errors, saving, testing, testResult, handleTest, handleSubmit: submit } = useInstanceForm(store, props.instance);
 
-const editing = !!props.instance;
-const name = ref(props.instance?.name || "");
-const address = ref(props.instance?.address || "");
-const errors = reactive({ name: "", address: "" });
-const saving = ref(false);
-const testing = ref(false);
-const testResult = ref(null);
+async function handleSubmit() {
+	const ok = await submit();
+	if (ok) {
+		emit("saved");
+		emit("close");
+	}
+}
 
 onMounted(() => {
 	document.querySelector('[data-testid="instance-name"]')?.focus();
 });
-
-function validate() {
-	errors.name = name.value.trim() ? "" : "Name is required";
-	errors.address = address.value.trim() ? "" : "Address is required";
-	return !errors.name && !errors.address;
-}
-
-async function handleTest() {
-	testResult.value = null;
-	testing.value = true;
-	try {
-		testResult.value = await store.testConnection(address.value.trim());
-	} catch {
-		testResult.value = { ok: false, error: "Failed to test connection" };
-	} finally {
-		testing.value = false;
-	}
-}
-
-async function handleSubmit() {
-	if (!validate()) return;
-	saving.value = true;
-	try {
-		if (editing) {
-			await store.updateInstance(props.instance.id, name.value.trim(), address.value.trim());
-		} else {
-			await store.createInstance(name.value.trim(), address.value.trim());
-		}
-		emit("saved");
-		emit("close");
-	} catch (e) {
-		errors.address = e.message;
-	} finally {
-		saving.value = false;
-	}
-}
 </script>
 
 <style module>
