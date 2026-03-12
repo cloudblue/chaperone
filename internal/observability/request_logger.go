@@ -6,6 +6,7 @@ package observability
 import (
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -128,6 +129,16 @@ func RequestLoggerMiddleware(logger *slog.Logger, vendorHeader string, next http
 
 		next.ServeHTTP(capturer, r)
 	})
+}
+
+// extractHost parses rawURL and returns only the host (with port if present).
+// Returns an empty string if the URL is invalid or has no host.
+func extractHost(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Host
 }
 
 // ClientIP extracts the client IP from proxy headers only.

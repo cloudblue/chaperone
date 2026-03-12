@@ -310,6 +310,59 @@ func TestRequestLoggerMiddleware_TraceIDGenerated(t *testing.T) {
 	}
 }
 
+func TestExtractHost(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "full URL with path",
+			input: "https://api.vendor.com/v1/users",
+			want:  "api.vendor.com",
+		},
+		{
+			name:  "URL with port",
+			input: "https://api.vendor.com:8443/v1",
+			want:  "api.vendor.com:8443",
+		},
+		{
+			name:  "URL with query string",
+			input: "https://api.vendor.com/v1?key=secret",
+			want:  "api.vendor.com",
+		},
+		{
+			name:  "URL without path",
+			input: "https://api.vendor.com",
+			want:  "api.vendor.com",
+		},
+		{
+			name:  "empty URL returns empty",
+			input: "",
+			want:  "",
+		},
+		{
+			name:  "invalid URL returns empty",
+			input: "://invalid",
+			want:  "",
+		},
+		{
+			name:  "path-only URL returns empty",
+			input: "/just/a/path",
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractHost(tt.input)
+			if got != tt.want {
+				t.Errorf("extractHost(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 // panicRecoveryForTest wraps a handler with basic panic recovery for testing.
 func panicRecoveryForTest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

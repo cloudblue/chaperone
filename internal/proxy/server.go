@@ -571,27 +571,9 @@ func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContex
 		return nil, err
 	}
 
-	// Fast Path: plugin returned headers to inject
+	// Fast Path: plugin returned headers to inject.
 	if cred != nil {
-		reqCtx := r.Context()
-		injectedKeys := make([]string, 0, len(cred.Headers))
-		for k, v := range cred.Headers {
-			r.Header.Set(k, v)
-			injectedKeys = append(injectedKeys, k)
-			// Store each credential value in context for value-based log redaction.
-			// The RedactingHandler will scan all slog string attrs and messages
-			// for these values. Short values (< MinSecretLength) are automatically
-			// skipped by the handler to avoid false positives.
-			reqCtx = observability.WithSecretValue(reqCtx, v)
-		}
-		// Store injected header keys so the Reflector can strip them from
-		// responses (prevents credential reflection for non-standard headers).
-		reqCtx = security.WithInjectedHeaders(reqCtx, injectedKeys)
-		// Propagate enriched context to the returned request. The reverse proxy
-		// will Clone this request, so resp.Request.Context() in ModifyResponse
-		// will carry the secret values and injected header keys.
-		r = r.WithContext(reqCtx)
-		return r, nil
+		return s.applyFastPathCredentials(r, cred), nil
 	}
 
 	// Slow Path: plugin mutated the request directly (cred is nil).
@@ -599,8 +581,33 @@ func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContex
 	// against our pre-call snapshot. This ensures log redaction and response
 	// stripping work even if the plugin doesn't call WithSecretValue() or
 	// WithInjectedHeaders() itself.
-	r = s.detectSlowPathInjections(r, headersBefore)
+	r, _ = s.detectSlowPathInjections(r, headersBefore)
 	return r, nil
+}
+
+// applyFastPathCredentials injects the credential headers into the request and
+// enriches the context with secret values and injected header keys.
+// All operations must happen together to maintain the context enrichment chain:
+// header injection → value-based redaction → response-stripping keys → context propagation.
+func (s *Server) applyFastPathCredentials(r *http.Request, cred *sdk.Credential) *http.Request {
+	reqCtx := r.Context()
+	injectedKeys := make([]string, 0, len(cred.Headers))
+	for k, v := range cred.Headers {
+		r.Header.Set(k, v)
+		injectedKeys = append(injectedKeys, k)
+		// Store each credential value in context for value-based log redaction.
+		// The RedactingHandler will scan all slog string attrs and messages
+		// for these values. Short values (< MinSecretLength) are automatically
+		// skipped by the handler to avoid false positives.
+		reqCtx = observability.WithSecretValue(reqCtx, v)
+	}
+	// Store injected header keys so the Reflector can strip them from
+	// responses (prevents credential reflection for non-standard headers).
+	reqCtx = security.WithInjectedHeaders(reqCtx, injectedKeys)
+	// Propagate enriched context. The reverse proxy will Clone this request,
+	// so resp.Request.Context() in ModifyResponse carries the secret values
+	// and injected header keys.
+	return r.WithContext(reqCtx)
 }
 
 // detectSlowPathInjections compares the current request headers against
@@ -612,7 +619,7 @@ func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContex
 // This is a safety net — Slow Path plugins MAY still call
 // observability.WithSecretValue() and security.WithInjectedHeaders()
 // for finer control, but forgetting to do so is no longer a security gap.
-func (s *Server) detectSlowPathInjections(r *http.Request, before http.Header) *http.Request {
+func (s *Server) detectSlowPathInjections(r *http.Request, before http.Header) (*http.Request, int) {
 	var injectedKeys []string
 	reqCtx := r.Context()
 
@@ -631,7 +638,21 @@ func (s *Server) detectSlowPathInjections(r *http.Request, before http.Header) *
 		r = r.WithContext(reqCtx)
 	}
 
-	return r
+	return r, len(injectedKeys)
+}
+
+// sanitizeURL strips the query string, fragment, and userinfo from a URL
+// to prevent token or credential leakage in log output.
+// Returns an empty string if the input is not a valid URL.
+func sanitizeURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	u.User = nil
+	return u.String()
 }
 
 // headerValuesEqual returns true if two header value slices are identical.
