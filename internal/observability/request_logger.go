@@ -84,9 +84,8 @@ func (rc *ResponseCapturer) Status() int {
 //
 // Parameters:
 //   - logger: structured logger for output
-//   - vendorHeader: the full header name for vendor ID (e.g., "X-Connect-Vendor-ID")
-//     constructed by the caller using the configured prefix, so header name
-//     derivation stays in one place alongside ParseContext (DRY / ADR-005)
+//   - headerPrefix: the context header prefix (e.g., "X-Connect"). The middleware
+//     constructs header names internally using the stable suffix constants.
 //   - next: the downstream handler
 //
 // Fields emitted:
@@ -95,7 +94,10 @@ func (rc *ResponseCapturer) Status() int {
 //   - path: Request path
 //   - status: Response status code
 //   - latency_ms: Time to process request in milliseconds
-//   - vendor_id: Vendor ID from the vendorHeader request header
+//   - vendor_id: Vendor ID from the <prefix>-Vendor-ID request header
+//   - marketplace_id: Marketplace ID from the <prefix>-Marketplace-ID request header
+//   - product_id: Product ID from the <prefix>-Product-ID request header
+//   - target_host: Host extracted from the <prefix>-Target-URL request header
 //   - client_ip: Client IP from proxy headers (X-Forwarded-For > X-Real-IP);
 //     empty when no proxy headers are present (use remote_addr instead)
 //   - remote_addr: Raw TCP peer address (always r.RemoteAddr, useful for
@@ -105,7 +107,7 @@ func (rc *ResponseCapturer) Status() int {
 // already in the request context when this handler receives the request.
 // Uses defer to ensure logging occurs even if downstream handlers panic
 // (when used with panic recovery middleware).
-func RequestLoggerMiddleware(logger *slog.Logger, vendorHeader string, next http.Handler) http.Handler {
+func RequestLoggerMiddleware(logger *slog.Logger, headerPrefix string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ctx := r.Context()
@@ -121,7 +123,10 @@ func RequestLoggerMiddleware(logger *slog.Logger, vendorHeader string, next http
 				"path", r.URL.Path,
 				"status", capturer.Status(),
 				"latency_ms", time.Since(start).Milliseconds(),
-				"vendor_id", r.Header.Get(vendorHeader),
+				"vendor_id", r.Header.Get(headerPrefix+"-Vendor-ID"),
+				"marketplace_id", r.Header.Get(headerPrefix+"-Marketplace-ID"),
+				"product_id", r.Header.Get(headerPrefix+"-Product-ID"),
+				"target_host", extractHost(r.Header.Get(headerPrefix+"-Target-URL")),
 				"client_ip", ClientIP(r),
 				"remote_addr", r.RemoteAddr,
 			)

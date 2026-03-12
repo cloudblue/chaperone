@@ -38,7 +38,7 @@ func BenchmarkRequestLoggingMiddleware(b *testing.B) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := observability.RequestLoggerMiddleware(slog.Default(), "X-Connect-Vendor-ID", inner)
+	handler := observability.RequestLoggerMiddleware(slog.Default(), "X-Connect", inner)
 	req := httptest.NewRequest("GET", "/proxy", nil)
 
 	b.ReportAllocs()
@@ -61,7 +61,7 @@ func BenchmarkMiddlewareStack(b *testing.B) {
 	// Stack middlewares as they would be in production
 	// Order: TraceID (outermost) → Logger → PanicRecovery → handler
 	handler := PanicRecoveryMiddleware(inner)
-	handler = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect-Vendor-ID", handler)
+	handler = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect", handler)
 	handler = observability.TraceIDMiddleware("Connect-Request-ID", handler)
 	req := httptest.NewRequest("GET", "/proxy", nil)
 
@@ -82,7 +82,7 @@ func BenchmarkMiddlewareStack_Parallel(b *testing.B) {
 		w.WriteHeader(http.StatusOK)
 	})
 	handler := PanicRecoveryMiddleware(inner)
-	handler = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect-Vendor-ID", handler)
+	handler = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect", handler)
 	handler = observability.TraceIDMiddleware("Connect-Request-ID", handler)
 
 	b.ReportAllocs()
