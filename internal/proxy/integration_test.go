@@ -4,6 +4,7 @@
 package proxy_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -1907,5 +1908,119 @@ func TestIntegration_NonContextHeaders_PreservedOnForwarding(t *testing.T) {
 	}
 	if receivedAccept != "application/json" {
 		t.Errorf("Accept = %q, want %q", receivedAccept, "application/json")
+	}
+}
+
+// =============================================================================
+// Phase 2: DEBUG logging for credential injection
+// =============================================================================
+
+func TestIntegration_FastPath_LogsCredentialInjection(t *testing.T) {
+	// Arrange - capture DEBUG log output
+	var logBuffer bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	originalLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(originalLogger)
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	plugin := &mockPlugin{
+		getCredentialsFn: func(_ context.Context, _ sdk.TransactionContext, _ *http.Request) (*sdk.Credential, error) {
+			return &sdk.Credential{
+				Headers:   map[string]string{"Authorization": "Bearer test-token"},
+				ExpiresAt: time.Now().Add(1 * time.Hour),
+			}, nil
+		},
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL)
+	req.Header.Set("X-Connect-Vendor-ID", "VA-test")
+	req.Header.Set("X-Connect-Marketplace-ID", "MP-test")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	// Assert - "credentials injected" DEBUG log with Fast Path fields
+	logOutput := logBuffer.String()
+	if !strings.Contains(logOutput, `"msg":"credentials injected"`) {
+		t.Errorf("expected credentials injected log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"credential_path":"fast"`) {
+		t.Errorf("expected credential_path=fast in log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"injected_header_count":1`) {
+		t.Errorf("expected injected_header_count=1 in log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"vendor_id":"VA-test"`) {
+		t.Errorf("expected vendor_id in log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"plugin_duration_ms"`) {
+		t.Errorf("expected plugin_duration_ms in log, got: %s", logOutput)
+	}
+}
+
+func TestIntegration_SlowPath_LogsCredentialInjection(t *testing.T) {
+	// Arrange - capture DEBUG log output
+	var logBuffer bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	originalLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(originalLogger)
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	// Slow path: plugin mutates request directly and returns nil credential
+	plugin := &mockPlugin{
+		getCredentialsFn: func(_ context.Context, _ sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+			req.Header.Set("Authorization", "Bearer slow-token")
+			return nil, nil
+		},
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL)
+	req.Header.Set("X-Connect-Vendor-ID", "VA-slow")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	// Assert - "credentials injected" DEBUG log with Slow Path fields
+	logOutput := logBuffer.String()
+	if !strings.Contains(logOutput, `"msg":"credentials injected"`) {
+		t.Errorf("expected credentials injected log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"credential_path":"slow"`) {
+		t.Errorf("expected credential_path=slow in log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"vendor_id":"VA-slow"`) {
+		t.Errorf("expected vendor_id in log, got: %s", logOutput)
 	}
 }

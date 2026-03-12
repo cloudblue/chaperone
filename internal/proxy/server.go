@@ -507,7 +507,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	r, err = s.injectCredentials(r, txCtx)
+	r, err = s.injectCredentials(r, txCtx, targetURL.Host)
 	if err != nil {
 		s.handlePluginError(w, traceID, err)
 		return
@@ -535,10 +535,13 @@ func (s *Server) respondBadRequest(w http.ResponseWriter, traceID, msg string, e
 // RedactingHandler can detect and redact them if they leak into log output
 // (value-based scanning, Layers 3 & 4).
 //
+// targetHost is the already-parsed host from the target URL, passed from handleProxy
+// to avoid re-parsing and to keep the field in DEBUG log output.
+//
 // Returns the (possibly updated) request and any error. The caller MUST use
 // the returned request for all subsequent operations, because the context may
 // have been enriched with secret values and injected header keys.
-func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContext) (*http.Request, error) {
+func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContext, targetHost string) (*http.Request, error) {
 	if s.config.Plugin == nil {
 		return r, nil
 	}
@@ -573,7 +576,17 @@ func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContex
 
 	// Fast Path: plugin returned headers to inject.
 	if cred != nil {
-		return s.applyFastPathCredentials(r, cred), nil
+		r = s.applyFastPathCredentials(r, cred)
+		slog.Debug("credentials injected",
+			"trace_id", txCtx.TraceID,
+			"vendor_id", txCtx.VendorID,
+			"marketplace_id", txCtx.MarketplaceID,
+			"target_host", targetHost,
+			"credential_path", "fast",
+			"injected_header_count", len(cred.Headers),
+			"plugin_duration_ms", pluginDuration.Milliseconds(),
+		)
+		return r, nil
 	}
 
 	// Slow Path: plugin mutated the request directly (cred is nil).
@@ -581,7 +594,17 @@ func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContex
 	// against our pre-call snapshot. This ensures log redaction and response
 	// stripping work even if the plugin doesn't call WithSecretValue() or
 	// WithInjectedHeaders() itself.
-	r, _ = s.detectSlowPathInjections(r, headersBefore)
+	var injectedCount int
+	r, injectedCount = s.detectSlowPathInjections(r, headersBefore)
+	slog.Debug("credentials injected",
+		"trace_id", txCtx.TraceID,
+		"vendor_id", txCtx.VendorID,
+		"marketplace_id", txCtx.MarketplaceID,
+		"target_host", targetHost,
+		"credential_path", "slow",
+		"injected_header_count", injectedCount,
+		"plugin_duration_ms", pluginDuration.Milliseconds(),
+	)
 	return r, nil
 }
 
