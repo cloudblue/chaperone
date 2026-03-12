@@ -509,7 +509,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	r, err = s.injectCredentials(r, txCtx, targetURL.Host)
 	if err != nil {
-		s.handlePluginError(w, traceID, err)
+		s.handlePluginError(w, traceID, txCtx, targetURL.Host, err)
 		return
 	}
 
@@ -715,11 +715,13 @@ func (s *Server) forwardRequest(w http.ResponseWriter, r *http.Request, target *
 const StatusClientClosedRequest = 499
 
 // handlePluginError handles errors from the plugin.
-func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, err error) {
-	// Check for context errors (timeout/cancellation)
+func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, txCtx *sdk.TransactionContext, targetHost string, err error) {
 	if errors.Is(err, context.DeadlineExceeded) {
 		slog.Error("plugin timeout",
 			"trace_id", traceID,
+			"vendor_id", txCtx.VendorID,
+			"marketplace_id", txCtx.MarketplaceID,
+			"target_host", targetHost,
 			"error", err,
 		)
 		http.Error(w, "Gateway Timeout", http.StatusGatewayTimeout)
@@ -729,6 +731,9 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, err er
 	if errors.Is(err, context.Canceled) {
 		slog.Info("client disconnected",
 			"trace_id", traceID,
+			"vendor_id", txCtx.VendorID,
+			"marketplace_id", txCtx.MarketplaceID,
+			"target_host", targetHost,
 		)
 		// Write 499 so RequestLoggerMiddleware logs the correct status instead of
 		// the default 200. Do NOT write a body — the client is already gone.
@@ -736,9 +741,11 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, err er
 		return
 	}
 
-	// Generic plugin error
 	slog.Error("plugin error",
 		"trace_id", traceID,
+		"vendor_id", txCtx.VendorID,
+		"marketplace_id", txCtx.MarketplaceID,
+		"target_host", targetHost,
 		"error", err,
 	)
 	http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -809,6 +816,9 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 
 		slog.Error("proxy error",
 			"trace_id", traceID,
+			"vendor_id", txCtx.VendorID,
+			"marketplace_id", txCtx.MarketplaceID,
+			"target_host", target.Host,
 			"error", err,
 		)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
@@ -849,7 +859,13 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 			var err error
 			action, err = s.config.Plugin.ModifyResponse(ctx, *txCtx, resp)
 			if err != nil {
-				slog.Warn("plugin ModifyResponse error", "trace_id", traceID, "error", err)
+				slog.Warn("plugin ModifyResponse error",
+				"trace_id", traceID,
+				"vendor_id", txCtx.VendorID,
+				"marketplace_id", txCtx.MarketplaceID,
+				"target_host", resp.Request.URL.Host,
+				"error", err,
+			)
 				// Continue with response processing even if plugin fails
 			}
 		}
@@ -868,13 +884,23 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 			if err := security.NormalizeError(resp, traceID); err != nil {
 				slog.Error("error normalization failed",
 					"trace_id", traceID,
+					"vendor_id", txCtx.VendorID,
+					"marketplace_id", txCtx.MarketplaceID,
+					"target_host", resp.Request.URL.Host,
 					"error", err,
 				)
 				// Continue even if normalization fails - response will be sent as-is
 			}
 		}
 
-		slog.Info("upstream response", "trace_id", traceID, "status", resp.StatusCode, "content_length", resp.ContentLength)
+		slog.Info("upstream response",
+			"trace_id", traceID,
+			"status", resp.StatusCode,
+			"content_length", resp.ContentLength,
+			"vendor_id", txCtx.VendorID,
+			"marketplace_id", txCtx.MarketplaceID,
+			"target_host", resp.Request.URL.Host,
+		)
 		return nil
 	}
 }
