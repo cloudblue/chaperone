@@ -679,7 +679,7 @@ func (s *Server) applyFastPathCredentials(r *http.Request, cred *sdk.Credential)
 // This is a safety net — Slow Path plugins MAY still call
 // observability.WithSecretValue() and security.WithInjectedHeaders()
 // for finer control, but forgetting to do so is no longer a security gap.
-func (s *Server) detectSlowPathInjections(r *http.Request, before http.Header) (*http.Request, int) {
+func (s *Server) detectSlowPathInjections(r *http.Request, before http.Header) (modified *http.Request, injectedCount int) {
 	var injectedKeys []string
 	reqCtx := r.Context()
 
@@ -897,12 +897,12 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 			action, err = s.config.Plugin.ModifyResponse(ctx, *txCtx, resp)
 			if err != nil {
 				slog.Warn("plugin ModifyResponse error",
-				"trace_id", traceID,
-				"vendor_id", txCtx.VendorID,
-				"marketplace_id", txCtx.MarketplaceID,
-				"target_host", resp.Request.URL.Host,
-				"error", err,
-			)
+					"trace_id", traceID,
+					"vendor_id", txCtx.VendorID,
+					"marketplace_id", txCtx.MarketplaceID,
+					"target_host", resp.Request.URL.Host,
+					"error", err,
+				)
 				// Continue with response processing even if plugin fails
 			}
 		}
@@ -917,23 +917,7 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 		security.StripInjectedHeaders(resp.Request.Context(), resp.Header)
 
 		// Step 3: Core error normalization (safety net - unless plugin opted out)
-		if action != nil && action.SkipErrorNormalization {
-			slog.Debug("plugin opted out of error normalization",
-				"trace_id", traceID,
-			)
-		}
-		if action == nil || !action.SkipErrorNormalization {
-			if err := security.NormalizeError(resp, traceID); err != nil {
-				slog.Error("error normalization failed",
-					"trace_id", traceID,
-					"vendor_id", txCtx.VendorID,
-					"marketplace_id", txCtx.MarketplaceID,
-					"target_host", resp.Request.URL.Host,
-					"error", err,
-				)
-				// Continue even if normalization fails - response will be sent as-is
-			}
-		}
+		s.applyErrorNormalization(traceID, txCtx, resp, action)
 
 		slog.Info("upstream response",
 			"trace_id", traceID,
@@ -944,5 +928,27 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 			"target_host", resp.Request.URL.Host,
 		)
 		return nil
+	}
+}
+
+// applyErrorNormalization runs Step 3 of the response modification chain.
+// If the plugin opted out via ResponseAction.SkipErrorNormalization, it logs
+// the opt-out at DEBUG and skips. Otherwise it runs the core error normalization.
+func (s *Server) applyErrorNormalization(traceID string, txCtx *sdk.TransactionContext, resp *http.Response, action *sdk.ResponseAction) {
+	if action != nil && action.SkipErrorNormalization {
+		slog.Debug("plugin opted out of error normalization",
+			"trace_id", traceID,
+		)
+		return
+	}
+	if err := security.NormalizeError(resp, traceID); err != nil {
+		slog.Error("error normalization failed",
+			"trace_id", traceID,
+			"vendor_id", txCtx.VendorID,
+			"marketplace_id", txCtx.MarketplaceID,
+			"target_host", resp.Request.URL.Host,
+			"error", err,
+		)
+		// Continue even if normalization fails - response will be sent as-is
 	}
 }
