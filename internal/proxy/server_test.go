@@ -375,7 +375,7 @@ func TestMiddlewareStack_PanicLogsCorrectStatus(t *testing.T) {
 
 	// Apply middleware in production order: TraceID → Logger → PanicRecovery → handler
 	handler := proxy.PanicRecoveryMiddleware(panicHandler)
-	handler = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect-Vendor-ID", handler)
+	handler = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect", handler)
 	handler = observability.TraceIDMiddleware("Connect-Request-ID", handler)
 
 	req := httptest.NewRequest(http.MethodPost, "/test/panic", nil)
@@ -420,7 +420,7 @@ func TestMiddlewareStack_NormalRequestLogsCorrectStatus(t *testing.T) {
 
 	// Apply middleware in production order: TraceID → Logger → PanicRecovery → handler
 	wrapped := proxy.PanicRecoveryMiddleware(handler)
-	wrapped = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect-Vendor-ID", wrapped)
+	wrapped = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect", wrapped)
 	wrapped = observability.TraceIDMiddleware("Connect-Request-ID", wrapped)
 
 	req := httptest.NewRequest(http.MethodPost, "/resource", nil)
