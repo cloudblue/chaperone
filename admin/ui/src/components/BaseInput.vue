@@ -1,8 +1,6 @@
 <template>
 	<div :class="$style.wrapper">
-		<label v-if="label" :class="$style.label" :for="inputId">{{
-			label
-		}}</label>
+		<label v-if="label" :class="$style.label" :for="inputId">{{ label }}</label>
 		<input
 			:id="inputId"
 			:class="[$style.input, { [$style.hasError]: error }]"
@@ -20,7 +18,7 @@
 </template>
 
 <script setup>
-import { computed, useId } from "vue";
+import { computed, useId } from 'vue';
 
 defineOptions({ inheritAttrs: false });
 
@@ -29,23 +27,23 @@ const generatedId = useId();
 const props = defineProps({
 	modelValue: {
 		type: String,
-		default: "",
+		default: '',
 	},
 	label: {
 		type: String,
-		default: "",
+		default: '',
 	},
 	type: {
 		type: String,
-		default: "text",
+		default: 'text',
 	},
 	placeholder: {
 		type: String,
-		default: "",
+		default: '',
 	},
 	error: {
 		type: String,
-		default: "",
+		default: '',
 	},
 	disabled: {
 		type: Boolean,
@@ -57,7 +55,7 @@ const props = defineProps({
 	},
 });
 
-defineEmits(["update:modelValue"]);
+defineEmits(['update:modelValue']);
 
 const inputId = computed(() => props.id ?? generatedId);
 const errorId = computed(() => `${inputId.value}-error`);

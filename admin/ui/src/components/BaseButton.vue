@@ -12,13 +12,13 @@
 defineProps({
 	variant: {
 		type: String,
-		default: "primary",
-		validator: (v) => ["primary", "secondary", "danger", "ghost"].includes(v),
+		default: 'primary',
+		validator: (v) => ['primary', 'secondary', 'danger', 'ghost'].includes(v),
 	},
 	size: {
 		type: String,
-		default: "md",
-		validator: (v) => ["sm", "md"].includes(v),
+		default: 'md',
+		validator: (v) => ['sm', 'md'].includes(v),
 	},
 	disabled: {
 		type: Boolean,

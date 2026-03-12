@@ -14,17 +14,27 @@
 			<tbody>
 				<tr v-for="inst in instances" :key="inst.id" :class="$style.row">
 					<td :class="$style.td">
-						<StatusIndicator :status="isInstanceStale(inst) ? 'stale' : inst.status" />
+						<StatusIndicator
+							:status="isInstanceStale(inst) ? 'stale' : inst.status"
+						/>
 					</td>
 					<td :class="[$style.td, $style.name]">{{ inst.name }}</td>
 					<td :class="[$style.td, $style.mono]">{{ inst.address }}</td>
-					<td :class="$style.td">{{ inst.version || "—" }}</td>
-					<td :class="$style.td">{{ formatTime(inst.last_seen_at) || "—" }}</td>
+					<td :class="$style.td">{{ inst.version || '—' }}</td>
+					<td :class="$style.td">{{ formatTime(inst.last_seen_at) || '—' }}</td>
 					<td :class="[$style.td, $style.actionsCol]">
-						<BaseButton size="sm" variant="secondary" @click="$emit('edit', inst)">
+						<BaseButton
+							size="sm"
+							variant="secondary"
+							@click="$emit('edit', inst)"
+						>
 							Edit
 						</BaseButton>
-						<BaseButton size="sm" variant="ghost" @click="$emit('delete', inst)">
+						<BaseButton
+							size="sm"
+							variant="ghost"
+							@click="$emit('delete', inst)"
+						>
 							Remove
 						</BaseButton>
 					</td>
@@ -35,15 +45,15 @@
 </template>
 
 <script setup>
-import StatusIndicator from "./StatusIndicator.vue";
-import BaseButton from "./BaseButton.vue";
-import { isInstanceStale, formatTime } from "../utils/instance.js";
+import StatusIndicator from './StatusIndicator.vue';
+import BaseButton from './BaseButton.vue';
+import { isInstanceStale, formatTime } from '../utils/instance.js';
 
 defineProps({
 	instances: { type: Array, required: true },
 });
 
-defineEmits(["edit", "delete"]);
+defineEmits(['edit', 'delete']);
 </script>
 
 <style module>

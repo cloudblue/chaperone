@@ -51,11 +51,7 @@ func run() error {
 
 	configureLogging(cfg)
 
-	slog.Info("starting chaperone-admin",
-		"version", Version,
-		"commit", GitCommit,
-		"built", BuildDate,
-	)
+	slog.Info("starting chaperone-admin", "version", Version, "commit", GitCommit, "built", BuildDate)
 
 	st, err := store.Open(context.Background(), cfg.Database.Path)
 	if err != nil {

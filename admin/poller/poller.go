@@ -110,17 +110,18 @@ func (p *Poller) pollAll(ctx context.Context) {
 	results := make(chan result, len(instances))
 	var wg sync.WaitGroup
 
-	for _, inst := range instances {
+	for i := range instances {
+		inst := &instances[i]
 		wg.Add(1)
-		go func(inst store.Instance) {
+		go func() {
 			defer wg.Done()
 			// Jitter: ±1s random offset to spread scrapes.
-			jitter := time.Duration(rand.Int64N(int64(2*maxJitter))) - maxJitter
+			jitter := time.Duration(rand.Int64N(int64(2*maxJitter))) - maxJitter // #nosec G404 -- jitter doesn't need cryptographic randomness //nolint:gosec
 			sleep(ctx, jitter)
 
 			pr := Probe(ctx, p.client, inst.Address)
 			results <- result{id: inst.ID, probe: pr}
-		}(inst)
+		}()
 	}
 
 	go func() {
@@ -139,8 +140,8 @@ func (p *Poller) pruneFailures(active []store.Instance) {
 
 	for id := range p.failures {
 		found := false
-		for _, inst := range active {
-			if inst.ID == id {
+		for j := range active {
+			if active[j].ID == id {
 				found = true
 				break
 			}
@@ -177,12 +178,12 @@ func (p *Poller) applyResult(ctx context.Context, id int64, pr ProbeResult) {
 // fetchHealth calls GET /_ops/health and returns the status field.
 func fetchHealth(ctx context.Context, client *http.Client, address string) (string, error) {
 	url := fmt.Sprintf("http://%s/_ops/health", address)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return "", fmt.Errorf("creating health request: %w", err)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) // #nosec G704 -- address comes from admin-managed instance registry
 	if err != nil {
 		return "", err
 	}
@@ -204,12 +205,12 @@ func fetchHealth(ctx context.Context, client *http.Client, address string) (stri
 // fetchVersion calls GET /_ops/version and returns the version field.
 func fetchVersion(ctx context.Context, client *http.Client, address string) (string, error) {
 	url := fmt.Sprintf("http://%s/_ops/version", address)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return "", fmt.Errorf("creating version request: %w", err)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) // #nosec G704 -- address comes from admin-managed instance registry
 	if err != nil {
 		return "", err
 	}

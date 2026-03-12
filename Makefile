@@ -51,7 +51,14 @@ LDFLAGS_DEV := -ldflags "\
 all: lint test build
 
 .PHONY: ci
-ci: fmt license-check lint test-race gosec govulncheck build ## Run all CI checks locally
+ci: fmt license-check lint ci-admin-ui test-race gosec govulncheck build build-onboard build-admin-dev ## Run all CI checks locally
+
+.PHONY: ci-admin-ui
+ci-admin-ui: ## Run admin UI checks (format, lint, test)
+	cd $(ADMIN_UI_DIR) && pnpm install --frozen-lockfile
+	cd $(ADMIN_UI_DIR) && pnpm prettier --check "src/**/*.{js,vue,css}"
+	cd $(ADMIN_UI_DIR) && pnpm lint
+	cd $(ADMIN_UI_DIR) && pnpm test
 
 # ============================================================================
 # Build
@@ -343,7 +350,7 @@ gosec: ## Run gosec security scanner (all modules)
 	@if [ -x "$(GOSEC)" ]; then \
 		$(GOSEC) -exclude=G706 -exclude-dir=sdk -exclude-dir=plugins -exclude-dir=admin ./... && \
 		(cd sdk && $(GOSEC) ./...) && \
-		(cd admin && $(GOSEC) -tags=dev ./...); \
+		(cd admin && $(GOSEC) -exclude=G706 -tags=dev ./...); \
 	else \
 		echo "gosec not installed. Run: make tools"; \
 		exit 1; \

@@ -1,10 +1,20 @@
 <template>
 	<div :class="$style.overlay" @click.self="$emit('cancel')">
-		<div :class="$style.dialog" role="alertdialog" :aria-labelledby="titleId" :aria-describedby="descId" aria-modal="true">
+		<div
+			:class="$style.dialog"
+			role="alertdialog"
+			:aria-labelledby="titleId"
+			:aria-describedby="descId"
+			aria-modal="true"
+		>
 			<h2 :id="titleId" :class="$style.title">{{ title }}</h2>
 			<p :id="descId" :class="$style.description">{{ description }}</p>
 			<div :class="$style.actions">
-				<BaseButton variant="secondary" data-testid="confirm-cancel" @click="$emit('cancel')">
+				<BaseButton
+					variant="secondary"
+					data-testid="confirm-cancel"
+					@click="$emit('cancel')"
+				>
 					Cancel
 				</BaseButton>
 				<BaseButton
@@ -20,35 +30,35 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, useId } from "vue";
-import BaseButton from "./BaseButton.vue";
+import { onMounted, onUnmounted, useId } from 'vue';
+import BaseButton from './BaseButton.vue';
 
 defineProps({
 	title: { type: String, required: true },
-	description: { type: String, default: "" },
-	confirmLabel: { type: String, default: "Confirm" },
+	description: { type: String, default: '' },
+	confirmLabel: { type: String, default: 'Confirm' },
 	destructive: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["confirm", "cancel"]);
+const emit = defineEmits(['confirm', 'cancel']);
 
 const titleId = `confirm-title-${useId()}`;
 const descId = `confirm-desc-${useId()}`;
 
 function onKeydown(e) {
-	if (e.key === "Escape") {
+	if (e.key === 'Escape') {
 		e.preventDefault();
-		emit("cancel");
+		emit('cancel');
 	}
 }
 
 onMounted(() => {
-	document.addEventListener("keydown", onKeydown);
+	document.addEventListener('keydown', onKeydown);
 	document.querySelector('[data-testid="confirm-cancel"]')?.focus();
 });
 
 onUnmounted(() => {
-	document.removeEventListener("keydown", onKeydown);
+	document.removeEventListener('keydown', onKeydown);
 });
 </script>
 

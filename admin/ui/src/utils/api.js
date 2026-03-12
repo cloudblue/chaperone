@@ -1,7 +1,7 @@
 class ApiError extends Error {
 	constructor(message, status, code) {
 		super(message);
-		this.name = "ApiError";
+		this.name = 'ApiError';
 		this.status = status;
 		this.code = code;
 	}
@@ -11,7 +11,7 @@ async function request(path, options = {}) {
 	const res = await fetch(path, {
 		...options,
 		headers: {
-			"Content-Type": "application/json",
+			'Content-Type': 'application/json',
 			...options.headers,
 		},
 	});
@@ -38,15 +38,15 @@ export function get(path) {
 }
 
 export function post(path, body) {
-	return request(path, { method: "POST", body: JSON.stringify(body) });
+	return request(path, { method: 'POST', body: JSON.stringify(body) });
 }
 
 export function put(path, body) {
-	return request(path, { method: "PUT", body: JSON.stringify(body) });
+	return request(path, { method: 'PUT', body: JSON.stringify(body) });
 }
 
 export function del(path) {
-	return request(path, { method: "DELETE" });
+	return request(path, { method: 'DELETE' });
 }
 
 export { ApiError };

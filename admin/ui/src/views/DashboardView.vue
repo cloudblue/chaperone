@@ -3,14 +3,28 @@
 		<div :class="$style.header">
 			<h1 :class="$style.title">Fleet Dashboard</h1>
 			<div v-if="store.instances.length > 0" :class="$style.headerActions">
-				<div :class="$style.viewToggle" role="radiogroup" aria-label="View mode">
+				<div
+					:class="$style.viewToggle"
+					role="radiogroup"
+					aria-label="View mode"
+				>
 					<button
-						:class="[$style.toggleBtn, viewMode === 'card' && $style.toggleActive]"
+						:class="[
+							$style.toggleBtn,
+							viewMode === 'card' && $style.toggleActive,
+						]"
 						:aria-pressed="viewMode === 'card'"
 						title="Card view"
 						@click="viewMode = 'card'"
 					>
-						<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+						<svg
+							width="16"
+							height="16"
+							viewBox="0 0 16 16"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="1.5"
+						>
 							<rect x="1" y="1" width="6" height="6" rx="1" />
 							<rect x="9" y="1" width="6" height="6" rx="1" />
 							<rect x="1" y="9" width="6" height="6" rx="1" />
@@ -18,12 +32,22 @@
 						</svg>
 					</button>
 					<button
-						:class="[$style.toggleBtn, viewMode === 'table' && $style.toggleActive]"
+						:class="[
+							$style.toggleBtn,
+							viewMode === 'table' && $style.toggleActive,
+						]"
 						:aria-pressed="viewMode === 'table'"
 						title="Table view"
 						@click="viewMode = 'table'"
 					>
-						<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+						<svg
+							width="16"
+							height="16"
+							viewBox="0 0 16 16"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="1.5"
+						>
 							<line x1="1" y1="3" x2="15" y2="3" />
 							<line x1="1" y1="8" x2="15" y2="8" />
 							<line x1="1" y1="13" x2="15" y2="13" />
@@ -43,27 +67,46 @@
 			role="alert"
 		>
 			<svg
-				width="16" height="16" viewBox="0 0 24 24" fill="none"
-				stroke="currentColor" stroke-width="2"
-				stroke-linecap="round" stroke-linejoin="round"
+				width="16"
+				height="16"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
 				aria-hidden="true"
 			>
-				<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+				<path
+					d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+				/>
 				<line x1="12" y1="9" x2="12" y2="13" />
 				<line x1="12" y1="17" x2="12.01" y2="17" />
 			</svg>
-			{{ staleInstances.length === 1 ? '1 instance has' : `${staleInstances.length} instances have` }}
+			{{
+				staleInstances.length === 1
+					? '1 instance has'
+					: `${staleInstances.length} instances have`
+			}}
 			stale data — last seen over 2 minutes ago
 		</div>
 
 		<div :class="$style.content">
 			<!-- First-run welcome screen -->
-			<div v-if="!store.loading && store.instances.length === 0" :class="$style.welcome">
+			<div
+				v-if="!store.loading && store.instances.length === 0"
+				:class="$style.welcome"
+			>
 				<div :class="$style.welcomeIcon" aria-hidden="true">
 					<svg
-						width="32" height="32" viewBox="0 0 24 24" fill="none"
-						stroke="currentColor" stroke-width="1.5"
-						stroke-linecap="round" stroke-linejoin="round"
+						width="32"
+						height="32"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.5"
+						stroke-linecap="round"
+						stroke-linejoin="round"
 					>
 						<rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
 						<rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
@@ -73,29 +116,39 @@
 				</div>
 				<h2 :class="$style.welcomeTitle">Welcome to Chaperone Admin</h2>
 				<p :class="$style.welcomeDescription">
-					This portal gives you operational visibility into your Chaperone proxy fleet &mdash;
-					health status, live metrics, per-vendor traffic breakdown, and more. All from a single dashboard.
+					This portal gives you operational visibility into your Chaperone proxy
+					fleet &mdash; health status, live metrics, per-vendor traffic
+					breakdown, and more. All from a single dashboard.
 				</p>
 				<div :class="$style.welcomeSteps">
 					<div :class="$style.step">
 						<span :class="$style.stepNumber">1</span>
 						<div>
 							<span :class="$style.stepTitle">Register a proxy instance</span>
-							<span :class="$style.stepDetail">Enter the admin address (host:port) of a running Chaperone proxy</span>
+							<span :class="$style.stepDetail"
+								>Enter the admin address (host:port) of a running Chaperone
+								proxy</span
+							>
 						</div>
 					</div>
 					<div :class="$style.step">
 						<span :class="$style.stepNumber">2</span>
 						<div>
 							<span :class="$style.stepTitle">Test the connection</span>
-							<span :class="$style.stepDetail">Verify the portal can reach the proxy's admin port before saving</span>
+							<span :class="$style.stepDetail"
+								>Verify the portal can reach the proxy's admin port before
+								saving</span
+							>
 						</div>
 					</div>
 					<div :class="$style.step">
 						<span :class="$style.stepNumber">3</span>
 						<div>
 							<span :class="$style.stepTitle">Monitor your fleet</span>
-							<span :class="$style.stepDetail">Health, version, request rates, and latency updated every 10 seconds</span>
+							<span :class="$style.stepDetail"
+								>Health, version, request rates, and latency updated every 10
+								seconds</span
+							>
 						</div>
 					</div>
 				</div>
@@ -147,28 +200,33 @@
 </template>
 
 <script setup>
-import { ref, computed } from "vue";
-import BaseCard from "../components/BaseCard.vue";
-import BaseButton from "../components/BaseButton.vue";
-import InstanceCard from "../components/InstanceCard.vue";
-import InstanceTable from "../components/InstanceTable.vue";
-import AddInstanceModal from "../components/AddInstanceModal.vue";
-import ConfirmDialog from "../components/ConfirmDialog.vue";
-import { useInstanceStore } from "../stores/instances.js";
-import { filterStaleInstances } from "../utils/instance.js";
-import { usePolling } from "../composables/usePolling.js";
-import { useConfirmDialog } from "../composables/useConfirmDialog.js";
+import { ref, computed } from 'vue';
+import BaseCard from '../components/BaseCard.vue';
+import BaseButton from '../components/BaseButton.vue';
+import InstanceCard from '../components/InstanceCard.vue';
+import InstanceTable from '../components/InstanceTable.vue';
+import AddInstanceModal from '../components/AddInstanceModal.vue';
+import ConfirmDialog from '../components/ConfirmDialog.vue';
+import { useInstanceStore } from '../stores/instances.js';
+import { filterStaleInstances } from '../utils/instance.js';
+import { usePolling } from '../composables/usePolling.js';
+import { useConfirmDialog } from '../composables/useConfirmDialog.js';
 
 const store = useInstanceStore();
 const showModal = ref(false);
 const editingInstance = ref(null);
-const viewMode = ref("card");
+const viewMode = ref('card');
 
 const staleInstances = computed(() => filterStaleInstances(store.instances));
 
 usePolling(() => store.fetchInstances(), 10000);
 
-const { pending: deletingInstance, requestConfirm: handleDelete, confirm: confirmDelete, cancel: cancelDelete } = useConfirmDialog();
+const {
+	pending: deletingInstance,
+	requestConfirm: handleDelete,
+	confirm: confirmDelete,
+	cancel: cancelDelete,
+} = useConfirmDialog();
 
 function handleEdit(instance) {
 	editingInstance.value = instance;
@@ -231,7 +289,9 @@ function closeModal() {
 	border: none;
 	color: var(--color-text-tertiary);
 	cursor: pointer;
-	transition: background-color 0.15s, color 0.15s;
+	transition:
+		background-color 0.15s,
+		color 0.15s;
 }
 
 .toggleBtn:hover {
