@@ -481,6 +481,14 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	slog.Debug("transaction context parsed",
+		"trace_id", traceID,
+		"vendor_id", txCtx.VendorID,
+		"marketplace_id", txCtx.MarketplaceID,
+		"product_id", txCtx.ProductID,
+		"target_url", sanitizeURL(txCtx.TargetURL),
+	)
+
 	targetURL, err := url.Parse(txCtx.TargetURL)
 	if err != nil {
 		s.respondBadRequest(w, traceID, "invalid target URL", err)
@@ -880,6 +888,11 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 		security.StripInjectedHeaders(resp.Request.Context(), resp.Header)
 
 		// Step 3: Core error normalization (safety net - unless plugin opted out)
+		if action != nil && action.SkipErrorNormalization {
+			slog.Debug("plugin opted out of error normalization",
+				"trace_id", traceID,
+			)
+		}
 		if action == nil || !action.SkipErrorNormalization {
 			if err := security.NormalizeError(resp, traceID); err != nil {
 				slog.Error("error normalization failed",

@@ -4,11 +4,15 @@
 package router
 
 import (
+	"bytes"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/cloudblue/chaperone/internal/observability"
 )
 
 func TestAllowListMiddleware_ValidRequest(t *testing.T) {
@@ -309,6 +313,72 @@ func TestAllowListMiddleware_AllMethods(t *testing.T) {
 				t.Errorf("expected status %d for method %s, got %d", http.StatusOK, method, rr.Code)
 			}
 		})
+	}
+}
+
+func TestAllowListMiddleware_ValidationPassed_DebugLog(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	prevLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(prevLogger)
+
+	allowList := map[string][]string{"api.example.com": {"/**"}}
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	middleware := NewAllowListMiddleware(allowList, "X-Connect", nextHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req = req.WithContext(observability.WithTraceID(req.Context(), "trace-debug-123"))
+	req.Header.Set("X-Connect-Target-URL", "https://api.example.com/v1/users")
+	rr := httptest.NewRecorder()
+
+	middleware.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	logOutput := buf.String()
+	if !strings.Contains(logOutput, `"msg":"allow list validation passed"`) {
+		t.Errorf("expected allow list validation passed debug log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"trace_id":"trace-debug-123"`) {
+		t.Errorf("expected trace_id in log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"target_host":"api.example.com"`) {
+		t.Errorf("expected target_host in log, got: %s", logOutput)
+	}
+}
+
+func TestAllowListMiddleware_ValidationFailed_HasTraceID(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	prevLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(prevLogger)
+
+	allowList := map[string][]string{"api.example.com": {"/**"}}
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("next handler should not be called")
+	})
+	middleware := NewAllowListMiddleware(allowList, "X-Connect", nextHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req = req.WithContext(observability.WithTraceID(req.Context(), "trace-fail-456"))
+	req.Header.Set("X-Connect-Target-URL", "https://evil.com/data")
+	rr := httptest.NewRecorder()
+
+	middleware.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+
+	logOutput := buf.String()
+	if !strings.Contains(logOutput, `"trace_id":"trace-fail-456"`) {
+		t.Errorf("expected trace_id in failure log, got: %s", logOutput)
 	}
 }
 
