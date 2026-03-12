@@ -710,6 +710,10 @@ func (s *Server) forwardRequest(w http.ResponseWriter, r *http.Request, target *
 	proxy.ServeHTTP(w, r) // #nosec G704 -- target validated against allow-list in handleProxy before reaching here
 }
 
+// StatusClientClosedRequest is a non-standard status code (nginx convention)
+// used when the client disconnects before receiving a response.
+const StatusClientClosedRequest = 499
+
 // handlePluginError handles errors from the plugin.
 func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, err error) {
 	// Check for context errors (timeout/cancellation)
@@ -723,10 +727,12 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, err er
 	}
 
 	if errors.Is(err, context.Canceled) {
-		// Client disconnected - don't write response
 		slog.Info("client disconnected",
 			"trace_id", traceID,
 		)
+		// Write 499 so RequestLoggerMiddleware logs the correct status instead of
+		// the default 200. Do NOT write a body — the client is already gone.
+		w.WriteHeader(StatusClientClosedRequest)
 		return
 	}
 
