@@ -2023,6 +2023,53 @@ func TestIntegration_SlowPath_LogsCredentialInjection(t *testing.T) {
 }
 
 // =============================================================================
+// Phase 6: DEBUG logpoints for context parsing
+// =============================================================================
+
+func TestProxy_ContextParsed_DebugLog_SanitizesURL(t *testing.T) {
+	// Arrange - capture DEBUG log output
+	var logBuffer bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	originalLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(originalLogger)
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
+	handler := srv.Handler()
+
+	// Construct target URL with sensitive query params and credentials in userinfo
+	targetURL := backend.URL + "/v1/resource?api_key=supersecret&token=abc123"
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", targetURL)
+	req.Header.Set("X-Connect-Vendor-ID", "VA-test")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - target_url in the DEBUG log must not contain query params
+	logOutput := logBuffer.String()
+	if strings.Contains(logOutput, "supersecret") {
+		t.Errorf("log must not contain sensitive query value 'supersecret', got: %s", logOutput)
+	}
+	if strings.Contains(logOutput, "api_key") {
+		t.Errorf("log must not contain query param name 'api_key', got: %s", logOutput)
+	}
+	if strings.Contains(logOutput, "token=") {
+		t.Errorf("log must not contain 'token=' query param, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"msg":"transaction context parsed"`) {
+		t.Errorf("expected 'transaction context parsed' debug log, got: %s", logOutput)
+	}
+}
+
+// =============================================================================
 // Phase 3: Status 499 on client disconnect
 // =============================================================================
 
