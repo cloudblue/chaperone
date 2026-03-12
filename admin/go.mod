@@ -1,6 +1,6 @@
 module github.com/cloudblue/chaperone/admin
 
-go 1.25.7
+go 1.26.1
 
 require (
 	gopkg.in/yaml.v3 v3.0.1

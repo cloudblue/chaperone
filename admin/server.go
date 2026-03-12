@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudblue/chaperone/admin/api"
 	"github.com/cloudblue/chaperone/admin/config"
 	"github.com/cloudblue/chaperone/admin/store"
 )
@@ -60,6 +61,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 func (s *Server) routes(mux *http.ServeMux) error {
 	// API health check for the portal itself.
 	mux.HandleFunc("GET /api/health", s.handleHealth)
+
+	// Instance CRUD + test connection.
+	instances := api.NewInstanceHandler(s.store, s.config.Scraper.Timeout.Unwrap())
+	instances.Register(mux)
 
 	// SPA serving — all non-API routes serve the Vue app.
 	assets, err := loadUIAssets()

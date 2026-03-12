@@ -37,8 +37,8 @@
 
 	/* Typography */
 	--font-family:
-		-apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
-	--font-family-mono: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+	--font-family-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
 
 	--font-size-xs: 0.6875rem; /* 11px */
 	--font-size-sm: 0.8125rem; /* 13px */
