@@ -449,7 +449,7 @@ func (s *Server) withMiddleware(handler http.Handler) http.Handler {
 		)
 	}
 
-	handler = observability.RequestLoggerMiddleware(slog.Default(), s.config.HeaderPrefix+"-Vendor-ID", handler)
+	handler = observability.RequestLoggerMiddleware(slog.Default(), s.config.HeaderPrefix, handler)
 	handler = observability.TraceIDMiddleware(s.config.TraceHeader, handler)
 	return handler
 }
