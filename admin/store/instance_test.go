@@ -178,7 +178,8 @@ func TestDeleteInstance_Success(t *testing.T) {
 		t.Fatalf("CreateInstance() error = %v", err)
 	}
 
-	if err := st.DeleteInstance(ctx, created.ID); err != nil {
+	err = st.DeleteInstance(ctx, created.ID)
+	if err != nil {
 		t.Fatalf("DeleteInstance() error = %v", err)
 	}
 
@@ -208,7 +209,8 @@ func TestSetInstanceHealthy_UpdatesStatusAndVersion(t *testing.T) {
 		t.Fatalf("CreateInstance() error = %v", err)
 	}
 
-	if err := st.SetInstanceHealthy(ctx, created.ID, "1.2.3"); err != nil {
+	err = st.SetInstanceHealthy(ctx, created.ID, "1.2.3")
+	if err != nil {
 		t.Fatalf("SetInstanceHealthy() error = %v", err)
 	}
 
@@ -237,7 +239,8 @@ func TestSetInstanceUnreachable_UpdatesStatus(t *testing.T) {
 		t.Fatalf("CreateInstance() error = %v", err)
 	}
 
-	if err := st.SetInstanceUnreachable(ctx, created.ID); err != nil {
+	err = st.SetInstanceUnreachable(ctx, created.ID)
+	if err != nil {
 		t.Fatalf("SetInstanceUnreachable() error = %v", err)
 	}
 

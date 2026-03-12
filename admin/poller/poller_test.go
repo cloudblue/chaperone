@@ -189,8 +189,9 @@ func TestPoller_RecoveryAfterUnreachable_SetsHealthy(t *testing.T) {
 	}
 
 	// Now point instance to the live proxy.
-	if _, err := st.UpdateInstance(ctx, inst.ID, "test-proxy", addr); err != nil {
-		t.Fatalf("UpdateInstance() error = %v", err)
+	_, updateErr := st.UpdateInstance(ctx, inst.ID, "test-proxy", addr)
+	if updateErr != nil {
+		t.Fatalf("UpdateInstance() error = %v", updateErr)
 	}
 
 	// Single success should recover.

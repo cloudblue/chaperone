@@ -1,4 +1,4 @@
-import { createApp } from "vue";
+import { createApp } from 'vue';
 
 export function withSetup(composable) {
 	let result;
@@ -8,6 +8,6 @@ export function withSetup(composable) {
 			return () => {};
 		},
 	});
-	app.mount(document.createElement("div"));
+	app.mount(document.createElement('div'));
 	return { result, app };
 }

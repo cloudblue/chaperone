@@ -27,18 +27,18 @@ func openTestStore(t *testing.T) *store.Store {
 	return st
 }
 
-func newTestHandler(t *testing.T) (*InstanceHandler, *http.ServeMux) {
+func newTestHandler(t *testing.T) *http.ServeMux {
 	t.Helper()
 	st := openTestStore(t)
 	h := NewInstanceHandler(st, 2*time.Second)
 	mux := http.NewServeMux()
 	h.Register(mux)
-	return h, mux
+	return mux
 }
 
 func TestListInstances_Empty_ReturnsEmptyArray(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
 	rec := httptest.NewRecorder()
@@ -54,7 +54,7 @@ func TestListInstances_Empty_ReturnsEmptyArray(t *testing.T) {
 
 func TestCreateInstance_Success_Returns201(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	body := `{"name":"proxy-1","address":"10.0.0.1:9090"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
@@ -79,7 +79,7 @@ func TestCreateInstance_Success_Returns201(t *testing.T) {
 
 func TestCreateInstance_DuplicateAddress_Returns409(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	body := `{"name":"proxy-1","address":"10.0.0.1:9090"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
@@ -103,7 +103,7 @@ func TestCreateInstance_DuplicateAddress_Returns409(t *testing.T) {
 
 func TestCreateInstance_MissingName_Returns400(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	body := `{"name":"","address":"10.0.0.1:9090"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
@@ -118,7 +118,7 @@ func TestCreateInstance_MissingName_Returns400(t *testing.T) {
 
 func TestCreateInstance_MissingAddress_Returns400(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	body := `{"name":"proxy-1","address":""}`
 	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
@@ -132,7 +132,7 @@ func TestCreateInstance_MissingAddress_Returns400(t *testing.T) {
 
 func TestCreateInstance_InvalidJSON_Returns400(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader("not json"))
 	rec := httptest.NewRecorder()
@@ -145,7 +145,7 @@ func TestCreateInstance_InvalidJSON_Returns400(t *testing.T) {
 
 func TestGetInstance_Exists_Returns200(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	// Create first.
 	body := `{"name":"proxy-1","address":"10.0.0.1:9090"}`
@@ -168,7 +168,7 @@ func TestGetInstance_Exists_Returns200(t *testing.T) {
 
 func TestGetInstance_NotFound_Returns404(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/instances/999", nil)
 	rec := httptest.NewRecorder()
@@ -182,7 +182,7 @@ func TestGetInstance_NotFound_Returns404(t *testing.T) {
 
 func TestGetInstance_InvalidID_Returns400(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/instances/abc", nil)
 	rec := httptest.NewRecorder()
@@ -195,7 +195,7 @@ func TestGetInstance_InvalidID_Returns400(t *testing.T) {
 
 func TestUpdateInstance_Success_Returns200(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	// Create.
 	create := `{"name":"proxy-1","address":"10.0.0.1:9090"}`
@@ -222,7 +222,7 @@ func TestUpdateInstance_Success_Returns200(t *testing.T) {
 
 func TestDeleteInstance_Success_Returns204(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	// Create.
 	create := `{"name":"proxy-1","address":"10.0.0.1:9090"}`
@@ -251,7 +251,7 @@ func TestDeleteInstance_Success_Returns204(t *testing.T) {
 
 func TestDeleteInstance_NotFound_Returns404(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/instances/999", nil)
 	rec := httptest.NewRecorder()
@@ -279,7 +279,7 @@ func TestTestConnection_Success(t *testing.T) {
 	}))
 	defer proxy.Close()
 
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 	addr := strings.TrimPrefix(proxy.URL, "http://")
 	body := `{"address":"` + addr + `"}`
 
@@ -307,7 +307,7 @@ func TestTestConnection_Success(t *testing.T) {
 
 func TestTestConnection_Unreachable(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	body := `{"address":"127.0.0.1:1"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/instances/test", strings.NewReader(body))
@@ -334,7 +334,7 @@ func TestTestConnection_Unreachable(t *testing.T) {
 
 func TestTestConnection_EmptyAddress_Returns400(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	body := `{"address":""}`
 	req := httptest.NewRequest(http.MethodPost, "/api/instances/test", strings.NewReader(body))
@@ -348,7 +348,7 @@ func TestTestConnection_EmptyAddress_Returns400(t *testing.T) {
 
 func TestCreateInstance_InvalidAddress_Returns400(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	tests := []struct {
 		name    string
@@ -376,7 +376,7 @@ func TestCreateInstance_InvalidAddress_Returns400(t *testing.T) {
 
 func TestTestConnection_InvalidAddress_Returns400(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	tests := []struct {
 		name    string
@@ -402,7 +402,7 @@ func TestTestConnection_InvalidAddress_Returns400(t *testing.T) {
 
 func TestCreateInstance_WhitespaceTrimmed(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	body := `{"name":"  proxy-1  ","address":"  10.0.0.1:9090  "}`
 	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
@@ -427,7 +427,7 @@ func TestCreateInstance_WhitespaceTrimmed(t *testing.T) {
 
 func TestListInstances_AfterCreate_ReturnsInstances(t *testing.T) {
 	t.Parallel()
-	_, mux := newTestHandler(t)
+	mux := newTestHandler(t)
 
 	// Create two instances.
 	for _, name := range []string{"alpha", "bravo"} {

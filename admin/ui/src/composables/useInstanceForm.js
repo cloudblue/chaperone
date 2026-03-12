@@ -1,11 +1,11 @@
-import { ref, reactive } from "vue";
-import { validateInstanceForm } from "../utils/validation.js";
+import { ref, reactive } from 'vue';
+import { validateInstanceForm } from '../utils/validation.js';
 
 export function useInstanceForm(store, instance = null) {
 	const editing = !!instance;
-	const name = ref(instance?.name || "");
-	const address = ref(instance?.address || "");
-	const errors = reactive({ name: "", address: "" });
+	const name = ref(instance?.name || '');
+	const address = ref(instance?.address || '');
+	const errors = reactive({ name: '', address: '' });
 	const saving = ref(false);
 	const testing = ref(false);
 	const testResult = ref(null);
@@ -23,7 +23,7 @@ export function useInstanceForm(store, instance = null) {
 		try {
 			testResult.value = await store.testConnection(address.value.trim());
 		} catch {
-			testResult.value = { ok: false, error: "Failed to test connection" };
+			testResult.value = { ok: false, error: 'Failed to test connection' };
 		} finally {
 			testing.value = false;
 		}
@@ -34,7 +34,11 @@ export function useInstanceForm(store, instance = null) {
 		saving.value = true;
 		try {
 			if (editing) {
-				await store.updateInstance(instance.id, name.value.trim(), address.value.trim());
+				await store.updateInstance(
+					instance.id,
+					name.value.trim(),
+					address.value.trim(),
+				);
 			} else {
 				await store.createInstance(name.value.trim(), address.value.trim());
 			}
@@ -47,5 +51,16 @@ export function useInstanceForm(store, instance = null) {
 		}
 	}
 
-	return { editing, name, address, errors, saving, testing, testResult, validate, handleTest, handleSubmit };
+	return {
+		editing,
+		name,
+		address,
+		errors,
+		saving,
+		testing,
+		testResult,
+		validate,
+		handleTest,
+		handleSubmit,
+	};
 }

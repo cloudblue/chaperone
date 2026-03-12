@@ -1,8 +1,13 @@
 <template>
 	<div :class="$style.overlay" @click.self="$emit('close')">
-		<div :class="$style.modal" role="dialog" aria-labelledby="modal-title" aria-modal="true">
+		<div
+			:class="$style.modal"
+			role="dialog"
+			aria-labelledby="modal-title"
+			aria-modal="true"
+		>
 			<h2 id="modal-title" :class="$style.title">
-				{{ editing ? "Edit Instance" : "Add Instance" }}
+				{{ editing ? 'Edit Instance' : 'Add Instance' }}
 			</h2>
 
 			<form :class="$style.form" @submit.prevent="handleSubmit">
@@ -21,7 +26,13 @@
 					data-testid="instance-address"
 				/>
 
-				<div v-if="testResult" :class="[$style.testResult, testResult.ok ? $style.testOk : $style.testFail]">
+				<div
+					v-if="testResult"
+					:class="[
+						$style.testResult,
+						testResult.ok ? $style.testOk : $style.testFail,
+					]"
+				>
 					<span v-if="testResult.ok">
 						Connected successfully — version {{ testResult.version }}
 					</span>
@@ -36,14 +47,10 @@
 						data-testid="test-connection"
 						@click="handleTest"
 					>
-						{{ testing ? "Testing..." : "Test Connection" }}
+						{{ testing ? 'Testing...' : 'Test Connection' }}
 					</BaseButton>
 					<div :class="$style.spacer" />
-					<BaseButton
-						type="button"
-						variant="secondary"
-						@click="$emit('close')"
-					>
+					<BaseButton type="button" variant="secondary" @click="$emit('close')">
 						Cancel
 					</BaseButton>
 					<BaseButton
@@ -52,7 +59,9 @@
 						:disabled="saving"
 						data-testid="save-instance"
 					>
-						{{ saving ? "Saving..." : editing ? "Save Changes" : "Add Instance" }}
+						{{
+							saving ? 'Saving...' : editing ? 'Save Changes' : 'Add Instance'
+						}}
 					</BaseButton>
 				</div>
 			</form>
@@ -61,25 +70,35 @@
 </template>
 
 <script setup>
-import { onMounted } from "vue";
-import BaseInput from "./BaseInput.vue";
-import BaseButton from "./BaseButton.vue";
-import { useInstanceStore } from "../stores/instances.js";
-import { useInstanceForm } from "../composables/useInstanceForm.js";
+import { onMounted } from 'vue';
+import BaseInput from './BaseInput.vue';
+import BaseButton from './BaseButton.vue';
+import { useInstanceStore } from '../stores/instances.js';
+import { useInstanceForm } from '../composables/useInstanceForm.js';
 
 const props = defineProps({
 	instance: { type: Object, default: null },
 });
 
-const emit = defineEmits(["close", "saved"]);
+const emit = defineEmits(['close', 'saved']);
 const store = useInstanceStore();
-const { editing, name, address, errors, saving, testing, testResult, handleTest, handleSubmit: submit } = useInstanceForm(store, props.instance);
+const {
+	editing,
+	name,
+	address,
+	errors,
+	saving,
+	testing,
+	testResult,
+	handleTest,
+	handleSubmit: submit,
+} = useInstanceForm(store, props.instance);
 
 async function handleSubmit() {
 	const ok = await submit();
 	if (ok) {
-		emit("saved");
-		emit("close");
+		emit('saved');
+		emit('close');
 	}
 }
 

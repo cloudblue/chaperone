@@ -1,4 +1,4 @@
-import { onMounted, onUnmounted } from "vue";
+import { onMounted, onUnmounted } from 'vue';
 
 export function usePolling(fn, intervalMs = 10000) {
 	let id = null;

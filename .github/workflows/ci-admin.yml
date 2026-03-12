@@ -71,6 +71,10 @@ jobs:
         working-directory: admin/ui
         run: pnpm install --frozen-lockfile
 
+      - name: Check formatting
+        working-directory: admin/ui
+        run: pnpm prettier --check "src/**/*.{js,vue,css}"
+
       - name: Lint
         working-directory: admin/ui
         run: pnpm lint
@@ -113,7 +117,7 @@ jobs:
 
       - name: Run tests
         working-directory: admin/ui
-        run: pnpm test --passWithNoTests
+        run: pnpm test
 
   build:
     name: Build
