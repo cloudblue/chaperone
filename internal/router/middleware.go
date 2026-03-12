@@ -55,9 +55,9 @@ func (m *AllowListMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 	// Validate target URL against allow list
 	if err := m.validator.Validate(targetURL); err != nil {
-		// Log the host but not the full URL to avoid leaking query params
 		slog.Warn("allow list validation failed",
 			"trace_id", observability.TraceIDFromContext(r.Context()),
+			"target_host", extractHostFromURL(targetURL),
 			"error", err.Error(),
 			"remote_addr", r.RemoteAddr,
 		)

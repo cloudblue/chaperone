@@ -108,6 +108,11 @@ func (rc *ResponseCapturer) Status() int {
 // Uses defer to ensure logging occurs even if downstream handlers panic
 // (when used with panic recovery middleware).
 func RequestLoggerMiddleware(logger *slog.Logger, headerPrefix string, next http.Handler) http.Handler {
+	vendorHdr := headerPrefix + "-Vendor-ID"
+	marketplaceHdr := headerPrefix + "-Marketplace-ID"
+	productHdr := headerPrefix + "-Product-ID"
+	targetURLHdr := headerPrefix + "-Target-URL"
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ctx := r.Context()
@@ -123,10 +128,10 @@ func RequestLoggerMiddleware(logger *slog.Logger, headerPrefix string, next http
 				"path", r.URL.Path,
 				"status", capturer.Status(),
 				"latency_ms", time.Since(start).Milliseconds(),
-				"vendor_id", r.Header.Get(headerPrefix+"-Vendor-ID"),
-				"marketplace_id", r.Header.Get(headerPrefix+"-Marketplace-ID"),
-				"product_id", r.Header.Get(headerPrefix+"-Product-ID"),
-				"target_host", extractHost(r.Header.Get(headerPrefix+"-Target-URL")),
+				"vendor_id", r.Header.Get(vendorHdr),
+				"marketplace_id", r.Header.Get(marketplaceHdr),
+				"product_id", r.Header.Get(productHdr),
+				"target_host", extractHost(r.Header.Get(targetURLHdr)),
 				"client_ip", ClientIP(r),
 				"remote_addr", r.RemoteAddr,
 			)

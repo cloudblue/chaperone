@@ -380,6 +380,9 @@ func TestAllowListMiddleware_ValidationFailed_HasTraceID(t *testing.T) {
 	if !strings.Contains(logOutput, `"trace_id":"trace-fail-456"`) {
 		t.Errorf("expected trace_id in failure log, got: %s", logOutput)
 	}
+	if !strings.Contains(logOutput, `"target_host":"evil.com"`) {
+		t.Errorf("expected target_host in failure log, got: %s", logOutput)
+	}
 }
 
 func TestAllowListMiddleware_EmptyAllowListDeniesAll(t *testing.T) {
