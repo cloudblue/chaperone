@@ -5,36 +5,36 @@ package proxy
 
 import "testing"
 
-func TestSanitizeURL(t *testing.T) {
+func TestExtractTargetHost(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
 		want  string
 	}{
 		{
-			name:  "strips query string",
-			input: "https://api.vendor.com/v1?api_key=secret",
-			want:  "https://api.vendor.com/v1",
-		},
-		{
-			name:  "strips fragment",
-			input: "https://api.vendor.com/v1#section",
-			want:  "https://api.vendor.com/v1",
-		},
-		{
-			name:  "strips userinfo",
-			input: "https://user:pass@api.vendor.com/v1",
-			want:  "https://api.vendor.com/v1",
-		},
-		{
-			name:  "preserves path",
+			name:  "returns host only, strips path",
 			input: "https://api.vendor.com/v1/users/123",
-			want:  "https://api.vendor.com/v1/users/123",
+			want:  "api.vendor.com",
+		},
+		{
+			name:  "returns host only, strips query string",
+			input: "https://api.vendor.com/v1?api_key=secret",
+			want:  "api.vendor.com",
+		},
+		{
+			name:  "returns host only, strips userinfo",
+			input: "https://user:pass@api.vendor.com/v1",
+			want:  "api.vendor.com",
+		},
+		{
+			name:  "preserves port",
+			input: "https://api.vendor.com:8443/v1",
+			want:  "api.vendor.com:8443",
 		},
 		{
 			name:  "strips all sensitive parts together",
-			input: "https://user:pass@api.vendor.com/v1?token=abc#frag",
-			want:  "https://api.vendor.com/v1",
+			input: "https://user:pass@api.vendor.com/v1/users/alice@example.com?token=abc#frag",
+			want:  "api.vendor.com",
 		},
 		{
 			name:  "invalid URL returns empty",
@@ -50,9 +50,9 @@ func TestSanitizeURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := sanitizeURL(tt.input)
+			got := extractTargetHost(tt.input)
 			if got != tt.want {
-				t.Errorf("sanitizeURL(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("extractTargetHost(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

@@ -515,7 +515,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		"vendor_id", txCtx.VendorID,
 		"marketplace_id", txCtx.MarketplaceID,
 		"product_id", txCtx.ProductID,
-		"target_url", sanitizeURL(txCtx.TargetURL),
+		"target_host", extractTargetHost(txCtx.TargetURL),
 	)
 
 	targetURL, err := url.Parse(txCtx.TargetURL)
@@ -701,18 +701,15 @@ func (s *Server) detectSlowPathInjections(r *http.Request, before http.Header) (
 	return r, len(injectedKeys)
 }
 
-// sanitizeURL strips the query string, fragment, and userinfo from a URL
-// to prevent token or credential leakage in log output.
-// Returns an empty string if the input is not a valid URL.
-func sanitizeURL(rawURL string) string {
+// extractTargetHost parses rawURL and returns only the host (with port if present).
+// Used in log output to avoid leaking sensitive path or query information.
+// Returns an empty string if the URL is invalid or has no host.
+func extractTargetHost(rawURL string) string {
 	u, err := url.Parse(rawURL)
-	if err != nil {
+	if err != nil || u.Host == "" {
 		return ""
 	}
-	u.RawQuery = ""
-	u.Fragment = ""
-	u.User = nil
-	return u.String()
+	return u.Host
 }
 
 // headerValuesEqual returns true if two header value slices are identical.
@@ -758,6 +755,7 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, txCtx 
 			"trace_id", traceID,
 			"vendor_id", txCtx.VendorID,
 			"marketplace_id", txCtx.MarketplaceID,
+			"product_id", txCtx.ProductID,
 			"target_host", targetHost,
 			"error", err,
 		)
@@ -770,6 +768,7 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, txCtx 
 			"trace_id", traceID,
 			"vendor_id", txCtx.VendorID,
 			"marketplace_id", txCtx.MarketplaceID,
+			"product_id", txCtx.ProductID,
 			"target_host", targetHost,
 		)
 		// Write 499 so RequestLoggerMiddleware logs the correct status instead of
@@ -782,6 +781,7 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, txCtx 
 		"trace_id", traceID,
 		"vendor_id", txCtx.VendorID,
 		"marketplace_id", txCtx.MarketplaceID,
+		"product_id", txCtx.ProductID,
 		"target_host", targetHost,
 		"error", err,
 	)
@@ -855,6 +855,7 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 			"trace_id", traceID,
 			"vendor_id", txCtx.VendorID,
 			"marketplace_id", txCtx.MarketplaceID,
+			"product_id", txCtx.ProductID,
 			"target_host", target.Host,
 			"error", err,
 		)
@@ -900,6 +901,7 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 					"trace_id", traceID,
 					"vendor_id", txCtx.VendorID,
 					"marketplace_id", txCtx.MarketplaceID,
+					"product_id", txCtx.ProductID,
 					"target_host", resp.Request.URL.Host,
 					"error", err,
 				)
@@ -925,6 +927,7 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 			"content_length", resp.ContentLength,
 			"vendor_id", txCtx.VendorID,
 			"marketplace_id", txCtx.MarketplaceID,
+			"product_id", txCtx.ProductID,
 			"target_host", resp.Request.URL.Host,
 		)
 		return nil
@@ -946,6 +949,7 @@ func (s *Server) applyErrorNormalization(traceID string, txCtx *sdk.TransactionC
 			"trace_id", traceID,
 			"vendor_id", txCtx.VendorID,
 			"marketplace_id", txCtx.MarketplaceID,
+			"product_id", txCtx.ProductID,
 			"target_host", resp.Request.URL.Host,
 			"error", err,
 		)

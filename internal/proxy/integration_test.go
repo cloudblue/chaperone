@@ -2026,7 +2026,7 @@ func TestIntegration_SlowPath_LogsCredentialInjection(t *testing.T) {
 // Phase 6: DEBUG logpoints for context parsing
 // =============================================================================
 
-func TestProxy_ContextParsed_DebugLog_SanitizesURL(t *testing.T) {
+func TestProxy_ContextParsed_DebugLog_LogsHostOnly(t *testing.T) {
 	// Arrange - capture DEBUG log output
 	var logBuffer bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -2042,8 +2042,8 @@ func TestProxy_ContextParsed_DebugLog_SanitizesURL(t *testing.T) {
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
-	// Construct target URL with sensitive query params and credentials in userinfo
-	targetURL := backend.URL + "/v1/resource?api_key=supersecret&token=abc123"
+	// URL with a sensitive path segment and query params — only the host should appear in logs
+	targetURL := backend.URL + "/v1/users/alice@example.com?api_key=supersecret&token=abc123"
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", targetURL)
@@ -2053,8 +2053,11 @@ func TestProxy_ContextParsed_DebugLog_SanitizesURL(t *testing.T) {
 	// Act
 	handler.ServeHTTP(rec, req)
 
-	// Assert - target_url in the DEBUG log must not contain query params
+	// Assert - only the host appears; path, query, and userinfo must not leak
 	logOutput := logBuffer.String()
+	if !strings.Contains(logOutput, `"msg":"transaction context parsed"`) {
+		t.Errorf("expected 'transaction context parsed' debug log, got: %s", logOutput)
+	}
 	if strings.Contains(logOutput, "supersecret") {
 		t.Errorf("log must not contain sensitive query value 'supersecret', got: %s", logOutput)
 	}
@@ -2064,8 +2067,11 @@ func TestProxy_ContextParsed_DebugLog_SanitizesURL(t *testing.T) {
 	if strings.Contains(logOutput, "token=") {
 		t.Errorf("log must not contain 'token=' query param, got: %s", logOutput)
 	}
-	if !strings.Contains(logOutput, `"msg":"transaction context parsed"`) {
-		t.Errorf("expected 'transaction context parsed' debug log, got: %s", logOutput)
+	if strings.Contains(logOutput, "alice@example.com") {
+		t.Errorf("log must not contain path segment 'alice@example.com', got: %s", logOutput)
+	}
+	if strings.Contains(logOutput, "/v1/users") {
+		t.Errorf("log must not contain URL path, got: %s", logOutput)
 	}
 }
 
