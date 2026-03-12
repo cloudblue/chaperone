@@ -18,6 +18,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -401,6 +402,10 @@ func (s *Server) logStartup() {
 		)
 	}
 
+	if s.config.Plugin == nil {
+		slog.Info("no plugin configured, requests will be forwarded without credential injection")
+	}
+
 	if s.config.TLS.Enabled {
 		slog.Info("starting proxy server with mTLS (Mode A)",
 			"addr", s.config.Addr,
@@ -409,10 +414,13 @@ func (s *Server) logStartup() {
 			"client_auth", "RequireAndVerifyClientCert",
 		)
 		slog.Info("server configuration",
-			"read_timeout", s.config.ReadTimeout,
-			"write_timeout", s.config.WriteTimeout,
-			"idle_timeout", s.config.IdleTimeout,
-			"plugin_timeout", s.config.PluginTimeout,
+			"read_timeout", s.config.ReadTimeout.String(),
+			"write_timeout", s.config.WriteTimeout.String(),
+			"idle_timeout", s.config.IdleTimeout.String(),
+			"plugin_timeout", s.config.PluginTimeout.String(),
+			"connect_timeout", s.config.ConnectTimeout.String(),
+			"keepalive_timeout", s.config.KeepAliveTimeout.String(),
+			"shutdown_timeout", s.config.ShutdownTimeout.String(),
 			"cert_file", s.config.TLS.CertFile,
 			"ca_file", s.config.TLS.CAFile,
 		)
@@ -422,12 +430,33 @@ func (s *Server) logStartup() {
 			"mode", "B (basic)",
 		)
 		slog.Info("server configuration",
-			"read_timeout", s.config.ReadTimeout,
-			"write_timeout", s.config.WriteTimeout,
-			"idle_timeout", s.config.IdleTimeout,
-			"plugin_timeout", s.config.PluginTimeout,
+			"read_timeout", s.config.ReadTimeout.String(),
+			"write_timeout", s.config.WriteTimeout.String(),
+			"idle_timeout", s.config.IdleTimeout.String(),
+			"plugin_timeout", s.config.PluginTimeout.String(),
+			"connect_timeout", s.config.ConnectTimeout.String(),
+			"keepalive_timeout", s.config.KeepAliveTimeout.String(),
+			"shutdown_timeout", s.config.ShutdownTimeout.String(),
 		)
 	}
+
+	s.logAllowList()
+}
+
+// logAllowList logs the configured allow-list at startup for operational visibility.
+func (s *Server) logAllowList() {
+	hosts := make([]string, 0, len(s.config.AllowList))
+	routeCount := 0
+	for host, patterns := range s.config.AllowList {
+		hosts = append(hosts, host)
+		routeCount += len(patterns)
+	}
+	sort.Strings(hosts) // Deterministic output for stable logs and testability
+	slog.Info("allow list configured",
+		"hosts", hosts,
+		"host_count", len(s.config.AllowList),
+		"route_count", routeCount,
+	)
 }
 
 // withMiddleware wraps the handler with the global middleware stack.
