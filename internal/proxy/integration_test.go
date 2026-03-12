@@ -428,11 +428,10 @@ func TestIntegration_BackendUnreachable_Returns502(t *testing.T) {
 	}
 }
 
-func TestIntegration_PluginContextCanceled_NoResponse(t *testing.T) {
-	// Arrange - plugin that checks for context cancellation
+func TestIntegration_PluginContextCanceled_Returns499(t *testing.T) {
+	// Arrange - plugin that simulates client disconnect
 	plugin := &mockPlugin{
-		getCredentialsFn: func(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
-			// Simulate context being cancelled (client disconnected)
+		getCredentialsFn: func(_ context.Context, _ sdk.TransactionContext, _ *http.Request) (*sdk.Credential, error) {
 			return nil, context.Canceled
 		},
 	}
@@ -450,11 +449,9 @@ func TestIntegration_PluginContextCanceled_NoResponse(t *testing.T) {
 	// Act
 	handler.ServeHTTP(rec, req)
 
-	// Assert - when context is canceled, we don't write a response (or write minimal)
-	// The important thing is we don't crash and don't return 500
-	// In practice, client won't see this response since they disconnected
-	if rec.Code == http.StatusInternalServerError {
-		t.Error("context.Canceled should not return 500")
+	// Assert - 499 Client Closed Request (nginx convention for client disconnect)
+	if rec.Code != proxy.StatusClientClosedRequest {
+		t.Errorf("status = %d, want %d (StatusClientClosedRequest)", rec.Code, proxy.StatusClientClosedRequest)
 	}
 }
 
@@ -2022,5 +2019,47 @@ func TestIntegration_SlowPath_LogsCredentialInjection(t *testing.T) {
 	}
 	if !strings.Contains(logOutput, `"vendor_id":"VA-slow"`) {
 		t.Errorf("expected vendor_id in log, got: %s", logOutput)
+	}
+}
+
+// =============================================================================
+// Phase 3: Status 499 on client disconnect
+// =============================================================================
+
+func TestIntegration_ClientDisconnect_LogsStatus499(t *testing.T) {
+	// Arrange - capture log output
+	var logBuffer bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuffer, nil))
+	originalLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(originalLogger)
+
+	plugin := &mockPlugin{
+		getCredentialsFn: func(_ context.Context, _ sdk.TransactionContext, _ *http.Request) (*sdk.Credential, error) {
+			return nil, context.Canceled
+		},
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", "http://example.com")
+	req.Header.Set("X-Connect-Vendor-ID", "VA-disconnect")
+	req.Header.Set("Connect-Request-ID", "trace-499-test")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - RequestLoggerMiddleware logs status 499 (not the default 200)
+	if rec.Code != proxy.StatusClientClosedRequest {
+		t.Errorf("response status = %d, want %d", rec.Code, proxy.StatusClientClosedRequest)
+	}
+	logOutput := logBuffer.String()
+	if !strings.Contains(logOutput, `"status":499`) {
+		t.Errorf("log should contain status 499, got: %s", logOutput)
 	}
 }
