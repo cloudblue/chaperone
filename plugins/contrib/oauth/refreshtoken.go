@@ -116,6 +116,16 @@ func NewRefreshToken(cfg RefreshTokenConfig) *RefreshToken {
 	return rt
 }
 
+// log returns the configured logger, or slog.Default() if none was set.
+// Called at log-emit time so the current global default is always used
+// when no explicit logger is provided.
+func (rt *RefreshToken) log() *slog.Logger {
+	if rt.logger != nil {
+		return rt.logger
+	}
+	return slog.Default()
+}
+
 // GetCredentials fetches an OAuth2 bearer token using the refresh token grant
 // and returns it as a cacheable credential (Fast Path).
 //
@@ -151,7 +161,7 @@ func (rt *RefreshToken) fetch(ctx context.Context) (*cachedToken, error) {
 
 	if result.RefreshToken != "" {
 		if saveErr := rt.store.Save(ctx, result.RefreshToken); saveErr != nil {
-			rt.logger.LogAttrs(ctx, slog.LevelError, "failed to save rotated refresh token",
+			rt.log().LogAttrs(ctx, slog.LevelError, "failed to save rotated refresh token",
 				slog.String("token_url", rt.fetcher.TokenURL),
 				slog.String("error", saveErr.Error()))
 

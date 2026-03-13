@@ -57,13 +57,21 @@ func WithLogger(l *slog.Logger) MuxOption {
 // NewMux creates a new request multiplexer. Use [Mux.Handle] and
 // [Mux.Default] to register routes before serving traffic.
 func NewMux(opts ...MuxOption) *Mux {
-	m := &Mux{
-		logger: slog.Default(),
-	}
+	m := &Mux{}
 	for _, opt := range opts {
 		opt(m)
 	}
 	return m
+}
+
+// log returns the configured logger, or slog.Default() if none was set.
+// Called at log-emit time so the current global default is always used
+// when no explicit logger is provided.
+func (m *Mux) log() *slog.Logger {
+	if m.logger != nil {
+		return m.logger
+	}
+	return slog.Default()
 }
 
 // Handle registers a route that dispatches matching requests to the
@@ -81,7 +89,7 @@ func (m *Mux) Handle(route Route, provider sdk.CredentialProvider) {
 	newSpec := route.Specificity()
 	for _, e := range m.entries {
 		if e.route.Specificity() == newSpec && routesMayOverlap(e.route, route) {
-			m.logger.Warn("routes registered with equal specificity may overlap, first registered wins on tie",
+			m.log().Warn("routes registered with equal specificity may overlap, first registered wins on tie",
 				"existing_route", routeString(e.route),
 				"new_route", routeString(route),
 			)
