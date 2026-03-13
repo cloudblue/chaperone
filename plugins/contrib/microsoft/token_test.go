@@ -1446,3 +1446,33 @@ func TestGetCredentials_KeyResolver_ValidTenantIDCheck_RejectsBadResolverValue(t
 		t.Errorf("error = %v, want errors.Is(ErrInvalidContextData)", err)
 	}
 }
+
+func TestNewRefreshTokenSource_NilLogger_LazyResolution(t *testing.T) {
+	src := NewRefreshTokenSource(Config{
+		ClientID:     "id",
+		ClientSecret: "secret",
+		Store:        newMemoryTokenStore(),
+	})
+
+	// logger field must be nil — no eager slog.Default() at construction.
+	if src.logger != nil {
+		t.Error("logger field should be nil when not provided; lazy resolution via log()")
+	}
+	if src.log() != slog.Default() {
+		t.Error("log() should return slog.Default() when logger is nil")
+	}
+}
+
+func TestNewRefreshTokenSource_ExplicitLogger_UsesExplicitLogger(t *testing.T) {
+	custom := slog.New(slog.NewTextHandler(io.Discard, nil))
+	src := NewRefreshTokenSource(Config{
+		ClientID:     "id",
+		ClientSecret: "secret",
+		Store:        newMemoryTokenStore(),
+		Logger:       custom,
+	})
+
+	if src.log() != custom {
+		t.Error("log() should return the explicitly provided logger")
+	}
+}

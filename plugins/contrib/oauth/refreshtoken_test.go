@@ -975,3 +975,37 @@ func TestRefreshToken_Compliance(t *testing.T) {
 	plugin := contrib.AsPlugin(rt)
 	compliance.VerifyContract(t, plugin)
 }
+
+func TestNewRefreshToken_NilLogger_LazyResolution(t *testing.T) {
+	store := newMemoryStore("tok")
+	rt := NewRefreshToken(RefreshTokenConfig{
+		TokenURL:     "https://example.com/token",
+		ClientID:     "id",
+		ClientSecret: "secret",
+		Store:        store,
+	})
+
+	// logger field must be nil — no eager slog.Default() at construction.
+	if rt.logger != nil {
+		t.Error("logger field should be nil when not provided; lazy resolution via log()")
+	}
+	if rt.log() != slog.Default() {
+		t.Error("log() should return slog.Default() when logger is nil")
+	}
+}
+
+func TestNewRefreshToken_ExplicitLogger_UsesExplicitLogger(t *testing.T) {
+	custom := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store := newMemoryStore("tok")
+	rt := NewRefreshToken(RefreshTokenConfig{
+		TokenURL:     "https://example.com/token",
+		ClientID:     "id",
+		ClientSecret: "secret",
+		Store:        store,
+		Logger:       custom,
+	})
+
+	if rt.log() != custom {
+		t.Error("log() should return the explicitly provided logger")
+	}
+}
