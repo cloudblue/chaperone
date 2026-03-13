@@ -6,6 +6,7 @@ package contrib
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -601,4 +602,25 @@ func TestMux_Compliance(t *testing.T) {
 	mux := NewMux()
 	mux.Default(&namedProvider{name: "compliance"})
 	compliance.VerifyContract(t, mux)
+}
+
+func TestNewMux_NilLogger_LazyResolution(t *testing.T) {
+	m := NewMux()
+
+	// logger field must be nil — no eager slog.Default() at construction.
+	if m.logger != nil {
+		t.Error("logger field should be nil when not provided; lazy resolution via log()")
+	}
+	if m.log() != slog.Default() {
+		t.Error("log() should return slog.Default() when logger is nil")
+	}
+}
+
+func TestNewMux_WithLogger_UsesExplicitLogger(t *testing.T) {
+	custom := slog.New(slog.NewTextHandler(io.Discard, nil))
+	m := NewMux(WithLogger(custom))
+
+	if m.log() != custom {
+		t.Error("log() should return the explicitly provided logger")
+	}
 }

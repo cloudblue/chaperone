@@ -91,9 +91,6 @@ const defaultExpiryMargin = 1 * time.Minute
 
 // NewTokenFetcher creates a TokenFetcher with defaults applied for nil fields.
 func NewTokenFetcher(cfg TokenFetcher) *TokenFetcher {
-	if cfg.Logger == nil {
-		cfg.Logger = slog.Default()
-	}
 	if cfg.Client == nil {
 		cfg.Client = DefaultHTTPClient()
 	}
@@ -101,6 +98,16 @@ func NewTokenFetcher(cfg TokenFetcher) *TokenFetcher {
 		cfg.ExpiryMargin = defaultExpiryMargin
 	}
 	return &cfg
+}
+
+// log returns the configured logger, or slog.Default() if none was set.
+// Called at log-emit time so the current global default is always used
+// when no explicit logger is provided.
+func (tf *TokenFetcher) log() *slog.Logger {
+	if tf.Logger != nil {
+		return tf.Logger
+	}
+	return slog.Default()
 }
 
 // Exchange sends a token request with the given form parameters and returns
@@ -169,7 +176,7 @@ func (tf *TokenFetcher) doRequest(ctx context.Context, req *http.Request) (statu
 		if ctx.Err() != nil {
 			return 0, nil, nil, fmt.Errorf("token request for %s: %w", tf.TokenURL, ctx.Err())
 		}
-		tf.Logger.LogAttrs(ctx, slog.LevelWarn, "token endpoint request failed",
+		tf.log().LogAttrs(ctx, slog.LevelWarn, "token endpoint request failed",
 			slog.String("token_url", tf.TokenURL),
 			slog.String("error", err.Error()))
 		return 0, nil, nil, fmt.Errorf("token endpoint request for %s: %w",
@@ -193,7 +200,7 @@ func (tf *TokenFetcher) doRequest(ctx context.Context, req *http.Request) (statu
 func (tf *TokenFetcher) handleErrorResponse(ctx context.Context, statusCode int, header http.Header, body []byte) error {
 	contentType := header.Get("Content-Type")
 
-	if tf.Logger.Enabled(ctx, slog.LevelDebug) {
+	if tf.log().Enabled(ctx, slog.LevelDebug) {
 		attrs := []slog.Attr{
 			slog.Int("status", statusCode),
 			slog.String("content_type", contentType),
@@ -209,7 +216,7 @@ func (tf *TokenFetcher) handleErrorResponse(ctx context.Context, statusCode int,
 			}
 		}
 
-		tf.Logger.LogAttrs(ctx, slog.LevelDebug, "token endpoint error response", attrs...)
+		tf.log().LogAttrs(ctx, slog.LevelDebug, "token endpoint error response", attrs...)
 	}
 
 	if statusCode == http.StatusUnauthorized {
@@ -218,7 +225,7 @@ func (tf *TokenFetcher) handleErrorResponse(ctx context.Context, statusCode int,
 	}
 
 	if statusCode == http.StatusTooManyRequests || statusCode >= http.StatusInternalServerError {
-		tf.Logger.LogAttrs(ctx, slog.LevelWarn, "token endpoint unavailable",
+		tf.log().LogAttrs(ctx, slog.LevelWarn, "token endpoint unavailable",
 			slog.String("token_url", tf.TokenURL),
 			slog.Int("status", statusCode))
 		return fmt.Errorf("token endpoint returned %d (content-type: %s): %w",

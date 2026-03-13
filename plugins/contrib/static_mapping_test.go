@@ -6,6 +6,7 @@ package contrib
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"testing"
 
@@ -373,3 +374,24 @@ func (lc *mappingLogCapture) Handle(_ context.Context, r slog.Record) error {
 func (lc *mappingLogCapture) WithAttrs(_ []slog.Attr) slog.Handler { return lc }
 func (lc *mappingLogCapture) WithGroup(_ string) slog.Handler      { return lc }
 func (lc *mappingLogCapture) hasWarning() bool                     { return lc.warned }
+
+func TestNewStaticMapping_NilLogger_LazyResolution(t *testing.T) {
+	sm := NewStaticMapping([]MappingRule{{Key: "k"}})
+
+	// logger field must be nil — no eager slog.Default() at construction.
+	if sm.logger != nil {
+		t.Error("logger field should be nil when not provided; lazy resolution via log()")
+	}
+	if sm.log() != slog.Default() {
+		t.Error("log() should return slog.Default() when logger is nil")
+	}
+}
+
+func TestNewStaticMapping_WithMappingLogger_UsesExplicitLogger(t *testing.T) {
+	custom := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sm := NewStaticMapping([]MappingRule{{Key: "k"}}, WithMappingLogger(custom))
+
+	if sm.log() != custom {
+		t.Error("log() should return the explicitly provided logger")
+	}
+}

@@ -104,8 +104,7 @@ func NewStaticMapping(rules []MappingRule, opts ...StaticMappingOption) *StaticM
 	}
 
 	sm := &StaticMapping{
-		rules:  make([]MappingRule, len(rules)),
-		logger: slog.Default(),
+		rules: make([]MappingRule, len(rules)),
 	}
 	copy(sm.rules, rules)
 
@@ -118,7 +117,7 @@ func NewStaticMapping(rules []MappingRule, opts ...StaticMappingOption) *StaticM
 		for j := i + 1; j < len(sm.rules); j++ {
 			if sm.rules[i].Specificity() == sm.rules[j].Specificity() &&
 				rulesMayOverlap(sm.rules[i], sm.rules[j]) {
-				sm.logger.Warn(
+				sm.log().Warn(
 					"mapping rules with equal specificity may overlap, first registered wins on tie",
 					"rule_a_index", i,
 					"rule_a_key", sm.rules[i].Key,
@@ -131,6 +130,16 @@ func NewStaticMapping(rules []MappingRule, opts ...StaticMappingOption) *StaticM
 	}
 
 	return sm
+}
+
+// log returns the configured logger, or slog.Default() if none was set.
+// Called at log-emit time so the current global default is always used
+// when no explicit logger is provided.
+func (sm *StaticMapping) log() *slog.Logger {
+	if sm.logger != nil {
+		return sm.logger
+	}
+	return slog.Default()
 }
 
 // ResolveKey finds the best matching rule for the transaction context and

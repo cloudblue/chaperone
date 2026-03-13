@@ -163,11 +163,6 @@ func NewRefreshTokenSource(cfg Config) *RefreshTokenSource {
 		margin = defaultExpiryMargin
 	}
 
-	logger := cfg.Logger
-	if logger == nil {
-		logger = slog.Default()
-	}
-
 	client := cfg.HTTPClient
 	if client == nil {
 		client = oauthutil.DefaultHTTPClient()
@@ -182,11 +177,21 @@ func NewRefreshTokenSource(cfg Config) *RefreshTokenSource {
 		maxPoolSize:   maxPool,
 		expiryMargin:  margin,
 		httpClient:    client,
-		logger:        logger,
+		logger:        cfg.Logger,
 		onSaveError:   cfg.OnSaveError,
 		pool:          make(map[string]*list.Element),
 		lru:           list.New(),
 	}
+}
+
+// log returns the configured logger, or slog.Default() if none was set.
+// Called at log-emit time so the current global default is always used
+// when no explicit logger is provided.
+func (s *RefreshTokenSource) log() *slog.Logger {
+	if s.logger != nil {
+		return s.logger
+	}
+	return slog.Default()
 }
 
 // GetCredentials extracts TenantID and Resource from the transaction context,
@@ -240,14 +245,14 @@ func (s *RefreshTokenSource) getAccessToken(
 	entry.mu.RLock()
 	if ct, ok := entry.tokens[resource]; ok && time.Now().Before(ct.expiresAt) {
 		entry.mu.RUnlock()
-		s.logger.LogAttrs(ctx, slog.LevelDebug, "access token cache hit",
+		s.log().LogAttrs(ctx, slog.LevelDebug, "access token cache hit",
 			slog.String("tenant_id", entry.tenantID),
 			slog.String("resource", resource))
 		return ct.accessToken, ct.expiresAt, nil
 	}
 	entry.mu.RUnlock()
 
-	s.logger.LogAttrs(ctx, slog.LevelDebug, "access token cache miss",
+	s.log().LogAttrs(ctx, slog.LevelDebug, "access token cache miss",
 		slog.String("tenant_id", entry.tenantID),
 		slog.String("resource", resource))
 
@@ -317,7 +322,7 @@ func (s *RefreshTokenSource) exchange(
 
 	if result.RefreshToken != "" {
 		if saveErr := s.store.Save(ctx, tenantID, result.RefreshToken); saveErr != nil {
-			s.logger.LogAttrs(ctx, slog.LevelError, "failed to save rotated refresh token",
+			s.log().LogAttrs(ctx, slog.LevelError, "failed to save rotated refresh token",
 				slog.String("tenant_id", tenantID),
 				slog.String("resource", resource),
 				slog.String("error", saveErr.Error()))
@@ -371,7 +376,7 @@ func (s *RefreshTokenSource) evictLRU(ctx context.Context) {
 	}
 
 	entry, _ := back.Value.(*tenantEntry)
-	s.logger.LogAttrs(ctx, slog.LevelDebug, "evicting LRU pool entry",
+	s.log().LogAttrs(ctx, slog.LevelDebug, "evicting LRU pool entry",
 		slog.String("tenant_id", entry.tenantID))
 
 	delete(s.pool, entry.tenantID)
