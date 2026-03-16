@@ -126,7 +126,7 @@ jobs:
           sha256sum * > checksums.txt
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
@@ -165,7 +165,7 @@ jobs:
         run: echo "sdk_version=${GITHUB_REF_NAME#sdk/}" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release for SDK
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
@@ -211,7 +211,7 @@ jobs:
         run: echo "contrib_version=${GITHUB_REF_NAME#plugins/contrib/}" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release for Contrib
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
