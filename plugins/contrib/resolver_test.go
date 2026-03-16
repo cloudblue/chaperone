@@ -23,12 +23,12 @@ func (m *mockResolver) ResolveKey(_ context.Context, _ sdk.TransactionContext) (
 	return m.key, m.err
 }
 
-func TestResolveFromContext_PresentValidString(t *testing.T) {
+func TestResolveCredentialKey_PresentValidString(t *testing.T) {
 	tx := sdk.TransactionContext{
 		Data: map[string]any{"TenantID": "contoso.onmicrosoft.com"},
 	}
 
-	got, err := ResolveFromContext(context.Background(), tx, "TenantID", nil)
+	got, err := ResolveCredentialKey(context.Background(), tx, "TenantID", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -38,48 +38,14 @@ func TestResolveFromContext_PresentValidString(t *testing.T) {
 	}
 }
 
-func TestResolveFromContext_PresentEmptyString_ReturnsErrInvalidContextData(t *testing.T) {
-	tx := sdk.TransactionContext{
-		Data: map[string]any{"TenantID": ""},
-	}
-
-	resolver := &mockResolver{key: "should-not-be-used"}
-
-	_, err := ResolveFromContext(context.Background(), tx, "TenantID", resolver)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-
-	if !errors.Is(err, ErrInvalidContextData) {
-		t.Errorf("error = %v, want errors.Is(ErrInvalidContextData)", err)
-	}
-}
-
-func TestResolveFromContext_PresentWrongType_ReturnsErrInvalidContextData(t *testing.T) {
-	tx := sdk.TransactionContext{
-		Data: map[string]any{"TenantID": float64(12345)},
-	}
-
-	resolver := &mockResolver{key: "should-not-be-used"}
-
-	_, err := ResolveFromContext(context.Background(), tx, "TenantID", resolver)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-
-	if !errors.Is(err, ErrInvalidContextData) {
-		t.Errorf("error = %v, want errors.Is(ErrInvalidContextData)", err)
-	}
-}
-
-func TestResolveFromContext_AbsentWithResolver(t *testing.T) {
+func TestResolveCredentialKey_AbsentWithResolver(t *testing.T) {
 	tx := sdk.TransactionContext{
 		Data: map[string]any{"OtherField": "value"},
 	}
 
 	resolver := &mockResolver{key: "resolved-tenant"}
 
-	got, err := ResolveFromContext(context.Background(), tx, "TenantID", resolver)
+	got, err := ResolveCredentialKey(context.Background(), tx, "TenantID", resolver)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -89,12 +55,12 @@ func TestResolveFromContext_AbsentWithResolver(t *testing.T) {
 	}
 }
 
-func TestResolveFromContext_AbsentWithoutResolver_ReturnsErrMissingContextData(t *testing.T) {
+func TestResolveCredentialKey_AbsentWithoutResolver_ReturnsErrMissingContextData(t *testing.T) {
 	tx := sdk.TransactionContext{
 		Data: map[string]any{},
 	}
 
-	_, err := ResolveFromContext(context.Background(), tx, "TenantID", nil)
+	_, err := ResolveCredentialKey(context.Background(), tx, "TenantID", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -104,12 +70,12 @@ func TestResolveFromContext_AbsentWithoutResolver_ReturnsErrMissingContextData(t
 	}
 }
 
-func TestResolveFromContext_NilDataWithResolver(t *testing.T) {
+func TestResolveCredentialKey_NilDataWithResolver(t *testing.T) {
 	tx := sdk.TransactionContext{Data: nil}
 
 	resolver := &mockResolver{key: "resolved-tenant"}
 
-	got, err := ResolveFromContext(context.Background(), tx, "TenantID", resolver)
+	got, err := ResolveCredentialKey(context.Background(), tx, "TenantID", resolver)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -119,10 +85,10 @@ func TestResolveFromContext_NilDataWithResolver(t *testing.T) {
 	}
 }
 
-func TestResolveFromContext_NilDataWithoutResolver(t *testing.T) {
+func TestResolveCredentialKey_NilDataWithoutResolver(t *testing.T) {
 	tx := sdk.TransactionContext{Data: nil}
 
-	_, err := ResolveFromContext(context.Background(), tx, "TenantID", nil)
+	_, err := ResolveCredentialKey(context.Background(), tx, "TenantID", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -132,14 +98,14 @@ func TestResolveFromContext_NilDataWithoutResolver(t *testing.T) {
 	}
 }
 
-func TestResolveFromContext_ResolverReturnsEmptyString_ReturnsErrMissingContextData(t *testing.T) {
+func TestResolveCredentialKey_ResolverReturnsEmptyString_ReturnsErrMissingContextData(t *testing.T) {
 	tx := sdk.TransactionContext{
 		Data: map[string]any{},
 	}
 
 	resolver := &mockResolver{key: ""}
 
-	_, err := ResolveFromContext(context.Background(), tx, "TenantID", resolver)
+	_, err := ResolveCredentialKey(context.Background(), tx, "TenantID", resolver)
 	if err == nil {
 		t.Fatal("expected error for empty resolver return")
 	}
@@ -149,7 +115,7 @@ func TestResolveFromContext_ResolverReturnsEmptyString_ReturnsErrMissingContextD
 	}
 }
 
-func TestResolveFromContext_ResolverErrorWrappedWithFieldContext(t *testing.T) {
+func TestResolveCredentialKey_ResolverErrorWrappedWithFieldContext(t *testing.T) {
 	tx := sdk.TransactionContext{
 		Data: map[string]any{},
 	}
@@ -157,7 +123,7 @@ func TestResolveFromContext_ResolverErrorWrappedWithFieldContext(t *testing.T) {
 	resolverErr := fmt.Errorf("lookup failed: %w", ErrTenantNotFound)
 	resolver := &mockResolver{err: resolverErr}
 
-	_, err := ResolveFromContext(context.Background(), tx, "TenantID", resolver)
+	_, err := ResolveCredentialKey(context.Background(), tx, "TenantID", resolver)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -167,7 +133,7 @@ func TestResolveFromContext_ResolverErrorWrappedWithFieldContext(t *testing.T) {
 	}
 }
 
-func TestResolveFromContext_ResolverErrorPropagated(t *testing.T) {
+func TestResolveCredentialKey_ResolverErrorPropagated(t *testing.T) {
 	tx := sdk.TransactionContext{
 		Data: map[string]any{},
 	}
@@ -175,7 +141,7 @@ func TestResolveFromContext_ResolverErrorPropagated(t *testing.T) {
 	resolverErr := fmt.Errorf("lookup failed: %w", ErrTenantNotFound)
 	resolver := &mockResolver{err: resolverErr}
 
-	_, err := ResolveFromContext(context.Background(), tx, "TenantID", resolver)
+	_, err := ResolveCredentialKey(context.Background(), tx, "TenantID", resolver)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -185,14 +151,14 @@ func TestResolveFromContext_ResolverErrorPropagated(t *testing.T) {
 	}
 }
 
-func TestResolveFromContext_PresentOverrideIgnoresResolver(t *testing.T) {
+func TestResolveCredentialKey_PresentOverrideIgnoresResolver(t *testing.T) {
 	tx := sdk.TransactionContext{
 		Data: map[string]any{"TenantID": "explicit-tenant"},
 	}
 
 	resolver := &mockResolver{key: "resolved-tenant"}
 
-	got, err := ResolveFromContext(context.Background(), tx, "TenantID", resolver)
+	got, err := ResolveCredentialKey(context.Background(), tx, "TenantID", resolver)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

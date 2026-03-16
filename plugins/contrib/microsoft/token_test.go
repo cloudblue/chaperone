@@ -236,8 +236,8 @@ func TestGetCredentials_EmptyTenantID_ReturnsErrInvalidContextData(t *testing.T)
 		t.Fatal("expected error")
 	}
 
-	if !errors.Is(err, contrib.ErrInvalidContextData) {
-		t.Errorf("error = %v, want errors.Is(ErrInvalidContextData)", err)
+	if !errors.Is(err, sdk.ErrInvalidContextData) {
+		t.Errorf("error = %v, want errors.Is(sdk.ErrInvalidContextData)", err)
 	}
 
 	if !strings.Contains(err.Error(), "TenantID") {
@@ -271,8 +271,8 @@ func TestGetCredentials_EmptyResource_ReturnsErrInvalidContextData(t *testing.T)
 		t.Fatal("expected error")
 	}
 
-	if !errors.Is(err, contrib.ErrInvalidContextData) {
-		t.Errorf("error = %v, want errors.Is(ErrInvalidContextData)", err)
+	if !errors.Is(err, sdk.ErrInvalidContextData) {
+		t.Errorf("error = %v, want errors.Is(sdk.ErrInvalidContextData)", err)
 	}
 
 	if !strings.Contains(err.Error(), "Resource") {
@@ -302,8 +302,8 @@ func TestGetCredentials_TenantIDWrongType_ReturnsErrInvalidContextData(t *testin
 		t.Fatal("expected error")
 	}
 
-	if !errors.Is(err, contrib.ErrInvalidContextData) {
-		t.Errorf("error = %v, want errors.Is(ErrInvalidContextData)", err)
+	if !errors.Is(err, sdk.ErrInvalidContextData) {
+		t.Errorf("error = %v, want errors.Is(sdk.ErrInvalidContextData)", err)
 	}
 
 	if !strings.Contains(err.Error(), "float64") {
@@ -349,7 +349,7 @@ func TestGetCredentials_MaliciousTenantID_ReturnsErrInvalidContextData(t *testin
 				t.Fatalf("expected error for tenantID %q", tt.tenantID)
 			}
 
-			if !errors.Is(err, contrib.ErrInvalidContextData) {
+			if !errors.Is(err, sdk.ErrInvalidContextData) {
 				t.Errorf("error = %v, want errors.Is(ErrInvalidContextData)", err)
 			}
 		})
@@ -1359,7 +1359,7 @@ func TestGetCredentials_KeyResolver_MalformedTxDataErrorsEvenWithResolver(t *tes
 				t.Fatal("expected error")
 			}
 
-			if !errors.Is(err, contrib.ErrInvalidContextData) {
+			if !errors.Is(err, sdk.ErrInvalidContextData) {
 				t.Errorf("error = %v, want errors.Is(ErrInvalidContextData)", err)
 			}
 		})
@@ -1442,7 +1442,7 @@ func TestGetCredentials_KeyResolver_ValidTenantIDCheck_RejectsBadResolverValue(t
 		t.Fatal("expected error for path traversal tenant from resolver")
 	}
 
-	if !errors.Is(err, contrib.ErrInvalidContextData) {
+	if !errors.Is(err, sdk.ErrInvalidContextData) {
 		t.Errorf("error = %v, want errors.Is(ErrInvalidContextData)", err)
 	}
 }

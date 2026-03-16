@@ -205,10 +205,10 @@ Maps a [`TransactionContext`][tx] to a credential key (e.g., a tenant ID, sessio
 
 A successful return must be a non-empty string. Return [`ErrMissingContextData`](#sentinel-errors) if the transaction lacks enough information to resolve a key.
 
-### `ResolveFromContext`
+### `ResolveCredentialKey`
 
 ```go
-func ResolveFromContext(
+func ResolveCredentialKey(
     ctx context.Context,
     tx sdk.TransactionContext,
     dataField string,
@@ -216,7 +216,7 @@ func ResolveFromContext(
 ) (string, error)
 ```
 
-Shared helper that providers call instead of reading `tx.Data` directly. It implements a strict fallback chain:
+Shared helper for credential-selection keys (for example, Microsoft `TenantID`). It implements a strict fallback chain:
 
 1. If `tx.Data[dataField]` is present and is a valid non-empty string, return it (explicit connector override).
 2. If `tx.Data[dataField]` is present but has the wrong type or is empty, return [`ErrInvalidContextData`](#sentinel-errors). Malformed overrides never fall through to the resolver.
@@ -622,8 +622,8 @@ Resolves `TenantID` and `Resource` from the transaction context and returns a ca
 
 | Key | Type | Resolution | Description |
 |-----|------|------------|-------------|
-| `"TenantID"` | `string` | `tx.Data` override → [`KeyResolver`](#keyresolver) → error | Azure AD tenant (e.g., `"contoso.onmicrosoft.com"`). If present in `tx.Data`, that value is used (connector override). If absent, the configured `KeyResolver` is called. If no resolver is configured, returns [`ErrMissingContextData`](#sentinel-errors). Malformed overrides (wrong type, empty) return [`ErrInvalidContextData`](#sentinel-errors) and never fall through to the resolver. The resolved value must match `^[a-zA-Z0-9][a-zA-Z0-9.\-]*$` regardless of source. |
-| `"Resource"` | `string` | `tx.Data` only | Target resource (e.g., `"https://graph.microsoft.com"`). Always required in `tx.Data` — no resolver fallback. This is a per-request concern (which API the connector is calling). Returns [`ErrMissingContextData`](#sentinel-errors) if absent, [`ErrInvalidContextData`](#sentinel-errors) if not a string or empty. |
+| `"TenantID"` | `string` | `tx.Data` override → [`KeyResolver`](#keyresolver) → error | Azure AD tenant (e.g., `"contoso.onmicrosoft.com"`). Implemented via `ResolveCredentialKey`. If present in `tx.Data`, that value is used (connector override). If absent, the configured `KeyResolver` is called. If no resolver is configured, returns [`ErrMissingContextData`](#sentinel-errors). Malformed overrides (wrong type, empty) return [`ErrInvalidContextData`](#sentinel-errors) and never fall through to the resolver. The resolved value must match `^[a-zA-Z0-9][a-zA-Z0-9.\-]*$` regardless of source. |
+| `"Resource"` | `string` | `tx.Data` only | Target resource (e.g., `"https://graph.microsoft.com"`). Implemented via `DataString` plus explicit missing-field handling in the provider. Always required in `tx.Data` — no resolver fallback. This is a per-request concern (which API the connector is calling). Returns [`ErrMissingContextData`](#sentinel-errors) if absent, [`ErrInvalidContextData`](#sentinel-errors) if not a string or empty. |
 
 **Token endpoint URL construction:**
 
