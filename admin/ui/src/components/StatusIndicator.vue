@@ -10,24 +10,26 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed } from 'vue';
 
 const props = defineProps({
 	status: {
 		type: String,
-		default: "unknown",
-		validator: (v) => ["healthy", "unreachable", "unknown"].includes(v),
+		default: 'unknown',
+		validator: (v) =>
+			['healthy', 'unreachable', 'unknown', 'stale'].includes(v),
 	},
 	label: {
 		type: String,
-		default: "",
+		default: '',
 	},
 });
 
 const statusLabels = {
-	healthy: "Healthy",
-	unreachable: "Unreachable",
-	unknown: "Unknown",
+	healthy: 'Healthy',
+	unreachable: 'Unreachable',
+	unknown: 'Unknown',
+	stale: 'Stale',
 };
 
 const computedAriaLabel = computed(() => {
@@ -80,5 +82,14 @@ const computedAriaLabel = computed(() => {
 
 .unknown .label {
 	color: var(--color-text-tertiary);
+}
+
+.stale .dot {
+	background-color: var(--color-warning);
+	box-shadow: 0 0 0 3px var(--color-warning-bg);
+}
+
+.stale .label {
+	color: var(--color-warning);
 }
 </style>

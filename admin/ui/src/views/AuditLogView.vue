@@ -35,8 +35,8 @@
 </template>
 
 <script setup>
-import BaseCard from "../components/BaseCard.vue";
-import BaseEmptyState from "../components/BaseEmptyState.vue";
+import BaseCard from '../components/BaseCard.vue';
+import BaseEmptyState from '../components/BaseEmptyState.vue';
 </script>
 
 <style module>

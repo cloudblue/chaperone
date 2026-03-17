@@ -17,6 +17,7 @@ import (
 
 	"github.com/cloudblue/chaperone/admin"
 	"github.com/cloudblue/chaperone/admin/config"
+	"github.com/cloudblue/chaperone/admin/poller"
 	"github.com/cloudblue/chaperone/admin/store"
 )
 
@@ -50,11 +51,7 @@ func run() error {
 
 	configureLogging(cfg)
 
-	slog.Info("starting chaperone-admin",
-		"version", Version,
-		"commit", GitCommit,
-		"built", BuildDate,
-	)
+	slog.Info("starting chaperone-admin", "version", Version, "commit", GitCommit, "built", BuildDate)
 
 	st, err := store.Open(context.Background(), cfg.Database.Path)
 	if err != nil {
@@ -66,6 +63,13 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("creating server: %w", err)
 	}
+
+	// Start the background health poller.
+	pollerCtx, pollerCancel := context.WithCancel(context.Background())
+	defer pollerCancel()
+
+	p := poller.New(st, cfg.Scraper.Interval.Unwrap(), cfg.Scraper.Timeout.Unwrap())
+	go p.Run(pollerCtx)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
