@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudblue/chaperone/admin/metrics"
 	"github.com/cloudblue/chaperone/admin/store"
 )
 
@@ -35,6 +36,35 @@ func fakeProxy(t *testing.T) *httptest.Server {
 			w.Write([]byte(`{"status":"alive"}`))
 		case "/_ops/version":
 			w.Write([]byte(`{"version":"1.0.0"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+const sampleMetrics = `# HELP chaperone_requests_total Total number of requests processed
+# TYPE chaperone_requests_total counter
+chaperone_requests_total{vendor_id="acme",status_class="2xx",method="GET"} 1000
+# HELP chaperone_active_connections Number of active connections
+# TYPE chaperone_active_connections gauge
+chaperone_active_connections 5
+`
+
+func fakeProxyWithMetrics(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/_ops/health":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"status":"alive"}`))
+		case "/_ops/version":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"version":"1.0.0"}`))
+		case "/metrics":
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte(sampleMetrics))
 		default:
 			http.NotFound(w, r)
 		}
@@ -102,7 +132,7 @@ func TestPoller_SinglePoll_SetsHealthy(t *testing.T) {
 		t.Fatalf("CreateInstance() error = %v", err)
 	}
 
-	p := New(st, 1*time.Hour, 2*time.Second) // long interval; we call pollAll manually.
+	p := New(st, nil, 1*time.Hour, 2*time.Second) // long interval; we call pollAll manually.
 	p.pollAll(ctx)
 
 	got, err := st.GetInstance(ctx, inst.ID)
@@ -127,7 +157,7 @@ func TestPoller_ThreeFailures_SetsUnreachable(t *testing.T) {
 		t.Fatalf("CreateInstance() error = %v", err)
 	}
 
-	p := New(st, 1*time.Hour, 500*time.Millisecond)
+	p := New(st, nil, 1*time.Hour, 500*time.Millisecond)
 
 	// Poll 3 times to reach unreachable threshold.
 	for i := 0; i < failuresUntilUnreachable; i++ {
@@ -153,7 +183,7 @@ func TestPoller_TwoFailures_StaysUnknown(t *testing.T) {
 		t.Fatalf("CreateInstance() error = %v", err)
 	}
 
-	p := New(st, 1*time.Hour, 500*time.Millisecond)
+	p := New(st, nil, 1*time.Hour, 500*time.Millisecond)
 
 	// Poll only twice — should not yet transition to unreachable.
 	for i := 0; i < failuresUntilUnreachable-1; i++ {
@@ -181,7 +211,7 @@ func TestPoller_RecoveryAfterUnreachable_SetsHealthy(t *testing.T) {
 		t.Fatalf("CreateInstance() error = %v", err)
 	}
 
-	p := New(st, 1*time.Hour, 500*time.Millisecond)
+	p := New(st, nil, 1*time.Hour, 500*time.Millisecond)
 
 	// Drive to unreachable.
 	for i := 0; i < failuresUntilUnreachable; i++ {
@@ -216,7 +246,7 @@ func TestPoller_DeletedInstance_PrunesFailures(t *testing.T) {
 		t.Fatalf("CreateInstance() error = %v", err)
 	}
 
-	p := New(st, 1*time.Hour, 500*time.Millisecond)
+	p := New(st, nil, 1*time.Hour, 500*time.Millisecond)
 
 	// Accumulate failures.
 	p.pollAll(ctx)
@@ -246,7 +276,7 @@ func TestPoller_RunStopsOnContextCancel(t *testing.T) {
 	t.Parallel()
 	st := openTestStore(t)
 
-	p := New(st, 50*time.Millisecond, 500*time.Millisecond)
+	p := New(st, nil, 50*time.Millisecond, 500*time.Millisecond)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -262,5 +292,86 @@ func TestPoller_RunStopsOnContextCancel(t *testing.T) {
 		// OK — Run returned.
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not stop after context cancellation")
+	}
+}
+
+func TestPoller_MetricsScraping_RecordsToCollector(t *testing.T) {
+	t.Parallel()
+	st := openTestStore(t)
+	c := metrics.NewCollector(10)
+	proxy := fakeProxyWithMetrics(t)
+	addr := strings.TrimPrefix(proxy.URL, "http://")
+
+	ctx := context.Background()
+	inst, err := st.CreateInstance(ctx, "test-proxy", addr)
+	if err != nil {
+		t.Fatalf("CreateInstance() error = %v", err)
+	}
+
+	p := New(st, c, 1*time.Hour, 2*time.Second)
+	p.pollAll(ctx)
+
+	// Verify the collector received a snapshot.
+	im := c.GetInstanceMetrics(inst.ID)
+	if im == nil {
+		t.Fatal("expected metrics to be recorded after poll")
+	}
+	if im.DataPoints != 1 {
+		t.Errorf("DataPoints = %d, want 1", im.DataPoints)
+	}
+	if im.ActiveConnections != 5 {
+		t.Errorf("ActiveConnections = %v, want 5", im.ActiveConnections)
+	}
+}
+
+func TestPoller_MetricsScraping_SkippedOnHealthFailure(t *testing.T) {
+	t.Parallel()
+	st := openTestStore(t)
+	c := metrics.NewCollector(10)
+
+	ctx := context.Background()
+	inst, err := st.CreateInstance(ctx, "test-proxy", "127.0.0.1:1")
+	if err != nil {
+		t.Fatalf("CreateInstance() error = %v", err)
+	}
+
+	p := New(st, c, 1*time.Hour, 500*time.Millisecond)
+	p.pollAll(ctx)
+
+	// Collector should have no data — probe failed, so /metrics was not fetched.
+	if im := c.GetInstanceMetrics(inst.ID); im != nil {
+		t.Error("expected no metrics for unreachable instance")
+	}
+}
+
+func TestPoller_DeletedInstance_PrunesCollector(t *testing.T) {
+	t.Parallel()
+	st := openTestStore(t)
+	c := metrics.NewCollector(10)
+	proxy := fakeProxyWithMetrics(t)
+	addr := strings.TrimPrefix(proxy.URL, "http://")
+
+	ctx := context.Background()
+	inst, err := st.CreateInstance(ctx, "test-proxy", addr)
+	if err != nil {
+		t.Fatalf("CreateInstance() error = %v", err)
+	}
+
+	p := New(st, c, 1*time.Hour, 2*time.Second)
+	p.pollAll(ctx)
+
+	// Verify data exists.
+	if im := c.GetInstanceMetrics(inst.ID); im == nil {
+		t.Fatal("expected metrics after poll")
+	}
+
+	// Delete instance and poll again — collector should be pruned.
+	if err := st.DeleteInstance(ctx, inst.ID); err != nil {
+		t.Fatalf("DeleteInstance() error = %v", err)
+	}
+	p.pollAll(ctx)
+
+	if im := c.GetInstanceMetrics(inst.ID); im != nil {
+		t.Error("expected metrics to be pruned after instance deletion")
 	}
 }
