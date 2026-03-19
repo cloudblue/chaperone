@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/rand/v2"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cloudblue/chaperone/admin/metrics"
 	"github.com/cloudblue/chaperone/admin/store"
 )
 
@@ -48,23 +50,26 @@ func Probe(ctx context.Context, client *http.Client, address string) ProbeResult
 
 // Poller periodically polls registered proxy instances for health and version.
 type Poller struct {
-	store    *store.Store
-	client   *http.Client
-	interval time.Duration
-	timeout  time.Duration
+	store     *store.Store
+	collector *metrics.Collector
+	client    *http.Client
+	interval  time.Duration
+	timeout   time.Duration
 
 	mu       sync.Mutex
 	failures map[int64]int // instance ID → consecutive failure count
 }
 
 // New creates a Poller with the given configuration.
-func New(st *store.Store, interval, timeout time.Duration) *Poller {
+// If collector is non-nil, each successful poll also scrapes /metrics.
+func New(st *store.Store, collector *metrics.Collector, interval, timeout time.Duration) *Poller {
 	return &Poller{
-		store:    st,
-		client:   &http.Client{Timeout: timeout},
-		interval: interval,
-		timeout:  timeout,
-		failures: make(map[int64]int),
+		store:     st,
+		collector: collector,
+		client:    &http.Client{Timeout: timeout},
+		interval:  interval,
+		timeout:   timeout,
+		failures:  make(map[int64]int),
 	}
 }
 
@@ -95,16 +100,18 @@ func (p *Poller) pollAll(ctx context.Context) {
 		slog.Error("poller: listing instances", "error", err)
 		return
 	}
-	// Prune failure counts for instances no longer in the registry.
+	// Prune failure counts and stale metric buffers.
 	p.pruneFailures(instances)
+	p.pruneCollector(instances)
 
 	if len(instances) == 0 {
 		return
 	}
 
 	type result struct {
-		id    int64
-		probe ProbeResult
+		id      int64
+		probe   ProbeResult
+		metrics []byte // raw /metrics text, nil if unavailable
 	}
 
 	results := make(chan result, len(instances))
@@ -120,7 +127,11 @@ func (p *Poller) pollAll(ctx context.Context) {
 			sleep(ctx, jitter)
 
 			pr := Probe(ctx, p.client, inst.Address)
-			results <- result{id: inst.ID, probe: pr}
+			var raw []byte
+			if pr.OK && p.collector != nil {
+				raw = fetchMetrics(ctx, p.client, inst.Address)
+			}
+			results <- result{id: inst.ID, probe: pr, metrics: raw}
 		}()
 	}
 
@@ -129,8 +140,14 @@ func (p *Poller) pollAll(ctx context.Context) {
 		close(results)
 	}()
 
+	now := time.Now()
 	for r := range results {
 		p.applyResult(ctx, r.id, r.probe)
+		if r.metrics != nil {
+			if err := p.collector.RecordScrape(r.id, r.metrics, now); err != nil {
+				slog.Warn("poller: parsing metrics", "id", r.id, "error", err)
+			}
+		}
 	}
 }
 
@@ -227,6 +244,42 @@ func fetchVersion(ctx context.Context, client *http.Client, address string) (str
 		return "", fmt.Errorf("decoding version response: %w", err)
 	}
 	return body.Version, nil
+}
+
+func (p *Poller) pruneCollector(active []store.Instance) {
+	if p.collector == nil {
+		return
+	}
+	ids := make(map[int64]bool, len(active))
+	for i := range active {
+		ids[active[i].ID] = true
+	}
+	p.collector.Prune(ids)
+}
+
+// fetchMetrics calls GET /metrics on a proxy admin port and returns the raw body.
+func fetchMetrics(ctx context.Context, client *http.Client, address string) []byte {
+	url := fmt.Sprintf("http://%s/metrics", address)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return nil
+	}
+
+	resp, err := client.Do(req) // #nosec G704 -- address comes from admin-managed instance registry
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB limit
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 // friendlyError converts network errors into user-facing messages.
