@@ -91,6 +91,13 @@
 			stale data — last seen over 2 minutes ago
 		</div>
 
+		<!-- Fleet KPI panel -->
+		<FleetKpiPanel
+			v-if="metricsStore.fleet && store.instances.length > 0"
+			:metrics="metricsStore.fleet"
+			:total-instances="store.instances.length"
+		/>
+
 		<div :class="$style.content">
 			<!-- First-run welcome screen -->
 			<div
@@ -163,6 +170,7 @@
 					v-for="inst in store.instances"
 					:key="inst.id"
 					:instance="inst"
+					@click="handleInstanceClick(inst)"
 					@edit="handleEdit"
 					@delete="handleDelete"
 				/>
@@ -172,6 +180,7 @@
 			<BaseCard v-else>
 				<InstanceTable
 					:instances="store.instances"
+					@click="handleInstanceClick"
 					@edit="handleEdit"
 					@delete="handleDelete"
 				/>
@@ -201,18 +210,23 @@
 
 <script setup>
 import { ref, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import BaseCard from '../components/BaseCard.vue';
 import BaseButton from '../components/BaseButton.vue';
 import InstanceCard from '../components/InstanceCard.vue';
 import InstanceTable from '../components/InstanceTable.vue';
 import AddInstanceModal from '../components/AddInstanceModal.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
+import FleetKpiPanel from '../components/FleetKpiPanel.vue';
 import { useInstanceStore } from '../stores/instances.js';
+import { useMetricsStore } from '../stores/metrics.js';
 import { filterStaleInstances } from '../utils/instance.js';
 import { usePolling } from '../composables/usePolling.js';
 import { useConfirmDialog } from '../composables/useConfirmDialog.js';
 
+const router = useRouter();
 const store = useInstanceStore();
+const metricsStore = useMetricsStore();
 const showModal = ref(false);
 const editingInstance = ref(null);
 const viewMode = ref('card');
@@ -220,6 +234,11 @@ const viewMode = ref('card');
 const staleInstances = computed(() => filterStaleInstances(store.instances));
 
 usePolling(() => store.fetchInstances(), 10000);
+usePolling(() => metricsStore.fetchFleetMetrics(), 10000);
+
+function handleInstanceClick(instance) {
+	router.push({ name: 'instance-detail', params: { id: instance.id } });
+}
 
 const {
 	pending: deletingInstance,

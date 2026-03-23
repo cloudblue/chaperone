@@ -139,6 +139,8 @@ type SeriesPoint struct {
 	Time              int64   `json:"t"`
 	RPS               float64 `json:"rps"`
 	ErrorRate         float64 `json:"err"`
+	P50               float64 `json:"p50"`
+	P95               float64 `json:"p95"`
 	P99               float64 `json:"p99"`
 	ActiveConnections float64 `json:"conn"`
 }
