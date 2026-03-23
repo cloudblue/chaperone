@@ -23,12 +23,6 @@ var ErrNoRouteMatch = errors.New("no route matched")
 // the Connect platform sent a request without the expected context headers.
 var ErrMissingContextData = errors.New("missing required context data")
 
-// ErrInvalidContextData indicates a required key is present in
-// TransactionContext.Data but has the wrong type (e.g., TenantID is a
-// number instead of a string). Since Data is map[string]any from JSON
-// unmarshaling, type assertions can fail. This is a platform/caller issue.
-var ErrInvalidContextData = errors.New("invalid context data type")
-
 // ErrTenantNotFound indicates the requested tenant is not in the static
 // config and no resolver callback is set, or the resolver returned not found.
 // This is a proxy configuration issue.

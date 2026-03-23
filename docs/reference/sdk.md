@@ -176,6 +176,29 @@ type TransactionContext struct {
 | `SubscriptionID` | `string` | Subscription identifier. |
 | `TargetURL` | `string` | Destination URL for this request. Already validated against the allow-list by the Core. |
 
+#### Helper Methods
+
+##### `DataString`
+
+```go
+func (tx TransactionContext) DataString(field string) (value string, ok bool, err error)
+```
+
+Returns the `tx.Data[field]` string value when present and valid.
+
+**Return values:**
+- `value`: the string when present and valid
+- `ok`: `true` when the field is present, `false` when absent  
+- `err`: `ErrInvalidContextData` when present but wrong type or empty
+
+**Behavior:**
+
+1. If `tx.Data[field]` is present and is a valid non-empty string, returns `(value, true, nil)`.
+2. If present but has the wrong type or is an empty string, returns `("", true, ErrInvalidContextData)`.
+3. If absent, returns `("", false, nil)`.
+
+Use this helper to validate optional/required fields while keeping "missing field" policy at the call site (see [DataString usage example](../tutorials/microsoft-sam-mux.md#handling-context-data)).
+
 #### Header Mapping
 
 These fields are extracted from headers using the configured prefix
@@ -258,7 +281,27 @@ type ResponseAction struct {
 
 ---
 
-## Public API
+## Errors
+
+### `ErrInvalidContextData`
+
+```go
+var ErrInvalidContextData = errors.New("invalid context data type")
+```
+
+Indicates a transaction context field is present but fails validation (wrong type or empty string).
+Used by [`DataString`](#datastring) and other context validation functions.
+
+Check with [`errors.Is`](https://pkg.go.dev/errors#Is):
+
+```go
+value, ok, err := tx.DataString("TenantID")
+if errors.Is(err, sdk.ErrInvalidContextData) {
+    // Field present but invalid (wrong type or empty)
+}
+```
+
+---
 
 The Core module (`github.com/cloudblue/chaperone`) provides the entry
 points for running the proxy.

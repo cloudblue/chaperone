@@ -3,6 +3,8 @@
 
 package sdk
 
+import "fmt"
+
 // TransactionContext contains the metadata for a single proxy request.
 //
 // This information is extracted from the inbound request headers
@@ -38,4 +40,33 @@ type TransactionContext struct {
 	// Extracted from {HeaderPrefix}-Target-URL.
 	// This has already been validated against the allow-list by the core.
 	TargetURL string
+}
+
+// DataString returns the tx.Data[field] string value when present.
+//
+// Return values:
+//   - value: the string when present and valid
+//   - ok: true when the field is present, false when absent
+//   - err: ErrInvalidContextData when present but wrong type or empty
+//
+// This is a utility for plugin implementations to safely extract
+// string values from the transaction context data with proper validation.
+func (tx TransactionContext) DataString(field string) (value string, ok bool, err error) {
+	raw, found := tx.Data[field]
+	if !found {
+		return "", false, nil
+	}
+
+	s, strOK := raw.(string)
+	if !strOK {
+		return "", true, fmt.Errorf("%s must be a string, got %T: %w",
+			field, raw, ErrInvalidContextData)
+	}
+
+	if s == "" {
+		return "", true, fmt.Errorf("%s is empty in transaction context: %w",
+			field, ErrInvalidContextData)
+	}
+
+	return s, true, nil
 }

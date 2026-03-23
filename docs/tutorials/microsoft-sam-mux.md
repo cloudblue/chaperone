@@ -211,6 +211,7 @@ The proxy handles the full auth lifecycle:
 ## Going further
 
 - **Resolve TenantID automatically** — Instead of requiring `TenantID` in every request's context data, use a [`KeyResolver`](../reference/contrib-plugins.md#keyresolver) to map transaction fields (marketplace, vendor) to the correct tenant. The built-in [`StaticMapping`](../reference/contrib-plugins.md#staticmapping) provides a declarative rule table — see the [reference](../reference/contrib-plugins.md#staticmapping) for configuration details.
+  `TenantID` supports resolver fallback; `Resource` remains a required explicit value in `X-Connect-Context-Data` for each request.
 
 - **Add more tenants** — Run `chaperone-onboard microsoft` for each tenant and place the token file in the `tokens/` directory. One onboarding per tenant (MRRT). The `RefreshTokenSource` manages an LRU pool of per-tenant entries automatically.
 - **Multiple app registrations** — If different groups of tenants require separate Azure AD app registrations (e.g., one per region or partner program), create a `RefreshTokenSource` per app and route them through the Mux. Each source gets its own `KeyResolver` for tenant resolution. All sources can share a single `FileStore` because tokens are keyed by tenant, not by app registration. See the [multiple app registrations example](../reference/contrib-plugins.md#multiple-microsoft-app-registrations) in the contrib reference for complete code.

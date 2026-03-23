@@ -201,19 +201,23 @@ func (s *RefreshTokenSource) GetCredentials(
 	tx sdk.TransactionContext,
 	_ *http.Request,
 ) (*sdk.Credential, error) {
-	tenantID, err := contrib.ResolveFromContext(ctx, tx, "TenantID", s.keyResolver)
+	tenantID, err := contrib.ResolveCredentialKey(ctx, tx, "TenantID", s.keyResolver)
 	if err != nil {
 		return nil, err
 	}
 
 	if !validTenantID.MatchString(tenantID) {
 		return nil, fmt.Errorf("TenantID contains invalid characters: %w",
-			contrib.ErrInvalidContextData)
+			sdk.ErrInvalidContextData)
 	}
 
-	resource, err := contrib.ResolveFromContext(ctx, tx, "Resource", nil)
+	resource, ok, err := tx.DataString("Resource")
 	if err != nil {
 		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("Resource not present in transaction context: %w", //nolint:staticcheck // Resource is an SDK context key identifier, so ignore ST1005 (capitalized error string)
+			contrib.ErrMissingContextData)
 	}
 
 	entry := s.getOrCreate(ctx, tenantID)

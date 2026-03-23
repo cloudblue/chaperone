@@ -23,7 +23,7 @@ type KeyResolver interface {
 	ResolveKey(ctx context.Context, tx sdk.TransactionContext) (string, error)
 }
 
-// ResolveFromContext extracts a key from tx.Data if present, otherwise
+// ResolveCredentialKey extracts a key from tx.Data if present, otherwise
 // delegates to the resolver. Returns ErrMissingContextData if neither
 // source provides a value.
 //
@@ -31,15 +31,18 @@ type KeyResolver interface {
 // return ErrInvalidContextData — they never fall through to the resolver.
 // This preserves strictness: a connector bug that sends a bad value is
 // surfaced immediately, not silently masked by the resolver.
-func ResolveFromContext(
+func ResolveCredentialKey(
 	ctx context.Context,
 	tx sdk.TransactionContext,
 	dataField string,
 	resolver KeyResolver,
 ) (string, error) {
-	raw, ok := tx.Data[dataField]
+	key, ok, err := tx.DataString(dataField)
+	if err != nil {
+		return "", err
+	}
 	if ok {
-		return extractOverride(raw, dataField)
+		return key, nil
 	}
 
 	if resolver != nil {
@@ -56,22 +59,4 @@ func ResolveFromContext(
 
 	return "", fmt.Errorf("%s not present in transaction context: %w",
 		dataField, ErrMissingContextData)
-}
-
-// extractOverride validates an explicit override from tx.Data. It returns
-// ErrInvalidContextData for wrong type or empty string — these never fall
-// through to the resolver.
-func extractOverride(raw any, field string) (string, error) {
-	s, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("%s must be a string, got %T: %w",
-			field, raw, ErrInvalidContextData)
-	}
-
-	if s == "" {
-		return "", fmt.Errorf("%s is empty in transaction context: %w",
-			field, ErrInvalidContextData)
-	}
-
-	return s, nil
 }
