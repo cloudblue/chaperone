@@ -351,6 +351,8 @@ func (*Collector) buildSeries(buf *Ring) []SeriesPoint {
 			Time:              curr.Time.Unix(),
 			RPS:               counterRate(prev.totalRequests(), curr.totalRequests(), dt),
 			ErrorRate:         errorRate(prev.totalRequests(), curr.totalRequests(), prev.totalErrors(), curr.totalErrors()),
+			P50:               secondsToMs(histogramQuantile(0.50, dh)),
+			P95:               secondsToMs(histogramQuantile(0.95, dh)),
 			P99:               secondsToMs(histogramQuantile(0.99, dh)),
 			ActiveConnections: curr.ActiveConnections,
 		})

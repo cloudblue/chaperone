@@ -14,20 +14,24 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "echarts": "^6.0.0",
+    "pinia": "^3.0.4",
     "vue": "^3.5.29",
-    "vue-router": "^5.0.3",
-    "pinia": "^3.0.4"
+    "vue-echarts": "^8.0.1",
+    "vue-router": "^5.0.3"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.4",
     "eslint": "^10.0.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-vue": "^10.8.0",
-    "prettier": "^3.8.1",
     "jsdom": "^26.1.0",
+    "prettier": "^3.8.1",
     "vite": "^7.3.1",
     "vitest": "^3.2.1"
   }

@@ -11,7 +11,11 @@
 						to="/"
 						:class="[
 							$style.navItem,
-							{ [$style.active]: route.name === 'dashboard' },
+							{
+								[$style.active]:
+									route.name === 'dashboard' ||
+									route.name === 'instance-detail',
+							},
 						]"
 					>
 						<svg

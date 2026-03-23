@@ -12,7 +12,12 @@
 				</tr>
 			</thead>
 			<tbody>
-				<tr v-for="inst in instances" :key="inst.id" :class="$style.row">
+				<tr
+					v-for="inst in instances"
+					:key="inst.id"
+					:class="$style.row"
+					@click="$emit('click', inst)"
+				>
 					<td :class="$style.td">
 						<StatusIndicator
 							:status="isInstanceStale(inst) ? 'stale' : inst.status"
@@ -26,14 +31,14 @@
 						<BaseButton
 							size="sm"
 							variant="secondary"
-							@click="$emit('edit', inst)"
+							@click.stop="$emit('edit', inst)"
 						>
 							Edit
 						</BaseButton>
 						<BaseButton
 							size="sm"
 							variant="ghost"
-							@click="$emit('delete', inst)"
+							@click.stop="$emit('delete', inst)"
 						>
 							Remove
 						</BaseButton>
@@ -53,7 +58,7 @@ defineProps({
 	instances: { type: Array, required: true },
 });
 
-defineEmits(['edit', 'delete']);
+defineEmits(['click', 'edit', 'delete']);
 </script>
 
 <style module>
@@ -76,6 +81,10 @@ defineEmits(['edit', 'delete']);
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
 	border-bottom: 1px solid var(--color-border);
+}
+
+.row {
+	cursor: pointer;
 }
 
 .row:hover {
