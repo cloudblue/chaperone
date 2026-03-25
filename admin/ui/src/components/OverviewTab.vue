@@ -4,28 +4,25 @@
 		<div :class="$style.kpiGrid">
 			<KpiCard
 				label="RPS"
-				:value="formatRps(metrics.rps)"
+				:value="formatRps(rps)"
 				:trend="trendDirection(metrics.rps_trend)"
 				trend-sentiment="positive"
 			/>
 			<KpiCard
 				label="P99 Latency"
-				:value="formatLatency(metrics.p99_ms)"
+				:value="formatLatency(p99)"
 				:subtitle="latencySubtitle"
 			/>
 			<KpiCard
 				label="Error Rate"
-				:value="formatErrorRate(metrics.error_rate)"
+				:value="formatErrorRate(errorRate)"
 				:trend="trendDirection(metrics.error_rate_trend)"
 				trend-sentiment="negative"
 			/>
-			<KpiCard
-				label="Active Connections"
-				:value="formatCount(metrics.active_connections)"
-			/>
+			<KpiCard label="Active Connections" :value="formatCount(connections)" />
 			<KpiCard
 				label="Panics"
-				:value="formatCount(metrics.panics_total)"
+				:value="formatCount(panicCount)"
 				trend-sentiment="negative"
 			/>
 		</div>
@@ -53,6 +50,7 @@ import { computed } from 'vue';
 import KpiCard from './KpiCard.vue';
 import { VChart } from '../utils/chart-setup.js';
 import { escapeHtml } from '../utils/html.js';
+import { useAnimatedValue } from '../composables/useAnimatedValue.js';
 import {
 	formatRps,
 	formatLatency,
@@ -66,10 +64,15 @@ const props = defineProps({
 	metrics: { type: Object, required: true },
 });
 
+const rps = useAnimatedValue(computed(() => props.metrics.rps));
+const p99 = useAnimatedValue(computed(() => props.metrics.p99_ms));
+const errorRate = useAnimatedValue(computed(() => props.metrics.error_rate));
+const connections = useAnimatedValue(
+	computed(() => props.metrics.active_connections),
+);
+const panicCount = useAnimatedValue(computed(() => props.metrics.panics_total));
 const latencySubtitle = computed(() => {
-	const p50 = formatLatency(props.metrics.p50_ms);
-	const p95 = formatLatency(props.metrics.p95_ms);
-	return `p50 ${p50} · p95 ${p95}`;
+	return `p50 ${formatLatency(props.metrics.p50_ms)} · p95 ${formatLatency(props.metrics.p95_ms)}`;
 });
 
 const hasSeries = computed(

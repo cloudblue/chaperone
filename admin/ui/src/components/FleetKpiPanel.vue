@@ -3,23 +3,20 @@
 		<div :class="$style.grid">
 			<KpiCard
 				label="Total RPS"
-				:value="formatRps(metrics.total_rps)"
+				:value="formatRps(rps)"
 				:trend="trendDirection(metrics.rps_trend)"
 				trend-sentiment="positive"
 			/>
 			<KpiCard
 				label="Error Rate"
-				:value="formatErrorRate(metrics.fleet_error_rate)"
+				:value="formatErrorRate(errorRate)"
 				:trend="trendDirection(metrics.error_rate_trend)"
 				trend-sentiment="negative"
 			/>
-			<KpiCard
-				label="Active Connections"
-				:value="formatCount(metrics.total_active_connections)"
-			/>
+			<KpiCard label="Active Connections" :value="formatCount(connections)" />
 			<KpiCard
 				label="Panics"
-				:value="formatCount(metrics.total_panics)"
+				:value="formatCount(panics)"
 				trend-sentiment="negative"
 			/>
 		</div>
@@ -30,6 +27,7 @@
 <script setup>
 import { computed } from 'vue';
 import KpiCard from './KpiCard.vue';
+import { useAnimatedValue } from '../composables/useAnimatedValue.js';
 import {
 	formatRps,
 	formatErrorRate,
@@ -41,6 +39,15 @@ const props = defineProps({
 	metrics: { type: Object, required: true },
 	totalInstances: { type: Number, required: true },
 });
+
+const rps = useAnimatedValue(computed(() => props.metrics.total_rps));
+const errorRate = useAnimatedValue(
+	computed(() => props.metrics.fleet_error_rate),
+);
+const connections = useAnimatedValue(
+	computed(() => props.metrics.total_active_connections),
+);
+const panics = useAnimatedValue(computed(() => props.metrics.total_panics));
 
 const scopeNote = computed(() => {
 	const reporting = props.metrics.instances?.length ?? 0;
