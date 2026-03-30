@@ -111,9 +111,16 @@ func (c *Collector) GetInstanceSummary(instanceID int64) *InstanceSummary {
 		return nil
 	}
 
+	s := instanceSummary(buf, instanceID)
+	return &s
+}
+
+// instanceSummary is the shared implementation for GetInstanceSummary and
+// summarizeForFleet. Caller must hold at least a read lock.
+func instanceSummary(buf *Ring, id int64) InstanceSummary {
 	last, _ := buf.Last()
-	s := &InstanceSummary{
-		InstanceID:        instanceID,
+	s := InstanceSummary{
+		InstanceID:        id,
 		ActiveConnections: last.ActiveConnections,
 		PanicsTotal:       last.PanicsTotal,
 	}
@@ -123,8 +130,7 @@ func (c *Collector) GetInstanceSummary(instanceID int64) *InstanceSummary {
 		dt := last.Time.Sub(prev.Time)
 		s.RPS = counterRate(prev.totalRequests(), last.totalRequests(), dt)
 		s.ErrorRate = errorRate(prev.totalRequests(), last.totalRequests(), prev.totalErrors(), last.totalErrors())
-		dh := mergeHistogramDelta(prev, last)
-		s.P99 = secondsToMs(histogramQuantile(0.99, dh))
+		s.P99 = secondsToMs(histogramQuantile(0.99, mergeHistogramDelta(prev, last)))
 	}
 
 	return s
@@ -172,20 +178,11 @@ func (c *Collector) GetFleetMetrics(instanceIDs []int64) *FleetMetrics {
 
 // summarizeForFleet computes an InstanceSummary and accumulates fleet-wide deltas.
 func (c *Collector) summarizeForFleet(buf *Ring, id int64, acc *fleetAccumulator) InstanceSummary {
-	last, _ := buf.Last()
-	s := InstanceSummary{
-		InstanceID:        id,
-		ActiveConnections: last.ActiveConnections,
-		PanicsTotal:       last.PanicsTotal,
-	}
+	s := instanceSummary(buf, id)
 
 	if buf.Len() >= 2 {
+		last, _ := buf.Last()
 		prev := buf.At(buf.Len() - 2)
-		dt := last.Time.Sub(prev.Time)
-		s.RPS = counterRate(prev.totalRequests(), last.totalRequests(), dt)
-		s.ErrorRate = errorRate(prev.totalRequests(), last.totalRequests(), prev.totalErrors(), last.totalErrors())
-		s.P99 = secondsToMs(histogramQuantile(0.99, mergeHistogramDelta(prev, last)))
-
 		reqD := last.totalRequests() - prev.totalRequests()
 		errD := last.totalErrors() - prev.totalErrors()
 		if reqD >= 0 && errD >= 0 {
@@ -256,19 +253,19 @@ func (*Collector) fillVendorMetrics(im *InstanceMetrics, prev, curr Snapshot) {
 	})
 }
 
-// fillTrends computes trend values by comparing the current rate to the rate
-// from approximately 1 hour ago.
-func (*Collector) fillTrends(im *InstanceMetrics, buf *Ring) {
+// historicalPair returns the two snapshots forming a rate pair from ~1 hour
+// ago in the ring buffer. If the buffer doesn't span at least 50 minutes,
+// ok is false.
+func historicalPair(buf *Ring) (prev, curr Snapshot, ok bool) {
 	if buf.Len() < 4 {
-		return
+		return Snapshot{}, Snapshot{}, false
 	}
 	newest := buf.At(buf.Len() - 1)
 	oldest := buf.At(0)
 	if newest.Time.Sub(oldest.Time) < 50*time.Minute {
-		return
+		return Snapshot{}, Snapshot{}, false
 	}
 
-	// Find the snapshot closest to 1h ago and form a rate pair.
 	target := newest.Time.Add(-1 * time.Hour)
 	idx := findNearest(buf, target)
 	start := idx
@@ -276,10 +273,18 @@ func (*Collector) fillTrends(im *InstanceMetrics, buf *Ring) {
 		start = idx - 1
 	}
 	if start+1 >= buf.Len() {
+		return Snapshot{}, Snapshot{}, false
+	}
+	return buf.At(start), buf.At(start + 1), true
+}
+
+// fillTrends computes trend values by comparing the current rate to the rate
+// from approximately 1 hour ago.
+func (*Collector) fillTrends(im *InstanceMetrics, buf *Ring) {
+	prev, curr, ok := historicalPair(buf)
+	if !ok {
 		return
 	}
-	prev := buf.At(start)
-	curr := buf.At(start + 1)
 	dt := curr.Time.Sub(prev.Time)
 
 	oldRPS := counterRate(prev.totalRequests(), curr.totalRequests(), dt)
@@ -299,26 +304,10 @@ type historicalTrend struct {
 
 // trendSnapshot returns historical RPS and request/error deltas from ~1h ago.
 func (*Collector) trendSnapshot(buf *Ring) (historicalTrend, bool) {
-	if buf.Len() < 4 {
+	prev, curr, ok := historicalPair(buf)
+	if !ok {
 		return historicalTrend{}, false
 	}
-	newest := buf.At(buf.Len() - 1)
-	oldest := buf.At(0)
-	if newest.Time.Sub(oldest.Time) < 50*time.Minute {
-		return historicalTrend{}, false
-	}
-
-	target := newest.Time.Add(-1 * time.Hour)
-	idx := findNearest(buf, target)
-	start := idx
-	if start > 0 {
-		start = idx - 1
-	}
-	if start+1 >= buf.Len() {
-		return historicalTrend{}, false
-	}
-	prev := buf.At(start)
-	curr := buf.At(start + 1)
 	dt := curr.Time.Sub(prev.Time)
 
 	reqD := curr.totalRequests() - prev.totalRequests()

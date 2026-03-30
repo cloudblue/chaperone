@@ -14,15 +14,33 @@
 		>
 			<div :class="$style.chartSection">
 				<h3 :class="$style.chartTitle">Requests Per Second</h3>
-				<VChart :option="rpsChartOption" autoresize :class="$style.chart" />
+				<VChart
+					ref="rpsChartRef"
+					:option="rpsChartOption"
+					autoresize
+					:class="$style.chart"
+					@datazoom="(e) => syncZoom('rps', e)"
+				/>
 			</div>
 			<div :class="$style.chartSection">
 				<h3 :class="$style.chartTitle">Latency</h3>
-				<VChart :option="latencyChartOption" autoresize :class="$style.chart" />
+				<VChart
+					ref="latencyChartRef"
+					:option="latencyChartOption"
+					autoresize
+					:class="$style.chart"
+					@datazoom="(e) => syncZoom('latency', e)"
+				/>
 			</div>
 			<div :class="$style.chartSection">
 				<h3 :class="$style.chartTitle">Error Rate</h3>
-				<VChart :option="errorChartOption" autoresize :class="$style.chart" />
+				<VChart
+					ref="errorChartRef"
+					:option="errorChartOption"
+					autoresize
+					:class="$style.chart"
+					@datazoom="(e) => syncZoom('error', e)"
+				/>
 			</div>
 		</div>
 
@@ -40,7 +58,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, shallowRef } from 'vue';
 import VendorTable from './VendorTable.vue';
 import { VChart } from '../utils/chart-setup.js';
 import { escapeHtml } from '../utils/html.js';
@@ -94,15 +112,66 @@ watch(
 const selected = computed(() => [...selectedVendors.value]);
 const singleVendor = computed(() => selected.value.length === 1);
 
+// Shared zoom state for time-aligned charts.
+const rpsChartRef = shallowRef(null);
+const latencyChartRef = shallowRef(null);
+const errorChartRef = shallowRef(null);
+const zoomStart = ref(0);
+const zoomEnd = ref(100);
+
+let syncing = false;
+
+function syncZoom(source, event) {
+	if (syncing) return;
+	syncing = true;
+
+	const batch = event.batch?.[0] ?? event;
+	const start = batch.start ?? zoomStart.value;
+	const end = batch.end ?? zoomEnd.value;
+	zoomStart.value = start;
+	zoomEnd.value = end;
+
+	const refs = {
+		rps: rpsChartRef,
+		latency: latencyChartRef,
+		error: errorChartRef,
+	};
+	for (const [key, chartRef] of Object.entries(refs)) {
+		if (key === source || !chartRef.value) continue;
+		chartRef.value.dispatchAction({
+			type: 'dataZoom',
+			start,
+			end,
+		});
+	}
+	syncing = false;
+}
+
 function buildBaseOption() {
 	return {
-		grid: { top: 16, right: 16, bottom: 24, left: 56 },
+		grid: { top: 16, right: 16, bottom: 56, left: 56 },
 		xAxis: {
 			type: 'time',
 			axisLabel: { fontSize: 11 },
 			splitLine: { show: false },
 		},
 		tooltip: { trigger: 'axis' },
+		dataZoom: [
+			{
+				type: 'slider',
+				xAxisIndex: 0,
+				start: zoomStart.value,
+				end: zoomEnd.value,
+				height: 20,
+				bottom: 4,
+			},
+			{
+				type: 'inside',
+				xAxisIndex: 0,
+				start: zoomStart.value,
+				end: zoomEnd.value,
+			},
+		],
 		animationDuration: 300,
 	};
 }
