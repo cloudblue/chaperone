@@ -17,6 +17,7 @@ import (
 
 	"github.com/cloudblue/chaperone/admin"
 	"github.com/cloudblue/chaperone/admin/config"
+	"github.com/cloudblue/chaperone/admin/metrics"
 	"github.com/cloudblue/chaperone/admin/poller"
 	"github.com/cloudblue/chaperone/admin/store"
 )
@@ -59,24 +60,30 @@ func run() error {
 	}
 	defer st.Close()
 
-	srv, err := admin.NewServer(cfg, st)
+	collector := metrics.NewCollector(metrics.DefaultCapacity)
+
+	srv, err := admin.NewServer(cfg, st, collector)
 	if err != nil {
 		return fmt.Errorf("creating server: %w", err)
 	}
 
-	// Start the background health poller.
+	// Start the background health + metrics poller.
 	pollerCtx, pollerCancel := context.WithCancel(context.Background())
 	defer pollerCancel()
 
-	p := poller.New(st, cfg.Scraper.Interval.Unwrap(), cfg.Scraper.Timeout.Unwrap())
+	p := poller.New(st, collector, cfg.Scraper.Interval.Unwrap(), cfg.Scraper.Timeout.Unwrap())
 	go p.Run(pollerCtx)
 
+	return serve(cfg.Server.Addr, srv)
+}
+
+func serve(addr string, srv *admin.Server) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("listening", "addr", cfg.Server.Addr)
+		slog.Info("listening", "addr", addr)
 		errCh <- srv.ListenAndServe()
 	}()
 

@@ -1,5 +1,5 @@
 <template>
-	<BaseCard :class="$style.card">
+	<BaseCard :class="$style.card" @click="$emit('click')">
 		<div :class="$style.header">
 			<div :class="$style.titleRow">
 				<h3 :class="$style.name">{{ instance.name }}</h3>
@@ -26,11 +26,15 @@
 			<BaseButton
 				size="sm"
 				variant="secondary"
-				@click="$emit('edit', instance)"
+				@click.stop="$emit('edit', instance)"
 			>
 				Edit
 			</BaseButton>
-			<BaseButton size="sm" variant="ghost" @click="$emit('delete', instance)">
+			<BaseButton
+				size="sm"
+				variant="ghost"
+				@click.stop="$emit('delete', instance)"
+			>
 				Remove
 			</BaseButton>
 		</div>
@@ -52,7 +56,7 @@ const props = defineProps({
 	instance: { type: Object, required: true },
 });
 
-defineEmits(['edit', 'delete']);
+defineEmits(['click', 'edit', 'delete']);
 
 const isStale = computed(() => isInstanceStale(props.instance));
 const statusLabel = computed(() =>
@@ -62,7 +66,12 @@ const statusLabel = computed(() =>
 
 <style module>
 .card {
-	cursor: default;
+	cursor: pointer;
+	transition: box-shadow 0.15s;
+}
+
+.card:hover {
+	box-shadow: var(--shadow-md);
 }
 
 .header {

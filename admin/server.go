@@ -15,6 +15,7 @@ import (
 
 	"github.com/cloudblue/chaperone/admin/api"
 	"github.com/cloudblue/chaperone/admin/config"
+	"github.com/cloudblue/chaperone/admin/metrics"
 	"github.com/cloudblue/chaperone/admin/store"
 )
 
@@ -23,10 +24,11 @@ type Server struct {
 	httpServer *http.Server
 	config     *config.Config
 	store      *store.Store
+	collector  *metrics.Collector
 }
 
 // NewServer creates a new admin portal server.
-func NewServer(cfg *config.Config, st *store.Store) (*Server, error) {
+func NewServer(cfg *config.Config, st *store.Store, collector *metrics.Collector) (*Server, error) {
 	mux := http.NewServeMux()
 
 	s := &Server{
@@ -38,8 +40,9 @@ func NewServer(cfg *config.Config, st *store.Store) (*Server, error) {
 			WriteTimeout:      30 * time.Second,
 			IdleTimeout:       60 * time.Second,
 		},
-		config: cfg,
-		store:  st,
+		config:    cfg,
+		store:     st,
+		collector: collector,
 	}
 
 	if err := s.routes(mux); err != nil {
@@ -65,6 +68,10 @@ func (s *Server) routes(mux *http.ServeMux) error {
 	// Instance CRUD + test connection.
 	instances := api.NewInstanceHandler(s.store, s.config.Scraper.Timeout.Unwrap())
 	instances.Register(mux)
+
+	// Metrics API.
+	metricsAPI := api.NewMetricsHandler(s.store, s.collector)
+	metricsAPI.Register(mux)
 
 	// SPA serving — all non-API routes serve the Vue app.
 	assets, err := loadUIAssets()
