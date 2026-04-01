@@ -34,7 +34,8 @@ type Config struct {
 
 // ServerConfig configures the HTTP server.
 type ServerConfig struct {
-	Addr string `yaml:"addr"`
+	Addr          string `yaml:"addr"`
+	SecureCookies bool   `yaml:"secure_cookies"`
 }
 
 // DatabaseConfig configures the SQLite database.
