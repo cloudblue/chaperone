@@ -9,22 +9,26 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
 // logEntry represents a parsed JSON log line for test assertions.
 type logEntry struct {
-	Time       string `json:"time"`
-	Level      string `json:"level"`
-	Msg        string `json:"msg"`
-	TraceID    string `json:"trace_id"`
-	Method     string `json:"method"`
-	Path       string `json:"path"`
-	Status     int    `json:"status"`
-	LatencyMs  int64  `json:"latency_ms"`
-	VendorID   string `json:"vendor_id"`
-	ClientIP   string `json:"client_ip"`
-	RemoteAddr string `json:"remote_addr"`
+	Time          string `json:"time"`
+	Level         string `json:"level"`
+	Msg           string `json:"msg"`
+	TraceID       string `json:"trace_id"`
+	Method        string `json:"method"`
+	Path          string `json:"path"`
+	Status        int    `json:"status"`
+	LatencyMs     int64  `json:"latency_ms"`
+	VendorID      string `json:"vendor_id"`
+	MarketplaceID string `json:"marketplace_id"`
+	ProductID     string `json:"product_id"`
+	TargetHost    string `json:"target_host"`
+	ClientIP      string `json:"client_ip"`
+	RemoteAddr    string `json:"remote_addr"`
 }
 
 // parseLogEntry parses a single JSON log line from the buffer.
@@ -130,10 +134,13 @@ func TestRequestLoggerMiddleware_LogsRequestFields(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := RequestLoggerMiddleware(logger, "X-Connect-Vendor-ID", inner)
+	handler := RequestLoggerMiddleware(logger, "X-Connect", inner)
 	r := httptest.NewRequest(http.MethodPost, "/proxy", nil)
 	r = r.WithContext(WithTraceID(r.Context(), "test-trace-123"))
 	r.Header.Set("X-Connect-Vendor-ID", "microsoft")
+	r.Header.Set("X-Connect-Marketplace-ID", "MP-US")
+	r.Header.Set("X-Connect-Product-ID", "PRD-001")
+	r.Header.Set("X-Connect-Target-URL", "https://graph.microsoft.com/v1.0/users")
 	r.RemoteAddr = "10.0.0.1:54321"
 	w := httptest.NewRecorder()
 
@@ -161,6 +168,15 @@ func TestRequestLoggerMiddleware_LogsRequestFields(t *testing.T) {
 	if entry.VendorID != "microsoft" {
 		t.Errorf("vendor_id = %q, want %q", entry.VendorID, "microsoft")
 	}
+	if entry.MarketplaceID != "MP-US" {
+		t.Errorf("marketplace_id = %q, want %q", entry.MarketplaceID, "MP-US")
+	}
+	if entry.ProductID != "PRD-001" {
+		t.Errorf("product_id = %q, want %q", entry.ProductID, "PRD-001")
+	}
+	if entry.TargetHost != "graph.microsoft.com" {
+		t.Errorf("target_host = %q, want %q", entry.TargetHost, "graph.microsoft.com")
+	}
 	if entry.ClientIP != "" {
 		t.Errorf("client_ip = %q, want empty (no proxy headers)", entry.ClientIP)
 	}
@@ -177,7 +193,7 @@ func TestRequestLoggerMiddleware_CapturesErrorStatus(t *testing.T) {
 		w.WriteHeader(http.StatusBadGateway)
 	})
 
-	handler := RequestLoggerMiddleware(logger, "X-Connect-Vendor-ID", inner)
+	handler := RequestLoggerMiddleware(logger, "X-Connect", inner)
 	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	r = r.WithContext(WithTraceID(r.Context(), "err-trace"))
 	w := httptest.NewRecorder()
@@ -198,7 +214,7 @@ func TestRequestLoggerMiddleware_NoTraceID_LogsEmpty(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := RequestLoggerMiddleware(logger, "X-Connect-Vendor-ID", inner)
+	handler := RequestLoggerMiddleware(logger, "X-Connect", inner)
 	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	// Deliberately no trace ID in context
 	w := httptest.NewRecorder()
@@ -220,7 +236,7 @@ func TestRequestLoggerMiddleware_LogsOnPanic(t *testing.T) {
 	})
 
 	// Wrap with panic recovery INSIDE request logger, so logger still fires
-	handler := RequestLoggerMiddleware(logger, "X-Connect-Vendor-ID", panicRecoveryForTest(panicky))
+	handler := RequestLoggerMiddleware(logger, "X-Connect", panicRecoveryForTest(panicky))
 	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	r = r.WithContext(WithTraceID(r.Context(), "panic-trace"))
 	w := httptest.NewRecorder()
@@ -244,7 +260,7 @@ func TestRequestLoggerMiddleware_ClientIPFromXForwardedFor(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := RequestLoggerMiddleware(logger, "X-Connect-Vendor-ID", inner)
+	handler := RequestLoggerMiddleware(logger, "X-Connect", inner)
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.Header.Set("X-Forwarded-For", "203.0.113.50")
 	w := httptest.NewRecorder()
@@ -269,7 +285,7 @@ func TestRequestLoggerMiddleware_TraceIDFromOuterMiddleware(t *testing.T) {
 	})
 
 	// Production order: TraceID (outermost) → Logger → handler
-	handler := RequestLoggerMiddleware(logger, "X-Connect-Vendor-ID", inner)
+	handler := RequestLoggerMiddleware(logger, "X-Connect", inner)
 	handler = TraceIDMiddleware("X-Trace-ID", handler)
 
 	r := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -295,7 +311,7 @@ func TestRequestLoggerMiddleware_TraceIDGenerated(t *testing.T) {
 	})
 
 	// Production order: TraceID (outermost) → Logger → handler
-	handler := RequestLoggerMiddleware(logger, "X-Connect-Vendor-ID", inner)
+	handler := RequestLoggerMiddleware(logger, "X-Connect", inner)
 	handler = TraceIDMiddleware("X-Trace-ID", handler)
 
 	r := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -307,6 +323,86 @@ func TestRequestLoggerMiddleware_TraceIDGenerated(t *testing.T) {
 	entry := parseLogEntry(t, buf.Bytes())
 	if entry.TraceID == "" {
 		t.Error("trace_id should not be empty when TraceIDMiddleware generates one")
+	}
+}
+
+func TestRequestLoggerMiddleware_LogsTargetHost_ExtractsHostOnly(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := RequestLoggerMiddleware(logger, "X-Connect", inner)
+	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	// URL with query string and path — only the host should appear in the log
+	r.Header.Set("X-Connect-Target-URL", "https://api.vendor.com/v1/users?api_key=secret&token=abc")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	entry := parseLogEntry(t, buf.Bytes())
+	if entry.TargetHost != "api.vendor.com" {
+		t.Errorf("target_host = %q, want %q (only host, no path/query)", entry.TargetHost, "api.vendor.com")
+	}
+	// Verify query params did not leak into any logged field
+	logOutput := buf.String()
+	if strings.Contains(logOutput, "api_key") || strings.Contains(logOutput, "secret") {
+		t.Errorf("log should not contain query params, got: %s", logOutput)
+	}
+}
+
+func TestExtractHost(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "full URL with path",
+			input: "https://api.vendor.com/v1/users",
+			want:  "api.vendor.com",
+		},
+		{
+			name:  "URL with port",
+			input: "https://api.vendor.com:8443/v1",
+			want:  "api.vendor.com:8443",
+		},
+		{
+			name:  "URL with query string",
+			input: "https://api.vendor.com/v1?key=secret",
+			want:  "api.vendor.com",
+		},
+		{
+			name:  "URL without path",
+			input: "https://api.vendor.com",
+			want:  "api.vendor.com",
+		},
+		{
+			name:  "empty URL returns empty",
+			input: "",
+			want:  "",
+		},
+		{
+			name:  "invalid URL returns empty",
+			input: "://invalid",
+			want:  "",
+		},
+		{
+			name:  "path-only URL returns empty",
+			input: "/just/a/path",
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractHost(tt.input)
+			if got != tt.want {
+				t.Errorf("extractHost(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
 	}
 }
 
