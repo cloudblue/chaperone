@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { get, post, put, del, ApiError } from './api.js';
+import { get, post, put, del, getCsrfToken, ApiError } from './api.js';
 
 describe('api client', () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();
+		Object.defineProperty(document, 'cookie', {
+			writable: true,
+			value: '',
+		});
 	});
 
 	function mockFetch(status, body, { json = true } = {}) {
@@ -18,6 +22,23 @@ describe('api client', () => {
 		return res;
 	}
 
+	describe('getCsrfToken', () => {
+		it('returns empty string when no cookie', () => {
+			document.cookie = '';
+			expect(getCsrfToken()).toBe('');
+		});
+
+		it('extracts csrf_token from cookies', () => {
+			document.cookie = 'session=abc123; csrf_token=my-token-value';
+			expect(getCsrfToken()).toBe('my-token-value');
+		});
+
+		it('decodes URL-encoded token', () => {
+			document.cookie = 'csrf_token=token%20with%20spaces';
+			expect(getCsrfToken()).toBe('token with spaces');
+		});
+	});
+
 	describe('get', () => {
 		it('returns parsed JSON on success', async () => {
 			mockFetch(200, [{ id: 1 }]);
@@ -26,6 +47,14 @@ describe('api client', () => {
 			expect(globalThis.fetch).toHaveBeenCalledWith('/api/instances', {
 				headers: { 'Content-Type': 'application/json' },
 			});
+		});
+
+		it('does not send CSRF token on GET', async () => {
+			document.cookie = 'csrf_token=my-token';
+			mockFetch(200, {});
+			await get('/api/me');
+			const [, opts] = globalThis.fetch.mock.calls[0];
+			expect(opts.headers['X-CSRF-Token']).toBeUndefined();
 		});
 
 		it('throws ApiError with server message on failure', async () => {
@@ -49,6 +78,41 @@ describe('api client', () => {
 			expect(err.message).toBe('Request failed (500)');
 			expect(err.status).toBe(500);
 		});
+
+		it('redirects to login on 401 when session is established', async () => {
+			mockFetch(401, {
+				error: { code: 'UNAUTHORIZED', message: 'No valid session' },
+			});
+			const mockStore = { user: { id: 1 }, ready: true };
+			vi.doMock('../stores/auth.js', () => ({
+				useAuthStore: () => mockStore,
+			}));
+			delete window.location;
+			window.location = { href: '/' };
+			const err = await get('/api/me').catch((e) => e);
+			expect(err).toBeInstanceOf(ApiError);
+			expect(err.status).toBe(401);
+			expect(mockStore.user).toBeNull();
+			expect(window.location.href).toBe('/login');
+			vi.doUnmock('../stores/auth.js');
+		});
+
+		it('does not redirect on 401 during initial session check', async () => {
+			mockFetch(401, {
+				error: { code: 'UNAUTHORIZED', message: 'No valid session' },
+			});
+			const mockStore = { user: null, ready: false };
+			vi.doMock('../stores/auth.js', () => ({
+				useAuthStore: () => mockStore,
+			}));
+			delete window.location;
+			window.location = { href: '/' };
+			const err = await get('/api/me').catch((e) => e);
+			expect(err).toBeInstanceOf(ApiError);
+			expect(err.status).toBe(401);
+			expect(window.location.href).toBe('/');
+			vi.doUnmock('../stores/auth.js');
+		});
 	});
 
 	describe('post', () => {
@@ -67,6 +131,14 @@ describe('api client', () => {
 				name: 'proxy-1',
 				address: '10.0.0.1:9090',
 			});
+		});
+
+		it('includes CSRF token on POST', async () => {
+			document.cookie = 'csrf_token=my-csrf-token';
+			mockFetch(200, {});
+			await post('/api/logout');
+			const [, opts] = globalThis.fetch.mock.calls[0];
+			expect(opts.headers['X-CSRF-Token']).toBe('my-csrf-token');
 		});
 
 		it('throws ApiError with server message on conflict', async () => {
@@ -95,6 +167,17 @@ describe('api client', () => {
 			const [, opts] = globalThis.fetch.mock.calls[0];
 			expect(opts.method).toBe('PUT');
 		});
+
+		it('includes CSRF token on PUT', async () => {
+			document.cookie = 'csrf_token=put-token';
+			mockFetch(204, null);
+			await put('/api/user/password', {
+				current_password: 'a',
+				new_password: 'b',
+			});
+			const [, opts] = globalThis.fetch.mock.calls[0];
+			expect(opts.headers['X-CSRF-Token']).toBe('put-token');
+		});
 	});
 
 	describe('del', () => {
@@ -110,7 +193,8 @@ describe('api client', () => {
 			expect(res.json).not.toHaveBeenCalled();
 		});
 
-		it('sends DELETE method', async () => {
+		it('sends DELETE method with CSRF token', async () => {
+			document.cookie = 'csrf_token=del-token';
 			const res = { ok: true, status: 204, json: vi.fn() };
 			vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
 			await del('/api/instances/1');
@@ -118,6 +202,7 @@ describe('api client', () => {
 			const [url, opts] = globalThis.fetch.mock.calls[0];
 			expect(url).toBe('/api/instances/1');
 			expect(opts.method).toBe('DELETE');
+			expect(opts.headers['X-CSRF-Token']).toBe('del-token');
 		});
 	});
 });
