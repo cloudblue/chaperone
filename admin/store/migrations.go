@@ -65,6 +65,30 @@ CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
 `,
 	},
+	{
+		Version:     2,
+		Description: "add FTS5 index for audit log full-text search",
+		SQL: `
+CREATE VIRTUAL TABLE audit_log_fts USING fts5(
+	detail,
+	content='audit_log',
+	content_rowid='id'
+);
+
+CREATE TRIGGER audit_log_ai AFTER INSERT ON audit_log BEGIN
+	INSERT INTO audit_log_fts(rowid, detail) VALUES (new.id, new.detail);
+END;
+
+CREATE TRIGGER audit_log_ad AFTER DELETE ON audit_log BEGIN
+	INSERT INTO audit_log_fts(audit_log_fts, rowid, detail) VALUES('delete', old.id, old.detail);
+END;
+
+CREATE TRIGGER audit_log_au AFTER UPDATE ON audit_log BEGIN
+	INSERT INTO audit_log_fts(audit_log_fts, rowid, detail) VALUES('delete', old.id, old.detail);
+	INSERT INTO audit_log_fts(rowid, detail) VALUES (new.id, new.detail);
+END;
+`,
+	},
 }
 
 func (s *Store) migrate(ctx context.Context) error {

@@ -100,16 +100,26 @@ func runServer(args []string) error {
 		return fmt.Errorf("creating server: %w", err)
 	}
 
-	// Start background goroutines.
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	defer bgCancel()
-
-	p := poller.New(st, collector, cfg.Scraper.Interval.Unwrap(), cfg.Scraper.Timeout.Unwrap())
-	go p.Run(bgCtx)
-	go cleanupExpiredSessions(bgCtx, st)
-	go sweepRateLimiter(bgCtx, srv)
+	startBackground(bgCtx, cfg, st, collector, srv)
 
 	return serve(cfg.Server.Addr, srv)
+}
+
+func startBackground(ctx context.Context, cfg *config.Config, st *store.Store, collector *metrics.Collector, srv *admin.Server) {
+	p := poller.New(st, collector, cfg.Scraper.Interval.Unwrap(), cfg.Scraper.Timeout.Unwrap())
+	go p.Run(ctx)
+	go cleanupExpiredSessions(ctx, st)
+	go sweepRateLimiter(ctx, srv)
+
+	if cfg.Audit.RetentionDays == nil || *cfg.Audit.RetentionDays > 0 {
+		retentionDays := 90
+		if cfg.Audit.RetentionDays != nil {
+			retentionDays = *cfg.Audit.RetentionDays
+		}
+		go cleanupOldAuditEntries(ctx, st, retentionDays)
+	}
 }
 
 func runCreateUser(args []string) error {
@@ -248,6 +258,32 @@ func sweepRateLimiter(ctx context.Context, srv *admin.Server) {
 			return
 		case <-ticker.C:
 			srv.SweepRateLimiter()
+		}
+	}
+}
+
+func cleanupOldAuditEntries(ctx context.Context, st *store.Store, retentionDays int) {
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+
+	runCleanup := func() {
+		cutoff := time.Now().AddDate(0, 0, -retentionDays)
+		n, err := st.DeleteAuditEntriesBefore(ctx, cutoff)
+		if err != nil {
+			slog.Error("cleaning up old audit entries", "error", err)
+		} else if n > 0 {
+			slog.Info("cleaned up old audit entries", "count", n, "retention_days", retentionDays)
+		}
+	}
+
+	runCleanup()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runCleanup()
 		}
 	}
 }
