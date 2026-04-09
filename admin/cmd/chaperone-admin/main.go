@@ -108,6 +108,14 @@ func runServer(args []string) error {
 	go p.Run(bgCtx)
 	go cleanupExpiredSessions(bgCtx, st)
 
+	if cfg.Audit.RetentionDays == nil || *cfg.Audit.RetentionDays > 0 {
+		retentionDays := 90
+		if cfg.Audit.RetentionDays != nil {
+			retentionDays = *cfg.Audit.RetentionDays
+		}
+		go cleanupOldAuditEntries(bgCtx, st, retentionDays)
+	}
+
 	return serve(cfg.Server.Addr, srv)
 }
 
@@ -233,6 +241,32 @@ func cleanupExpiredSessions(ctx context.Context, st *store.Store) {
 			} else if n > 0 {
 				slog.Info("cleaned up expired sessions", "count", n)
 			}
+		}
+	}
+}
+
+func cleanupOldAuditEntries(ctx context.Context, st *store.Store, retentionDays int) {
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+
+	runCleanup := func() {
+		cutoff := time.Now().AddDate(0, 0, -retentionDays)
+		n, err := st.DeleteAuditEntriesBefore(ctx, cutoff)
+		if err != nil {
+			slog.Error("cleaning up old audit entries", "error", err)
+		} else if n > 0 {
+			slog.Info("cleaned up old audit entries", "count", n, "retention_days", retentionDays)
+		}
+	}
+
+	runCleanup()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runCleanup()
 		}
 	}
 }
