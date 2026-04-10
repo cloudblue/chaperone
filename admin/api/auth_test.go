@@ -21,7 +21,7 @@ func newTestAuthMux(t *testing.T) (*http.ServeMux, *auth.Service) {
 	t.Helper()
 	st := openTestStore(t)
 	svc := auth.NewService(st, 24*time.Hour, 2*time.Hour)
-	h := NewAuthHandler(svc, false, 24*time.Hour)
+	h := NewAuthHandler(svc, st, false, 24*time.Hour)
 	mux := http.NewServeMux()
 	h.Register(mux)
 	return mux, svc

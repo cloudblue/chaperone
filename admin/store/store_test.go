@@ -48,7 +48,7 @@ func TestOpen_CreatesAllTables(t *testing.T) {
 		t.Fatalf("iterating rows: %v", err)
 	}
 
-	expected := []string{"audit_log", "instances", "schema_migrations", "sessions", "users"}
+	expected := []string{"audit_log", "audit_log_fts", "audit_log_fts_config", "audit_log_fts_data", "audit_log_fts_docsize", "audit_log_fts_idx", "instances", "schema_migrations", "sessions", "users"}
 	sort.Strings(tables)
 
 	if len(tables) != len(expected) {
@@ -85,8 +85,8 @@ func TestOpen_MigrationIdempotent(t *testing.T) {
 	if err := st2.DB().QueryRowContext(context.Background(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("counting migrations: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("migration count = %d, want 1", count)
+	if count != len(migrations) {
+		t.Errorf("migration count = %d, want %d", count, len(migrations))
 	}
 }
 
@@ -117,8 +117,8 @@ func TestOpen_SchemaMigrations_TracksVersion(t *testing.T) {
 	if err := st.DB().QueryRowContext(context.Background(), "SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("querying schema version: %v", err)
 	}
-	if version != 1 {
-		t.Errorf("schema version = %d, want 1", version)
+	if version != len(migrations) {
+		t.Errorf("schema version = %d, want %d", version, len(migrations))
 	}
 }
 

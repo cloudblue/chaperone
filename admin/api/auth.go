@@ -4,6 +4,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,19 +13,22 @@ import (
 	"time"
 
 	"github.com/cloudblue/chaperone/admin/auth"
+	"github.com/cloudblue/chaperone/admin/store"
 )
 
 // AuthHandler handles login, logout, and password change endpoints.
 type AuthHandler struct {
 	auth          *auth.Service
+	store         *store.Store
 	secureCookies bool
 	sessionMaxAge time.Duration
 }
 
 // NewAuthHandler creates a handler for auth endpoints.
-func NewAuthHandler(authService *auth.Service, secureCookies bool, sessionMaxAge time.Duration) *AuthHandler {
+func NewAuthHandler(authService *auth.Service, st *store.Store, secureCookies bool, sessionMaxAge time.Duration) *AuthHandler {
 	return &AuthHandler{
 		auth:          authService,
+		store:         st,
 		secureCookies: secureCookies,
 		sessionMaxAge: sessionMaxAge,
 	}
@@ -83,6 +87,9 @@ func (h *AuthHandler) login(w http.ResponseWriter, r *http.Request) {
 	h.setSessionCookie(w, result.SessionToken)
 	h.setCSRFCookie(w)
 
+	h.auditLog(r.Context(), result.User.ID, AuditActionUserLogin,
+		fmt.Sprintf("User %q logged in from %s", result.User.Username, ip))
+
 	respondJSON(w, http.StatusOK, loginResponse{
 		User: loginUser{
 			ID:       result.User.ID,
@@ -103,12 +110,20 @@ func (h *AuthHandler) me(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) logout(w http.ResponseWriter, r *http.Request) {
+	user := auth.ContextUser(r.Context())
+
 	cookie, err := r.Cookie(auth.SessionCookieName)
 	if err == nil {
 		if logoutErr := h.auth.Logout(r.Context(), cookie.Value); logoutErr != nil {
 			slog.Error("logout session deletion", "error", logoutErr)
 		}
 	}
+
+	if user != nil {
+		h.auditLog(r.Context(), user.ID, AuditActionUserLogout,
+			fmt.Sprintf("User %q logged out", user.Username))
+	}
+
 	h.clearCookies(w)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -162,6 +177,8 @@ func (h *AuthHandler) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.auditLog(r.Context(), user.ID, AuditActionPasswordChange,
+		fmt.Sprintf("User %q changed password", user.Username))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -213,6 +230,12 @@ func (h *AuthHandler) clearCookies(w http.ResponseWriter) {
 		Secure:   h.secureCookies,
 		SameSite: http.SameSiteStrictMode,
 	})
+}
+
+func (h *AuthHandler) auditLog(ctx context.Context, userID int64, action, detail string) {
+	if err := h.store.InsertAuditEntry(ctx, userID, action, nil, detail); err != nil {
+		slog.Error("writing audit entry", "action", action, "error", err)
+	}
 }
 
 func clientIP(r *http.Request) string {
