@@ -44,6 +44,16 @@ func newTokenManager(
 	}
 }
 
+// log returns the configured logger, or slog.Default() if none was set.
+// Called at log-emit time so the current global default is always used
+// when no explicit logger is provided.
+func (tm *tokenManager) log() *slog.Logger {
+	if tm.logger != nil {
+		return tm.logger
+	}
+	return slog.Default()
+}
+
 // getToken returns a valid access token, fetching a new one if needed.
 // Concurrent callers are deduplicated via singleflight.
 func (tm *tokenManager) getToken(ctx context.Context) (string, time.Time, error) {
@@ -51,13 +61,13 @@ func (tm *tokenManager) getToken(ctx context.Context) (string, time.Time, error)
 	if tm.token != nil && time.Now().Before(tm.token.expiresAt) {
 		t := tm.token
 		tm.mu.RUnlock()
-		tm.logger.LogAttrs(ctx, slog.LevelDebug, "token cache hit",
+		tm.log().LogAttrs(ctx, slog.LevelDebug, "token cache hit",
 			slog.String("token_url", tm.tokenURL))
 		return t.accessToken, t.expiresAt, nil
 	}
 	tm.mu.RUnlock()
 
-	tm.logger.LogAttrs(ctx, slog.LevelDebug, "token cache miss",
+	tm.log().LogAttrs(ctx, slog.LevelDebug, "token cache miss",
 		slog.String("token_url", tm.tokenURL))
 
 	// Use context.WithoutCancel so that a single caller's cancellation
@@ -72,7 +82,7 @@ func (tm *tokenManager) getToken(ctx context.Context) (string, time.Time, error)
 		tm.token = cached
 		tm.mu.Unlock()
 
-		tm.logger.LogAttrs(ctx, slog.LevelDebug, "token fetched",
+		tm.log().LogAttrs(ctx, slog.LevelDebug, "token fetched",
 			slog.String("token_url", tm.tokenURL),
 			slog.Time("expires_at", cached.expiresAt))
 

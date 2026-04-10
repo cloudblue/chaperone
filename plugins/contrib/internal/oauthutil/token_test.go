@@ -5,6 +5,8 @@ package oauthutil
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 )
@@ -30,14 +32,36 @@ func TestNewTokenFetcher_Defaults(t *testing.T) {
 		TokenURL: "https://example.com/token",
 	})
 
-	if f.Logger == nil {
-		t.Error("Logger should default to non-nil")
+	// Logger field must be nil — no eager slog.Default() capture at construction.
+	// Lazy resolution happens via log() at call time.
+	if f.Logger != nil {
+		t.Error("Logger field should be nil when not provided; lazy resolution via log()")
 	}
 	if f.Client == nil {
 		t.Error("Client should default to non-nil")
 	}
 	if f.ExpiryMargin != defaultExpiryMargin {
 		t.Errorf("ExpiryMargin = %v, want %v", f.ExpiryMargin, defaultExpiryMargin)
+	}
+}
+
+func TestNewTokenFetcher_NilLogger_LazyResolution(t *testing.T) {
+	f := NewTokenFetcher(TokenFetcher{TokenURL: "https://example.com/token"})
+
+	if f.log() != slog.Default() {
+		t.Error("log() should return slog.Default() when Logger is nil")
+	}
+}
+
+func TestNewTokenFetcher_ExplicitLogger_UsesExplicitLogger(t *testing.T) {
+	custom := slog.New(slog.NewTextHandler(io.Discard, nil))
+	f := NewTokenFetcher(TokenFetcher{
+		TokenURL: "https://example.com/token",
+		Logger:   custom,
+	})
+
+	if f.log() != custom {
+		t.Error("log() should return the explicitly provided logger")
 	}
 }
 
