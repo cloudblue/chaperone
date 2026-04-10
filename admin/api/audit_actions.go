@@ -4,6 +4,7 @@
 package api
 
 // Audit action constants logged for each portal operation.
+// Keep in sync with the frontend labels in admin/ui/src/utils/audit.js.
 const (
 	AuditActionInstanceCreate = "instance.create"
 	AuditActionInstanceUpdate = "instance.update"
