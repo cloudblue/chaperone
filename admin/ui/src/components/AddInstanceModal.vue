@@ -33,6 +33,7 @@
 						$style.testResult,
 						testResult.ok ? $style.testOk : $style.testFail,
 					]"
+					data-testid="test-result"
 				>
 					<span v-if="testResult.ok">
 						Connected successfully — version {{ testResult.version }}

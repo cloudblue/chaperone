@@ -10,6 +10,7 @@ export default defineConfig({
   plugins: [vue()],
   test: {
     environment: "jsdom",
+    exclude: ["e2e/**", "node_modules/**"],
   },
   server: {
     port: 5173,

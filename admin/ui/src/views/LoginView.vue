@@ -6,7 +6,12 @@
 				<p :class="$style.subtitle">Sign in to the admin portal</p>
 			</div>
 			<form :class="$style.form" @submit.prevent="handleSubmit">
-				<div v-if="error" :class="$style.alert" role="alert">
+				<div
+					v-if="error"
+					:class="$style.alert"
+					role="alert"
+					data-testid="login-error"
+				>
 					{{ error }}
 				</div>
 				<BaseInput
@@ -15,6 +20,7 @@
 					placeholder="Enter your username"
 					autocomplete="username"
 					:disabled="loading"
+					data-testid="login-username"
 				/>
 				<BaseInput
 					v-model="password"
@@ -23,8 +29,13 @@
 					placeholder="Enter your password"
 					autocomplete="current-password"
 					:disabled="loading"
+					data-testid="login-password"
 				/>
-				<BaseButton type="submit" :disabled="loading || !username || !password">
+				<BaseButton
+					type="submit"
+					:disabled="loading || !username || !password"
+					data-testid="login-submit"
+				>
 					{{ loading ? 'Signing in...' : 'Sign in' }}
 				</BaseButton>
 			</form>

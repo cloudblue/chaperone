@@ -13,7 +13,16 @@
 			v-bind="$attrs"
 			@input="$emit('update:modelValue', $event.target.value)"
 		/>
-		<p v-if="error" :id="errorId" :class="$style.errorText">{{ error }}</p>
+		<p
+			v-if="error"
+			:id="errorId"
+			:class="$style.errorText"
+			:data-testid="
+				$attrs['data-testid'] ? `${$attrs['data-testid']}-error` : undefined
+			"
+		>
+			{{ error }}
+		</p>
 	</div>
 </template>
 
