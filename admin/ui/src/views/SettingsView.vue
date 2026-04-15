@@ -9,10 +9,20 @@
 			</p>
 
 			<form :class="$style.form" @submit.prevent="handleSubmit">
-				<div v-if="successMessage" :class="$style.success" role="status">
+				<div
+					v-if="successMessage"
+					:class="$style.success"
+					role="status"
+					data-testid="settings-success"
+				>
 					{{ successMessage }}
 				</div>
-				<div v-if="serverError" :class="$style.alert" role="alert">
+				<div
+					v-if="serverError"
+					:class="$style.alert"
+					role="alert"
+					data-testid="settings-error"
+				>
 					{{ serverError }}
 				</div>
 				<BaseInput
@@ -22,6 +32,7 @@
 					autocomplete="current-password"
 					:error="errors.currentPassword"
 					:disabled="loading"
+					data-testid="settings-current-password"
 				/>
 				<BaseInput
 					v-model="newPassword"
@@ -30,6 +41,7 @@
 					autocomplete="new-password"
 					:error="errors.newPassword"
 					:disabled="loading"
+					data-testid="settings-new-password"
 				/>
 				<BaseInput
 					v-model="confirmPassword"
@@ -38,9 +50,14 @@
 					autocomplete="new-password"
 					:error="errors.confirmPassword"
 					:disabled="loading"
+					data-testid="settings-confirm-password"
 				/>
 				<div :class="$style.actions">
-					<BaseButton type="submit" :disabled="loading">
+					<BaseButton
+						type="submit"
+						:disabled="loading"
+						data-testid="settings-submit"
+					>
 						{{ loading ? 'Changing...' : 'Change password' }}
 					</BaseButton>
 				</div>
@@ -93,7 +110,7 @@ async function handleSubmit() {
 		confirmPassword.value = '';
 		successMessage.value = 'Password changed successfully.';
 	} catch (err) {
-		if (err.status === 401) {
+		if (err.status === 403) {
 			serverError.value = 'Current password is incorrect.';
 		} else if (err.status === 400) {
 			serverError.value = err.message;

@@ -162,11 +162,14 @@
 						<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
 						<circle cx="12" cy="7" r="4" />
 					</svg>
-					<span :class="$style.username">{{ auth.user?.username }}</span>
+					<span :class="$style.username" data-testid="sidebar-username">{{
+						auth.user?.username
+					}}</span>
 				</div>
 				<button
 					:class="$style.logoutButton"
 					aria-label="Sign out"
+					data-testid="sidebar-logout"
 					@click="handleLogout"
 				>
 					<svg

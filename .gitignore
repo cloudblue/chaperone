@@ -78,6 +78,14 @@ admin/ui/node_modules/
 admin/ui/dist/
 admin/ui/.vite/
 
+# Admin build artifacts
+admin/seed-user
+
+# Admin E2E tests
+admin/ui/e2e/.auth/
+admin/ui/e2e/results/
+admin/ui/e2e/playwright-report/
+
 # Playwright MCP output
 .playwright-mcp/
 

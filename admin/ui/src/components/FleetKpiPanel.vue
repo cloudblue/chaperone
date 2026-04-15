@@ -1,5 +1,5 @@
 <template>
-	<div :class="$style.panel">
+	<div :class="$style.panel" data-testid="kpi-panel">
 		<div :class="$style.grid">
 			<KpiCard
 				label="Total RPS"

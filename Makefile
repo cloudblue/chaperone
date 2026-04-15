@@ -130,6 +130,20 @@ build-admin-ui: ## Build the admin portal SPA
 	@echo "Building admin UI..."
 	cd $(ADMIN_UI_DIR) && pnpm install && pnpm build
 
+.PHONY: build-seed-user
+build-seed-user: ## Build the seed-user test helper
+	@echo "Building seed-user..."
+	@mkdir -p $(BUILD_DIR)
+	cd $(ADMIN_MODULE_DIR) && go build -o ../$(BUILD_DIR)/seed-user ./cmd/seed-user
+
+.PHONY: e2e-admin-setup
+e2e-admin-setup: ## Install Playwright browsers for E2E tests (one-time setup)
+	cd $(ADMIN_UI_DIR) && pnpm exec playwright install chromium
+
+.PHONY: e2e-admin
+e2e-admin: ## Run admin portal E2E tests (run e2e-admin-setup first)
+	cd $(ADMIN_UI_DIR) && pnpm e2e
+
 .PHONY: run-admin
 run-admin: build-admin-dev ## Build and run admin portal
 	@$(BUILD_DIR)/$(ADMIN_BINARY_NAME)

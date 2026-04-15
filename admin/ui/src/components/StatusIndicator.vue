@@ -3,6 +3,7 @@
 		:class="[$style.indicator, $style[status]]"
 		:aria-label="computedAriaLabel"
 		role="status"
+		:data-testid="`status-${status}`"
 	>
 		<span :class="$style.dot" aria-hidden="true" />
 		<span v-if="label" :class="$style.label">{{ label }}</span>

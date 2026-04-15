@@ -2,7 +2,12 @@
 	<div :class="$style.page">
 		<!-- Breadcrumb -->
 		<nav :class="$style.breadcrumb" aria-label="Breadcrumb">
-			<RouterLink to="/" :class="$style.breadcrumbLink">Fleet</RouterLink>
+			<RouterLink
+				to="/"
+				:class="$style.breadcrumbLink"
+				data-testid="breadcrumb-fleet"
+				>Fleet</RouterLink
+			>
 			<span :class="$style.breadcrumbSep" aria-hidden="true">/</span>
 			<span :class="$style.breadcrumbCurrent">{{
 				instance?.name ?? 'Loading...'
@@ -38,6 +43,7 @@
 				:tabindex="activeTab === tab.id ? 0 : -1"
 				role="tab"
 				:aria-controls="`tabpanel-${tab.id}`"
+				:data-testid="`tab-${tab.id}`"
 				@click="activeTab = tab.id"
 				@keydown.right.prevent="nextTab"
 				@keydown.left.prevent="prevTab"

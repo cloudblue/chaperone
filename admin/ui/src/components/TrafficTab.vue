@@ -1,5 +1,5 @@
 <template>
-	<div :class="$style.tab">
+	<div :class="$style.tab" data-testid="traffic-tab">
 		<VendorTable
 			v-if="hasVendors"
 			:vendors="sortedVendors"

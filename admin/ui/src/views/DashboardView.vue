@@ -1,7 +1,9 @@
 <template>
 	<div :class="$style.page">
 		<div :class="$style.header">
-			<h1 :class="$style.title">Fleet Dashboard</h1>
+			<h1 :class="$style.title" data-testid="dashboard-title">
+				Fleet Dashboard
+			</h1>
 			<div v-if="store.instances.length > 0" :class="$style.headerActions">
 				<div
 					:class="$style.viewToggle"
@@ -15,6 +17,7 @@
 						]"
 						:aria-pressed="viewMode === 'card'"
 						title="Card view"
+						data-testid="view-toggle-card"
 						@click="viewMode = 'card'"
 					>
 						<svg
@@ -38,6 +41,7 @@
 						]"
 						:aria-pressed="viewMode === 'table'"
 						title="Table view"
+						data-testid="view-toggle-table"
 						@click="viewMode = 'table'"
 					>
 						<svg
@@ -134,7 +138,11 @@
 			</div>
 
 			<!-- First-run welcome screen -->
-			<div v-else-if="store.instances.length === 0" :class="$style.welcome">
+			<div
+				v-else-if="store.instances.length === 0"
+				:class="$style.welcome"
+				data-testid="welcome-screen"
+			>
 				<div :class="$style.welcomeIcon" aria-hidden="true">
 					<svg
 						width="32"
@@ -211,6 +219,7 @@
 			<BaseCard v-else>
 				<InstanceTable
 					:instances="store.instances"
+					data-testid="instance-table"
 					@click="handleInstanceClick"
 					@edit="handleEdit"
 					@delete="handleDelete"

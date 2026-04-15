@@ -194,7 +194,7 @@ func TestChangePassword_Success_Returns204(t *testing.T) {
 	}
 }
 
-func TestChangePassword_WrongCurrent_Returns401(t *testing.T) {
+func TestChangePassword_WrongCurrent_Returns403(t *testing.T) {
 	t.Parallel()
 	mux, svc := newTestAuthMux(t)
 	createTestUser(t, svc)
@@ -210,8 +210,8 @@ func TestChangePassword_WrongCurrent_Returns401(t *testing.T) {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
 }
 
