@@ -69,6 +69,7 @@ func TestLoad_ValidYAML_ParsesAllFields(t *testing.T) {
 	path := writeTestConfig(t, `
 server:
   addr: "0.0.0.0:9090"
+  secure_cookies: true
 database:
   path: "/var/lib/admin.db"
 scraper:
@@ -93,6 +94,9 @@ log:
 	}
 	if cfg.Server.Addr != "0.0.0.0:9090" {
 		t.Errorf("Server.Addr = %q, want %q", cfg.Server.Addr, "0.0.0.0:9090")
+	}
+	if !cfg.Server.SecureCookies {
+		t.Error("Server.SecureCookies = false, want true")
 	}
 	if cfg.Database.Path != "/var/lib/admin.db" {
 		t.Errorf("Database.Path = %q, want %q", cfg.Database.Path, "/var/lib/admin.db")
@@ -163,6 +167,7 @@ func TestLoad_EnvOverrides_AllFields(t *testing.T) {
 	// Arrange
 	path := filepath.Join(t.TempDir(), "nonexistent.yaml")
 	t.Setenv("CHAPERONE_ADMIN_SERVER_ADDR", "0.0.0.0:3000")
+	t.Setenv("CHAPERONE_ADMIN_SERVER_SECURE_COOKIES", "true")
 	t.Setenv("CHAPERONE_ADMIN_DATABASE_PATH", "/tmp/test.db")
 	t.Setenv("CHAPERONE_ADMIN_SCRAPER_INTERVAL", "20s")
 	t.Setenv("CHAPERONE_ADMIN_SCRAPER_TIMEOUT", "8s")
@@ -181,6 +186,9 @@ func TestLoad_EnvOverrides_AllFields(t *testing.T) {
 	}
 	if cfg.Server.Addr != "0.0.0.0:3000" {
 		t.Errorf("Server.Addr = %q, want %q", cfg.Server.Addr, "0.0.0.0:3000")
+	}
+	if !cfg.Server.SecureCookies {
+		t.Error("Server.SecureCookies = false, want true")
 	}
 	if cfg.Database.Path != "/tmp/test.db" {
 		t.Errorf("Database.Path = %q, want %q", cfg.Database.Path, "/tmp/test.db")

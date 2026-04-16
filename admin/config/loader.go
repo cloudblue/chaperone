@@ -98,6 +98,9 @@ func applyEnvOverrides(cfg *Config) error {
 	if v := getEnv("SERVER_ADDR"); v != "" {
 		cfg.Server.Addr = v
 	}
+	if v := getEnv("SERVER_SECURE_COOKIES"); v != "" {
+		cfg.Server.SecureCookies = v == "true" || v == "1"
+	}
 	if v := getEnv("DATABASE_PATH"); v != "" {
 		cfg.Database.Path = v
 	}

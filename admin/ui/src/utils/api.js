@@ -7,16 +7,36 @@ class ApiError extends Error {
 	}
 }
 
+export function getCsrfToken() {
+	const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/);
+	return match ? decodeURIComponent(match[1]) : '';
+}
+
+const writeMethods = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
+
 async function request(path, options = {}) {
-	const res = await fetch(path, {
-		...options,
-		headers: {
-			'Content-Type': 'application/json',
-			...options.headers,
-		},
-	});
+	const headers = {
+		'Content-Type': 'application/json',
+		...options.headers,
+	};
+
+	if (writeMethods.has(options.method)) {
+		const token = getCsrfToken();
+		if (token) headers['X-CSRF-Token'] = token;
+	}
+
+	const res = await fetch(path, { ...options, headers });
 
 	if (!res.ok) {
+		if (res.status === 401 && path !== '/api/login') {
+			const { useAuthStore } = await import('../stores/auth.js');
+			const auth = useAuthStore();
+			if (auth.ready) {
+				auth.user = null;
+				window.location.href = '/login';
+			}
+		}
+
 		let message = `Request failed (${res.status})`;
 		let code;
 		try {

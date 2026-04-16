@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cloudblue/chaperone/admin/api"
+	"github.com/cloudblue/chaperone/admin/auth"
 	"github.com/cloudblue/chaperone/admin/config"
 	"github.com/cloudblue/chaperone/admin/metrics"
 	"github.com/cloudblue/chaperone/admin/store"
@@ -21,31 +22,38 @@ import (
 
 // Server is the admin portal HTTP server.
 type Server struct {
-	httpServer *http.Server
-	config     *config.Config
-	store      *store.Store
-	collector  *metrics.Collector
+	httpServer  *http.Server
+	config      *config.Config
+	store       *store.Store
+	collector   *metrics.Collector
+	authService *auth.Service
 }
 
 // NewServer creates a new admin portal server.
 func NewServer(cfg *config.Config, st *store.Store, collector *metrics.Collector) (*Server, error) {
 	mux := http.NewServeMux()
 
+	authService := auth.NewService(st, cfg.Session.MaxAge.Unwrap(), cfg.Session.IdleTimeout.Unwrap())
+	secureCookies := cfg.Server.SecureCookies
+
+	handler := securityHeaders(auth.RequireAuth(authService, auth.CSRFProtection(mux)))
+
 	s := &Server{
 		httpServer: &http.Server{
 			Addr:              cfg.Server.Addr,
-			Handler:           securityHeaders(mux),
+			Handler:           handler,
 			ReadHeaderTimeout: 5 * time.Second,
 			ReadTimeout:       15 * time.Second,
 			WriteTimeout:      30 * time.Second,
 			IdleTimeout:       60 * time.Second,
 		},
-		config:    cfg,
-		store:     st,
-		collector: collector,
+		config:      cfg,
+		store:       st,
+		collector:   collector,
+		authService: authService,
 	}
 
-	if err := s.routes(mux); err != nil {
+	if err := s.routes(mux, authService, secureCookies); err != nil {
 		return nil, fmt.Errorf("setting up routes: %w", err)
 	}
 	return s, nil
@@ -61,9 +69,18 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-func (s *Server) routes(mux *http.ServeMux) error {
+// SweepRateLimiter removes expired entries from the login rate limiter.
+func (s *Server) SweepRateLimiter() {
+	s.authService.SweepRateLimiter()
+}
+
+func (s *Server) routes(mux *http.ServeMux, authService *auth.Service, secureCookies bool) error {
 	// API health check for the portal itself.
 	mux.HandleFunc("GET /api/health", s.handleHealth)
+
+	// Auth endpoints (login, logout, password change).
+	authHandler := api.NewAuthHandler(authService, secureCookies, s.config.Session.MaxAge.Unwrap())
+	authHandler.Register(mux)
 
 	// Instance CRUD + test connection.
 	instances := api.NewInstanceHandler(s.store, s.config.Scraper.Timeout.Unwrap())
