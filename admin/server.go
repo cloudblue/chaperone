@@ -22,10 +22,11 @@ import (
 
 // Server is the admin portal HTTP server.
 type Server struct {
-	httpServer *http.Server
-	config     *config.Config
-	store      *store.Store
-	collector  *metrics.Collector
+	httpServer  *http.Server
+	config      *config.Config
+	store       *store.Store
+	collector   *metrics.Collector
+	authService *auth.Service
 }
 
 // NewServer creates a new admin portal server.
@@ -46,9 +47,10 @@ func NewServer(cfg *config.Config, st *store.Store, collector *metrics.Collector
 			WriteTimeout:      30 * time.Second,
 			IdleTimeout:       60 * time.Second,
 		},
-		config:    cfg,
-		store:     st,
-		collector: collector,
+		config:      cfg,
+		store:       st,
+		collector:   collector,
+		authService: authService,
 	}
 
 	if err := s.routes(mux, authService, secureCookies); err != nil {
@@ -65,6 +67,11 @@ func (s *Server) ListenAndServe() error {
 // Shutdown gracefully shuts down the server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
+}
+
+// SweepRateLimiter removes expired entries from the login rate limiter.
+func (s *Server) SweepRateLimiter() {
+	s.authService.SweepRateLimiter()
 }
 
 func (s *Server) routes(mux *http.ServeMux, authService *auth.Service, secureCookies bool) error {

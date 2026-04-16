@@ -33,7 +33,7 @@ type User struct {
 type Session struct {
 	ID           int64
 	UserID       int64
-	Token        string
+	TokenHash    string
 	ExpiresAt    time.Time
 	LastActiveAt time.Time
 	CreatedAt    time.Time
@@ -124,7 +124,7 @@ func (s *Store) GetSessionByToken(ctx context.Context, token string) (*Session, 
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, user_id, token, expires_at, last_active_at, created_at
 		 FROM sessions WHERE token = ?`, hashToken(token)).
-		Scan(&sess.ID, &sess.UserID, &sess.Token, &sess.ExpiresAt, &sess.LastActiveAt, &sess.CreatedAt)
+		Scan(&sess.ID, &sess.UserID, &sess.TokenHash, &sess.ExpiresAt, &sess.LastActiveAt, &sess.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrSessionNotFound
 	}

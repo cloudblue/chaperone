@@ -158,11 +158,10 @@ func TestCreateSession_And_GetByToken(t *testing.T) {
 	if sess.UserID != user.ID {
 		t.Errorf("UserID = %d, want %d", sess.UserID, user.ID)
 	}
-	// Token is stored as a SHA-256 hash, so it won't match the raw value.
-	if sess.Token == "" {
+	if sess.TokenHash == "" {
 		t.Error("expected non-empty token hash")
 	}
-	if sess.Token == "tok-abc-123" {
+	if sess.TokenHash == "tok-abc-123" {
 		t.Error("token should be stored as a hash, not raw")
 	}
 }

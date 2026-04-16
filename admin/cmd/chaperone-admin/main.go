@@ -107,6 +107,7 @@ func runServer(args []string) error {
 	p := poller.New(st, collector, cfg.Scraper.Interval.Unwrap(), cfg.Scraper.Timeout.Unwrap())
 	go p.Run(bgCtx)
 	go cleanupExpiredSessions(bgCtx, st)
+	go sweepRateLimiter(bgCtx, srv)
 
 	return serve(cfg.Server.Addr, srv)
 }
@@ -233,6 +234,20 @@ func cleanupExpiredSessions(ctx context.Context, st *store.Store) {
 			} else if n > 0 {
 				slog.Info("cleaned up expired sessions", "count", n)
 			}
+		}
+	}
+}
+
+func sweepRateLimiter(ctx context.Context, srv *admin.Server) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			srv.SweepRateLimiter()
 		}
 	}
 }

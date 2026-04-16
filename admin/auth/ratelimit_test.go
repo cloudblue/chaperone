@@ -103,3 +103,57 @@ func TestRateLimiter_PartialPrune_KeepsRecentAttempts(t *testing.T) {
 		t.Error("should be blocked (2 recent attempts)")
 	}
 }
+
+func TestRateLimiter_Sweep_RemovesExpiredEntries(t *testing.T) {
+	t.Parallel()
+	rl := NewRateLimiter(2, time.Minute)
+
+	now := time.Now()
+	rl.now = func() time.Time { return now }
+
+	rl.Record("1.1.1.1")
+	rl.Record("2.2.2.2")
+	rl.Record("3.3.3.3")
+
+	// Advance past the window.
+	rl.now = func() time.Time { return now.Add(61 * time.Second) }
+
+	rl.Sweep()
+
+	rl.mu.Lock()
+	remaining := len(rl.attempts)
+	rl.mu.Unlock()
+
+	if remaining != 0 {
+		t.Errorf("expected 0 entries after sweep, got %d", remaining)
+	}
+}
+
+func TestRateLimiter_Sweep_KeepsRecentEntries(t *testing.T) {
+	t.Parallel()
+	rl := NewRateLimiter(2, time.Minute)
+
+	now := time.Now()
+	rl.now = func() time.Time { return now }
+	rl.Record("1.1.1.1") // old
+
+	rl.now = func() time.Time { return now.Add(50 * time.Second) }
+	rl.Record("2.2.2.2") // recent
+
+	// At t=61s, 1.1.1.1 is expired but 2.2.2.2 is still within window.
+	rl.now = func() time.Time { return now.Add(61 * time.Second) }
+
+	rl.Sweep()
+
+	rl.mu.Lock()
+	remaining := len(rl.attempts)
+	rl.mu.Unlock()
+
+	if remaining != 1 {
+		t.Errorf("expected 1 entry after sweep, got %d", remaining)
+	}
+
+	if !rl.Allow("1.1.1.1") {
+		t.Error("1.1.1.1 should be allowed after sweep removed its expired entry")
+	}
+}

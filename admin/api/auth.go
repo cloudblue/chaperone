@@ -215,6 +215,9 @@ func (h *AuthHandler) clearCookies(w http.ResponseWriter) {
 	})
 }
 
+// clientIP extracts the client IP from the request's TCP peer address.
+// The admin portal is deployed direct-to-network within Distributor infrastructure;
+// X-Forwarded-For is not trusted and must be ignored for rate-limiting.
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

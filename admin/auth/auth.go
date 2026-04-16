@@ -83,6 +83,11 @@ func NewService(st *store.Store, maxAge, idleTimeout time.Duration) *Service {
 	}
 }
 
+// SweepRateLimiter removes expired entries from the rate limiter.
+func (s *Service) SweepRateLimiter() {
+	s.limiter.Sweep()
+}
+
 // Authenticate validates the session cookie on an HTTP request.
 // It checks absolute TTL, idle timeout, and touches the session.
 func (s *Service) Authenticate(r *http.Request) (*User, error) {
@@ -102,11 +107,15 @@ func (s *Service) Authenticate(r *http.Request) (*User, error) {
 
 	now := time.Now()
 	if now.After(sess.ExpiresAt) {
-		_ = s.store.DeleteSession(r.Context(), rawToken)
+		if delErr := s.store.DeleteSession(r.Context(), rawToken); delErr != nil {
+			slog.Error("deleting expired session", "error", delErr)
+		}
 		return nil, ErrSessionExpired
 	}
 	if now.Sub(sess.LastActiveAt) > s.idleTimeout {
-		_ = s.store.DeleteSession(r.Context(), rawToken)
+		if delErr := s.store.DeleteSession(r.Context(), rawToken); delErr != nil {
+			slog.Error("deleting idle session", "error", delErr)
+		}
 		return nil, ErrSessionExpired
 	}
 

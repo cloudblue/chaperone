@@ -27,12 +27,19 @@ func newTestAuthMux(t *testing.T) (*http.ServeMux, *auth.Service) {
 	return mux, svc
 }
 
+func createTestUser(t *testing.T, svc *auth.Service) {
+	t.Helper()
+	if err := svc.CreateUser(context.Background(), "admin", testPassword); err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+}
+
 // --- Login ---
 
 func TestLogin_Success_Returns200WithCookies(t *testing.T) {
 	t.Parallel()
 	mux, svc := newTestAuthMux(t)
-	svc.CreateUser(context.Background(), "admin", testPassword)
+	createTestUser(t, svc)
 
 	body := `{"username":"admin","password":"` + testPassword + `"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
@@ -83,7 +90,7 @@ func TestLogin_Success_Returns200WithCookies(t *testing.T) {
 func TestLogin_WrongPassword_Returns401(t *testing.T) {
 	t.Parallel()
 	mux, svc := newTestAuthMux(t)
-	svc.CreateUser(context.Background(), "admin", testPassword)
+	createTestUser(t, svc)
 
 	body := `{"username":"admin","password":"wrongpassword1"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
@@ -112,7 +119,7 @@ func TestLogin_MissingFields_Returns400(t *testing.T) {
 func TestLogin_RateLimited_Returns429(t *testing.T) {
 	t.Parallel()
 	mux, svc := newTestAuthMux(t)
-	svc.CreateUser(context.Background(), "admin", testPassword)
+	createTestUser(t, svc)
 
 	for range 5 {
 		body := `{"username":"admin","password":"badpassword00"}`
@@ -141,7 +148,7 @@ func TestLogin_RateLimited_Returns429(t *testing.T) {
 func TestLogout_Returns204_ClearsCookies(t *testing.T) {
 	t.Parallel()
 	mux, svc := newTestAuthMux(t)
-	svc.CreateUser(context.Background(), "admin", testPassword)
+	createTestUser(t, svc)
 
 	result, _ := svc.Login(context.Background(), "127.0.0.1", "admin", testPassword)
 
@@ -169,7 +176,7 @@ func TestLogout_Returns204_ClearsCookies(t *testing.T) {
 func TestChangePassword_Success_Returns204(t *testing.T) {
 	t.Parallel()
 	mux, svc := newTestAuthMux(t)
-	svc.CreateUser(context.Background(), "admin", testPassword)
+	createTestUser(t, svc)
 	result, _ := svc.Login(context.Background(), "127.0.0.1", "admin", testPassword)
 
 	body := `{"current_password":"` + testPassword + `","new_password":"newpassword1234"}`
@@ -190,7 +197,7 @@ func TestChangePassword_Success_Returns204(t *testing.T) {
 func TestChangePassword_WrongCurrent_Returns401(t *testing.T) {
 	t.Parallel()
 	mux, svc := newTestAuthMux(t)
-	svc.CreateUser(context.Background(), "admin", testPassword)
+	createTestUser(t, svc)
 	result, _ := svc.Login(context.Background(), "127.0.0.1", "admin", testPassword)
 
 	body := `{"current_password":"wrongcurrent1","new_password":"newpassword1234"}`
@@ -211,7 +218,7 @@ func TestChangePassword_WrongCurrent_Returns401(t *testing.T) {
 func TestChangePassword_TooShort_Returns400(t *testing.T) {
 	t.Parallel()
 	mux, svc := newTestAuthMux(t)
-	svc.CreateUser(context.Background(), "admin", testPassword)
+	createTestUser(t, svc)
 	result, _ := svc.Login(context.Background(), "127.0.0.1", "admin", testPassword)
 
 	body := `{"current_password":"` + testPassword + `","new_password":"short"}`
@@ -248,7 +255,7 @@ func TestChangePassword_NoUser_Returns401(t *testing.T) {
 func TestMe_Authenticated_Returns200(t *testing.T) {
 	t.Parallel()
 	mux, svc := newTestAuthMux(t)
-	svc.CreateUser(context.Background(), "admin", testPassword)
+	createTestUser(t, svc)
 	result, _ := svc.Login(context.Background(), "127.0.0.1", "admin", testPassword)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)

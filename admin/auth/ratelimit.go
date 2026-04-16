@@ -72,3 +72,24 @@ func (rl *RateLimiter) prune(ip string) {
 		delete(rl.attempts, ip)
 	}
 }
+
+// Sweep removes all expired entries across all IPs.
+// Call periodically from a background goroutine to prevent unbounded growth
+// from IPs that record failures but never return.
+func (rl *RateLimiter) Sweep() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	cutoff := rl.now().Add(-rl.window)
+	for ip, attempts := range rl.attempts {
+		i := 0
+		for i < len(attempts) && attempts[i].Before(cutoff) {
+			i++
+		}
+		if i == len(attempts) {
+			delete(rl.attempts, ip)
+		} else if i > 0 {
+			rl.attempts[ip] = attempts[i:]
+		}
+	}
+}
