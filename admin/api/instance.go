@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudblue/chaperone/admin/auth"
 	"github.com/cloudblue/chaperone/admin/poller"
 	"github.com/cloudblue/chaperone/admin/store"
 )
@@ -99,6 +100,9 @@ func (h *InstanceHandler) create(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create instance")
 		return
 	}
+
+	h.audit(r, AuditActionInstanceCreate, &inst.ID,
+		fmt.Sprintf("Created instance %q at %s", inst.Name, inst.Address))
 	respondJSON(w, http.StatusCreated, inst)
 }
 
@@ -131,6 +135,9 @@ func (h *InstanceHandler) update(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update instance")
 		return
 	}
+
+	h.audit(r, AuditActionInstanceUpdate, &inst.ID,
+		fmt.Sprintf("Updated instance %q (address: %s)", inst.Name, inst.Address))
 	respondJSON(w, http.StatusOK, inst)
 }
 
@@ -139,6 +146,9 @@ func (h *InstanceHandler) delete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+
+	// Fetch instance name before deletion for the audit detail.
+	inst, getErr := h.store.GetInstance(r.Context(), id)
 
 	err := h.store.DeleteInstance(r.Context(), id)
 	if errors.Is(err, store.ErrInstanceNotFound) {
@@ -150,6 +160,12 @@ func (h *InstanceHandler) delete(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete instance")
 		return
 	}
+
+	detail := fmt.Sprintf("Deleted instance ID %d", id)
+	if getErr == nil {
+		detail = fmt.Sprintf("Deleted instance %q (%s)", inst.Name, inst.Address)
+	}
+	h.audit(r, AuditActionInstanceDelete, nil, detail)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -216,6 +232,16 @@ func validateInstanceRequest(w http.ResponseWriter, req *instanceRequest) bool {
 }
 
 var errInvalidHostPort = errors.New("address must be a valid host:port (e.g. 192.168.1.10:9090)")
+
+func (h *InstanceHandler) audit(r *http.Request, action string, instanceID *int64, detail string) {
+	user := auth.ContextUser(r.Context())
+	if user == nil {
+		return
+	}
+	if err := h.store.InsertAuditEntry(r.Context(), user.ID, action, instanceID, detail); err != nil {
+		slog.Error("writing audit entry", "action", action, "error", err)
+	}
+}
 
 func validHostPort(addr string) error {
 	host, portStr, err := net.SplitHostPort(addr)

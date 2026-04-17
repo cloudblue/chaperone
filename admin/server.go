@@ -79,7 +79,7 @@ func (s *Server) routes(mux *http.ServeMux, authService *auth.Service, secureCoo
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 
 	// Auth endpoints (login, logout, password change).
-	authHandler := api.NewAuthHandler(authService, secureCookies, s.config.Session.MaxAge.Unwrap())
+	authHandler := api.NewAuthHandler(authService, s.store, secureCookies, s.config.Session.MaxAge.Unwrap())
 	authHandler.Register(mux)
 
 	// Instance CRUD + test connection.
@@ -89,6 +89,10 @@ func (s *Server) routes(mux *http.ServeMux, authService *auth.Service, secureCoo
 	// Metrics API.
 	metricsAPI := api.NewMetricsHandler(s.store, s.collector)
 	metricsAPI.Register(mux)
+
+	// Audit log API.
+	audit := api.NewAuditHandler(s.store)
+	audit.Register(mux)
 
 	// SPA serving — all non-API routes serve the Vue app.
 	assets, err := loadUIAssets()
