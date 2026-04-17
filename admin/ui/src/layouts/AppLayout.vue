@@ -1,8 +1,61 @@
 <template>
 	<div :class="$style.layout">
-		<aside :class="$style.sidebar">
+		<!-- Mobile header -->
+		<header :class="$style.mobileHeader">
+			<button
+				:class="$style.menuButton"
+				aria-label="Open navigation"
+				@click="sidebarOpen = true"
+			>
+				<svg
+					width="20"
+					height="20"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"
+				>
+					<line x1="3" y1="6" x2="21" y2="6" />
+					<line x1="3" y1="12" x2="21" y2="12" />
+					<line x1="3" y1="18" x2="21" y2="18" />
+				</svg>
+			</button>
+			<RouterLink to="/" :class="$style.mobileTitle">Chaperone</RouterLink>
+		</header>
+
+		<!-- Backdrop for mobile sidebar -->
+		<div
+			v-if="sidebarOpen"
+			:class="$style.backdrop"
+			@click="sidebarOpen = false"
+		/>
+
+		<aside :class="[$style.sidebar, sidebarOpen && $style.sidebarOpen]">
 			<div :class="$style.logo">
-				<span :class="$style.logoText">Chaperone</span>
+				<RouterLink to="/" :class="$style.logoText">Chaperone</RouterLink>
+				<button
+					:class="$style.closeButton"
+					aria-label="Close navigation"
+					@click="sidebarOpen = false"
+				>
+					<svg
+						width="18"
+						height="18"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+					>
+						<line x1="18" y1="6" x2="6" y2="18" />
+						<line x1="6" y1="6" x2="18" y2="18" />
+					</svg>
+				</button>
 			</div>
 			<nav :class="$style.nav" aria-label="Main navigation">
 				<div :class="$style.navSection">
@@ -140,12 +193,18 @@
 </template>
 
 <script setup>
+import { ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.js';
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
+const sidebarOpen = ref(false);
+
+watch(route, () => {
+	sidebarOpen.value = false;
+});
 
 async function handleLogout() {
 	try {
@@ -164,6 +223,18 @@ async function handleLogout() {
 	min-height: 100vh;
 }
 
+.mobileHeader {
+	display: none;
+}
+
+.backdrop {
+	display: none;
+}
+
+.closeButton {
+	display: none;
+}
+
 .sidebar {
 	width: var(--sidebar-width);
 	background-color: var(--color-bg-sidebar);
@@ -174,6 +245,9 @@ async function handleLogout() {
 
 .logo {
 	padding: var(--space-5) var(--space-5) var(--space-6);
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
 }
 
 .logoText {
@@ -181,6 +255,7 @@ async function handleLogout() {
 	font-weight: var(--font-weight-bold);
 	color: var(--color-text-sidebar-active);
 	letter-spacing: -0.01em;
+	text-decoration: none;
 }
 
 .nav {
@@ -292,5 +367,88 @@ async function handleLogout() {
 .logoutButton:hover {
 	background-color: var(--color-bg-sidebar-hover);
 	color: var(--color-text-sidebar-active);
+}
+
+/* Tablet breakpoint */
+@media (max-width: 768px) {
+	.mobileHeader {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		padding: var(--space-3) var(--space-4);
+		background-color: var(--color-bg-sidebar);
+		position: sticky;
+		top: 0;
+		z-index: 50;
+	}
+
+	.mobileTitle {
+		font-size: var(--font-size-md);
+		font-weight: var(--font-weight-bold);
+		color: var(--color-text-sidebar-active);
+		text-decoration: none;
+	}
+
+	.menuButton {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: var(--space-2);
+		border: none;
+		border-radius: var(--radius-md);
+		background: transparent;
+		color: var(--color-text-sidebar);
+		cursor: pointer;
+	}
+
+	.menuButton:hover {
+		background-color: var(--color-bg-sidebar-hover);
+		color: var(--color-text-sidebar-active);
+	}
+
+	.layout {
+		flex-direction: column;
+	}
+
+	.sidebar {
+		position: fixed;
+		inset: 0;
+		z-index: 100;
+		width: var(--sidebar-width);
+		transform: translateX(-100%);
+		transition: transform 0.2s ease;
+	}
+
+	.sidebarOpen {
+		transform: translateX(0);
+	}
+
+	.backdrop {
+		display: block;
+		position: fixed;
+		inset: 0;
+		background-color: rgba(0, 0, 0, 0.4);
+		z-index: 99;
+	}
+
+	.closeButton {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: var(--space-1);
+		border: none;
+		border-radius: var(--radius-md);
+		background: transparent;
+		color: var(--color-text-sidebar);
+		cursor: pointer;
+	}
+
+	.closeButton:hover {
+		color: var(--color-text-sidebar-active);
+	}
+
+	.main {
+		padding: var(--space-4);
+	}
 }
 </style>

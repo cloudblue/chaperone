@@ -1,6 +1,7 @@
 <template>
 	<div :class="$style.overlay" @click.self="$emit('cancel')">
 		<div
+			ref="dialogRef"
 			:class="$style.dialog"
 			role="alertdialog"
 			:aria-labelledby="titleId"
@@ -30,8 +31,9 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, useId } from 'vue';
+import { ref, onMounted, onUnmounted, useId } from 'vue';
 import BaseButton from './BaseButton.vue';
+import { useFocusTrap } from '../composables/useFocusTrap.js';
 
 defineProps({
 	title: { type: String, required: true },
@@ -41,9 +43,12 @@ defineProps({
 });
 
 const emit = defineEmits(['confirm', 'cancel']);
+const dialogRef = ref(null);
 
 const titleId = `confirm-title-${useId()}`;
 const descId = `confirm-desc-${useId()}`;
+
+useFocusTrap(dialogRef);
 
 function onKeydown(e) {
 	if (e.key === 'Escape') {

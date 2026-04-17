@@ -4,14 +4,13 @@ import * as api from '../utils/api.js';
 
 export const useInstanceStore = defineStore('instances', () => {
 	const instances = ref([]);
-	const loading = ref(false);
+	const initialized = ref(false);
 
 	async function fetchInstances() {
-		loading.value = true;
 		try {
 			instances.value = await api.get('/api/instances');
 		} finally {
-			loading.value = false;
+			initialized.value = true;
 		}
 	}
 
@@ -38,7 +37,7 @@ export const useInstanceStore = defineStore('instances', () => {
 
 	return {
 		instances,
-		loading,
+		initialized,
 		fetchInstances,
 		createInstance,
 		updateInstance,

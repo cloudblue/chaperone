@@ -15,8 +15,8 @@
 				<h1 :class="$style.title">{{ instance.name }}</h1>
 				<div :class="$style.meta">
 					<StatusIndicator
-						:status="isStale ? 'stale' : instance.status"
-						:label="getStatusLabel(instance.status, isStale)"
+						:status="instance.status"
+						:label="getStatusLabel(instance.status)"
 						size="sm"
 					/>
 					<span :class="$style.address">{{ instance.address }}</span>
@@ -33,9 +33,12 @@
 				id="tab-overview"
 				:class="[$style.tab, activeTab === 'overview' && $style.tabActive]"
 				:aria-selected="activeTab === 'overview'"
+				:tabindex="activeTab === 'overview' ? 0 : -1"
 				role="tab"
 				aria-controls="tabpanel-overview"
 				@click="activeTab = 'overview'"
+				@keydown.right.prevent="switchTab('traffic')"
+				@keydown.left.prevent="switchTab('traffic')"
 			>
 				Overview
 			</button>
@@ -43,9 +46,12 @@
 				id="tab-traffic"
 				:class="[$style.tab, activeTab === 'traffic' && $style.tabActive]"
 				:aria-selected="activeTab === 'traffic'"
+				:tabindex="activeTab === 'traffic' ? 0 : -1"
 				role="tab"
 				aria-controls="tabpanel-traffic"
 				@click="activeTab = 'traffic'"
+				@keydown.left.prevent="switchTab('overview')"
+				@keydown.right.prevent="switchTab('overview')"
 			>
 				Traffic
 			</button>
@@ -81,8 +87,13 @@
 			/>
 		</div>
 
+		<!-- Loading state -->
+		<div v-else-if="!store.initialized" :class="$style.loadingContainer">
+			<LoadingSpinner size="lg" label="Loading instance..." />
+		</div>
+
 		<!-- Instance not found -->
-		<div v-else-if="!store.loading && !instance" :class="$style.error">
+		<div v-else-if="!instance" :class="$style.error">
 			<BaseEmptyState
 				title="Instance not found"
 				description="This instance may have been removed. Return to the fleet dashboard to see active instances."
@@ -96,11 +107,12 @@ import { ref, computed, watch, onUnmounted } from 'vue';
 import { useRoute, RouterLink } from 'vue-router';
 import StatusIndicator from '../components/StatusIndicator.vue';
 import BaseEmptyState from '../components/BaseEmptyState.vue';
+import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OverviewTab from '../components/OverviewTab.vue';
 import TrafficTab from '../components/TrafficTab.vue';
 import { useInstanceStore } from '../stores/instances.js';
 import { useMetricsStore } from '../stores/metrics.js';
-import { isInstanceStale, getStatusLabel } from '../utils/instance.js';
+import { getStatusLabel } from '../utils/instance.js';
 import { usePolling } from '../composables/usePolling.js';
 
 const route = useRoute();
@@ -114,11 +126,12 @@ const instance = computed(() =>
 	store.instances.find((i) => i.id === instanceId.value),
 );
 
-const isStale = computed(() =>
-	instance.value ? isInstanceStale(instance.value) : false,
-);
-
 const metrics = computed(() => metricsStore.instance);
+
+function switchTab(tab) {
+	activeTab.value = tab;
+	document.getElementById(`tab-${tab}`)?.focus();
+}
 
 usePolling(() => store.fetchInstances(), 10000);
 usePolling(() => metricsStore.fetchInstanceMetrics(instanceId.value), 10000);
@@ -226,6 +239,13 @@ onUnmounted(() => metricsStore.clearInstance());
 
 .collecting,
 .error {
+	padding: var(--space-8) 0;
+}
+
+.loadingContainer {
+	display: flex;
+	align-items: center;
+	justify-content: center;
 	padding: var(--space-8) 0;
 }
 </style>

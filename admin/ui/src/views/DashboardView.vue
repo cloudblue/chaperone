@@ -60,10 +60,14 @@
 			</div>
 		</div>
 
-		<!-- Staleness banner -->
+		<!-- Unreachable instances banner -->
 		<div
-			v-if="staleInstances.length > 0"
-			:class="$style.staleBanner"
+			v-if="unreachableCount > 0"
+			:class="
+				unreachableCount === store.instances.length
+					? $style.errorBanner
+					: $style.warningBanner
+			"
 			role="alert"
 		>
 			<svg
@@ -77,18 +81,43 @@
 				stroke-linejoin="round"
 				aria-hidden="true"
 			>
-				<path
-					d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
-				/>
-				<line x1="12" y1="9" x2="12" y2="13" />
-				<line x1="12" y1="17" x2="12.01" y2="17" />
+				<circle cx="12" cy="12" r="10" />
+				<line x1="12" y1="8" x2="12" y2="12" />
+				<line x1="12" y1="16" x2="12.01" y2="16" />
 			</svg>
-			{{
-				staleInstances.length === 1
-					? '1 instance has'
-					: `${staleInstances.length} instances have`
-			}}
-			stale data — last seen over 2 minutes ago
+			<template v-if="unreachableCount === store.instances.length">
+				All {{ unreachableCount }} instances are unreachable &mdash; metrics
+				shown are from the last successful poll
+			</template>
+			<template v-else>
+				{{ unreachableCount }} of {{ store.instances.length }}
+				{{ unreachableCount === 1 ? 'instance is' : 'instances are' }}
+				unreachable
+			</template>
+		</div>
+
+		<!-- Fleet metrics error -->
+		<div
+			v-if="metricsStore.fleetError && store.instances.length > 0"
+			:class="$style.errorBanner"
+			role="alert"
+		>
+			<svg
+				width="16"
+				height="16"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				aria-hidden="true"
+			>
+				<circle cx="12" cy="12" r="10" />
+				<line x1="12" y1="8" x2="12" y2="12" />
+				<line x1="12" y1="16" x2="12.01" y2="16" />
+			</svg>
+			Failed to load fleet metrics &mdash; data may be stale
 		</div>
 
 		<!-- Fleet KPI panel -->
@@ -99,11 +128,13 @@
 		/>
 
 		<div :class="$style.content">
+			<!-- Loading state -->
+			<div v-if="!store.initialized" :class="$style.loadingContainer">
+				<LoadingSpinner size="lg" label="Loading fleet data..." />
+			</div>
+
 			<!-- First-run welcome screen -->
-			<div
-				v-if="!store.loading && store.instances.length === 0"
-				:class="$style.welcome"
-			>
+			<div v-else-if="store.instances.length === 0" :class="$style.welcome">
 				<div :class="$style.welcomeIcon" aria-hidden="true">
 					<svg
 						width="32"
@@ -218,9 +249,9 @@ import InstanceTable from '../components/InstanceTable.vue';
 import AddInstanceModal from '../components/AddInstanceModal.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import FleetKpiPanel from '../components/FleetKpiPanel.vue';
+import LoadingSpinner from '../components/LoadingSpinner.vue';
 import { useInstanceStore } from '../stores/instances.js';
 import { useMetricsStore } from '../stores/metrics.js';
-import { filterStaleInstances } from '../utils/instance.js';
 import { usePolling } from '../composables/usePolling.js';
 import { useConfirmDialog } from '../composables/useConfirmDialog.js';
 
@@ -231,7 +262,9 @@ const showModal = ref(false);
 const editingInstance = ref(null);
 const viewMode = ref('card');
 
-const staleInstances = computed(() => filterStaleInstances(store.instances));
+const unreachableCount = computed(
+	() => store.instances.filter((i) => i.status === 'unreachable').length,
+);
 
 usePolling(() => store.fetchInstances(), 10000);
 usePolling(() => metricsStore.fetchFleetMetrics(), 10000);
@@ -328,7 +361,13 @@ function closeModal() {
 	color: var(--color-accent);
 }
 
-.staleBanner {
+.toggleBtn:focus-visible {
+	outline: 2px solid var(--color-accent);
+	outline-offset: -2px;
+	z-index: 1;
+}
+
+.warningBanner {
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
@@ -436,5 +475,37 @@ function closeModal() {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
 	gap: var(--space-4);
+}
+
+.errorBanner {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-3) var(--space-4);
+	background-color: var(--color-error-bg);
+	color: var(--color-error);
+	border: 1px solid var(--color-error-border);
+	border-radius: var(--radius-lg);
+	font-size: var(--font-size-sm);
+	font-weight: var(--font-weight-medium);
+}
+
+.loadingContainer {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: var(--space-8) 0;
+}
+
+@media (max-width: 768px) {
+	.header {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: var(--space-3);
+	}
+
+	.grid {
+		grid-template-columns: 1fr;
+	}
 }
 </style>
