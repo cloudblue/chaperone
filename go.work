@@ -3,5 +3,6 @@ go 1.26.2
 use (
 	.
 	./plugins/contrib
+	./plugins/contrib/microsoft/keyvault
 	./sdk
 )

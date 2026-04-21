@@ -727,6 +727,118 @@ Seed each tenant with [`chaperone-onboard microsoft`](../guides/onboarding-refre
   fabrikam.onmicrosoft.com
 ```
 
+<a id="microsoft-keyvaultstore"></a>
+### Microsoft `KeyVaultStore`
+
+```go
+type Store struct{ /* unexported */ }
+```
+
+An Azure Key Vault-backed [`TokenStore`](#tokenstoremicrosoft) that stores one refresh token per tenant as a Key Vault secret. Lives in the separate submodule `github.com/cloudblue/chaperone/plugins/contrib/microsoft/keyvault` so the Azure SDK dependencies do not leak into consumers that use only `FileStore` or other contrib building blocks.
+
+```go
+import "github.com/cloudblue/chaperone/plugins/contrib/microsoft/keyvault"
+```
+
+#### `Config`
+
+```go
+type Config struct {
+    VaultURL      string                  // required, e.g. "https://myvault.vault.azure.net/"
+    Credential    azcore.TokenCredential  // required
+    Prefix        string                  // default: "chaperone-rt-"
+    ClientOptions *azsecrets.ClientOptions
+    Logger        *slog.Logger
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `VaultURL` | The Key Vault URL. Standard vaults only (`*.vault.azure.net` or sovereign-cloud equivalents). Managed HSM is not tested. |
+| `Credential` | Any [`azcore.TokenCredential`](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/azcore#TokenCredential) — the distributor constructs it from `azidentity` (`NewDefaultAzureCredential`, `NewManagedIdentityCredential`, `NewWorkloadIdentityCredential`, `NewClientSecretCredential`, etc.). |
+| `Prefix` | Prepended to every secret name. Override to namespace multiple environments in a shared vault. |
+| `ClientOptions` | Passed through to `azsecrets.NewClient`. Use to configure retry policy, transport, etc. |
+| `Logger` | Structured logger for warnings. Resolved lazily — `nil` means `slog.Default()` is used at log-emit time. |
+
+#### `NewStore`
+
+```go
+func NewStore(cfg Config) (*Store, error)
+```
+
+Constructs a `Store`. Returns an error if `VaultURL` or `Credential` is missing, or if the underlying `azsecrets` client fails to initialize. Unlike [`NewFileStore`](#newfilestore), it returns an error instead of panicking on misconfiguration — a Key Vault store typically runs far from the local disk, so fail-fast with an error is more operationally friendly.
+
+#### Secret naming
+
+Each tenant maps to a secret named `{Prefix}{hex(sha256(tenantID))}`. SHA-256 hex is used because:
+
+- Key Vault secret names are restricted to `^[0-9a-zA-Z-]{1,127}$` — no dots allowed. Valid tenantIDs may contain dots (`contoso.onmicrosoft.com`), so a naive encoding would fail.
+- A naive "dot→hyphen" substitution would collide (`my-a.b` and `my.a-b` both map to `my-a-b`). SHA-256 guarantees collision resistance.
+- Secret names appear in Azure Activity Log entries; hashing the tenantID keeps tenant identities out of the audit log.
+
+The original `tenantID` is preserved on each secret as the `tenantID` tag for operator visibility in the Azure portal. Chaperone also adds a `managedBy: chaperone` tag.
+
+#### RBAC
+
+The identity backing `Credential` needs Get and Set permissions on secrets in the vault. Either:
+
+- **Azure RBAC**: `Key Vault Secrets User` (read) + `Key Vault Secrets Officer` (write) — scope to the vault. If write access is already covered, `Key Vault Secrets Officer` alone suffices.
+- **Access Policies**: `get` + `set` on secrets.
+
+`list`, `delete`, and `recover` are **not** required.
+
+#### Error behavior
+
+| Method | Condition | Error |
+|--------|-----------|-------|
+| `Load` | Secret does not exist (`SecretNotFound`, HTTP 404) | Wraps [`ErrTenantNotFound`](#sentinel-errors) |
+| `Load` | Any other Key Vault failure (HTTP 403, 429, 5xx, network error) | Wrapped SDK error (not `ErrTenantNotFound`) |
+| `Load` / `Save` | Invalid `tenantID` | Validation error (not `ErrTenantNotFound`) |
+| `Save` | Empty `refreshToken` | Returns an error |
+
+Throttling (HTTP 429) is handled by the Azure SDK's default retry pipeline, which honors `Retry-After` automatically.
+
+#### Example: `DefaultAzureCredential`
+
+```go
+import (
+    "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+    "github.com/cloudblue/chaperone/plugins/contrib/microsoft"
+    "github.com/cloudblue/chaperone/plugins/contrib/microsoft/keyvault"
+)
+
+cred, err := azidentity.NewDefaultAzureCredential(nil)
+if err != nil { /* ... */ }
+
+store, err := keyvault.NewStore(keyvault.Config{
+    VaultURL:   "https://myvault.vault.azure.net/",
+    Credential: cred,
+})
+if err != nil { /* ... */ }
+
+source := microsoft.NewRefreshTokenSource(microsoft.Config{
+    ClientID:     os.Getenv("MS_CLIENT_ID"),
+    ClientSecret: os.Getenv("MS_CLIENT_SECRET"),
+    Store:        store,
+})
+```
+
+#### Example: `ManagedIdentityCredential` (AKS pod with system-assigned identity)
+
+```go
+cred, err := azidentity.NewManagedIdentityCredential(nil)
+```
+
+#### Example: `WorkloadIdentityCredential` (AKS workload identity)
+
+```go
+cred, err := azidentity.NewWorkloadIdentityCredential(nil)
+```
+
+#### Seeding tenants
+
+See the [Azure Key Vault section](../guides/onboarding-refresh-tokens.md#azure-key-vault) of the onboarding guide for the operator workflow.
+
 ---
 
 ## Sentinel errors
