@@ -123,6 +123,56 @@ store := microsoft.NewFileStore("/var/lib/chaperone/tokens")
 
 Each tenant gets a single file. The base directory is created automatically at runtime when Microsoft rotates the token.
 
+### Azure Key Vault
+
+[`microsoft.KeyVaultStore`](../reference/contrib-plugins.md#microsoft-keyvaultstore) persists each tenant's refresh token as a Key Vault secret. The secret name is `{prefix}{hex(sha256(tenantID))}`; the original tenantID is preserved on the `tenantID` tag. `chaperone-onboard` has no dedicated Key Vault subcommand — pipe stdout directly into `az keyvault secret set`.
+
+**Prerequisites:**
+
+- An Azure Key Vault with the identity running chaperone granted `Key Vault Secrets Officer` (or equivalent `get` + `set` access policy).
+- The Azure CLI (`az`) logged in as a principal with `set` permission.
+- `shasum` or `sha256sum` available locally (any POSIX system has one).
+
+**Seed one tenant:**
+
+```bash
+TENANT="contoso.onmicrosoft.com"
+PREFIX="chaperone-rt-"  # must match keyvault.Config.Prefix (default shown)
+HASH=$(printf '%s' "$TENANT" | shasum -a 256 | awk '{print $1}')
+SECRET_NAME="${PREFIX}${HASH}"
+
+export CHAPERONE_ONBOARD_CLIENT_SECRET='your-app-secret'
+
+chaperone-onboard microsoft \
+    -tenant "$TENANT" \
+    -client-id 12345678-abcd-1234-abcd-1234567890ab \
+  | az keyvault secret set \
+      --vault-name myvault \
+      --name "$SECRET_NAME" \
+      --file /dev/stdin \
+      --tags "tenantID=$TENANT" "managedBy=chaperone" \
+      --output none
+```
+
+> **Keep the prefix aligned.** If you customize `keyvault.Config.Prefix` (e.g., `"env-staging-"` to namespace multiple environments in a shared vault), use the same prefix when computing `SECRET_NAME` above. Otherwise the proxy will look for a different secret name than the one you created and return `ErrTenantNotFound`.
+
+After seeding, point the proxy at the vault:
+
+```go
+import (
+    "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+    "github.com/cloudblue/chaperone/plugins/contrib/microsoft/keyvault"
+)
+
+cred, _ := azidentity.NewDefaultAzureCredential(nil)
+store, _ := keyvault.NewStore(keyvault.Config{
+    VaultURL:   "https://myvault.vault.azure.net/",
+    Credential: cred,
+})
+```
+
+Rotations land as new secret versions; `Load` always reads the latest.
+
 ### Other backends
 
 - **Vault:** Use the Vault CLI or API to write the token to the expected KV path. See the [Vault-backed skeleton](../reference/contrib-plugins.md#vault-backed-tokenstore) in the contrib reference.
