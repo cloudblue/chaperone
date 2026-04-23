@@ -138,11 +138,15 @@ build-seed-user: ## Build the seed-user test helper
 
 .PHONY: e2e-admin-setup
 e2e-admin-setup: ## Install Playwright browsers for E2E tests (one-time setup)
-	cd $(ADMIN_UI_DIR) && pnpm exec playwright install chromium
+	cd $(ADMIN_UI_DIR) && pnpm exec playwright install chromium firefox webkit
 
 .PHONY: e2e-admin
-e2e-admin: ## Run admin portal E2E tests (run e2e-admin-setup first)
+e2e-admin: ## Run admin portal E2E tests — all browsers (run e2e-admin-setup first)
 	cd $(ADMIN_UI_DIR) && pnpm e2e
+
+.PHONY: e2e-admin-chromium
+e2e-admin-chromium: ## Run E2E tests on Chromium only
+	cd $(ADMIN_UI_DIR) && pnpm e2e --project=setup --project=chromium --project=auth
 
 .PHONY: run-admin
 run-admin: build-admin-dev ## Build and run admin portal
