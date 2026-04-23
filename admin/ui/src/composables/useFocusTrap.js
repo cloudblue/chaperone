@@ -4,7 +4,7 @@ const FOCUSABLE =
 	'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
 export function useFocusTrap(containerRef) {
-	let previouslyFocused = null;
+	const previouslyFocused = document.activeElement;
 
 	function handleKeydown(e) {
 		if (e.key !== 'Tab') return;
@@ -28,12 +28,13 @@ export function useFocusTrap(containerRef) {
 	}
 
 	onMounted(() => {
-		previouslyFocused = document.activeElement;
 		document.addEventListener('keydown', handleKeydown);
 	});
 
 	onUnmounted(() => {
 		document.removeEventListener('keydown', handleKeydown);
-		previouslyFocused?.focus();
+		if (previouslyFocused && document.contains(previouslyFocused)) {
+			previouslyFocused.focus();
+		}
 	});
 }

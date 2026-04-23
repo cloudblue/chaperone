@@ -99,4 +99,36 @@ describe('useFocusTrap', () => {
 
 		expect(prevented).toBe(false);
 	});
+
+	it('restores focus to previously focused element on unmount', () => {
+		btn1.focus();
+		expect(document.activeElement).toBe(btn1);
+
+		const containerRef = ref(container);
+		({ app } = withSetup(() => useFocusTrap(containerRef)));
+
+		// Focus moves elsewhere during the trap's lifetime.
+		btn3.focus();
+		expect(document.activeElement).toBe(btn3);
+
+		app.unmount();
+		app = null;
+		expect(document.activeElement).toBe(btn1);
+	});
+
+	it('skips restore when previously focused element was removed from DOM', () => {
+		btn1.focus();
+		expect(document.activeElement).toBe(btn1);
+
+		const containerRef = ref(container);
+		({ app } = withSetup(() => useFocusTrap(containerRef)));
+
+		// Simulate the trigger element being removed while the modal is open.
+		btn1.remove();
+
+		app.unmount();
+		app = null;
+		// Should not throw; focus stays wherever it was.
+		expect(document.activeElement).not.toBe(btn1);
+	});
 });

@@ -30,30 +30,19 @@
 		<!-- Tabs -->
 		<div v-if="instance" :class="$style.tabs" role="tablist">
 			<button
-				id="tab-overview"
-				:class="[$style.tab, activeTab === 'overview' && $style.tabActive]"
-				:aria-selected="activeTab === 'overview'"
-				:tabindex="activeTab === 'overview' ? 0 : -1"
+				v-for="tab in tabs"
+				:id="`tab-${tab.id}`"
+				:key="tab.id"
+				:class="[$style.tab, activeTab === tab.id && $style.tabActive]"
+				:aria-selected="activeTab === tab.id"
+				:tabindex="activeTab === tab.id ? 0 : -1"
 				role="tab"
-				aria-controls="tabpanel-overview"
-				@click="activeTab = 'overview'"
-				@keydown.right.prevent="switchTab('traffic')"
-				@keydown.left.prevent="switchTab('traffic')"
+				:aria-controls="`tabpanel-${tab.id}`"
+				@click="activeTab = tab.id"
+				@keydown.right.prevent="nextTab"
+				@keydown.left.prevent="prevTab"
 			>
-				Overview
-			</button>
-			<button
-				id="tab-traffic"
-				:class="[$style.tab, activeTab === 'traffic' && $style.tabActive]"
-				:aria-selected="activeTab === 'traffic'"
-				:tabindex="activeTab === 'traffic' ? 0 : -1"
-				role="tab"
-				aria-controls="tabpanel-traffic"
-				@click="activeTab = 'traffic'"
-				@keydown.left.prevent="switchTab('overview')"
-				@keydown.right.prevent="switchTab('overview')"
-			>
-				Traffic
+				{{ tab.label }}
 			</button>
 		</div>
 
@@ -118,6 +107,11 @@ import { usePolling } from '../composables/usePolling.js';
 const route = useRoute();
 const store = useInstanceStore();
 const metricsStore = useMetricsStore();
+const tabs = [
+	{ id: 'overview', label: 'Overview' },
+	{ id: 'traffic', label: 'Traffic' },
+];
+
 const activeTab = ref('overview');
 
 const instanceId = computed(() => Number(route.params.id));
@@ -128,9 +122,19 @@ const instance = computed(() =>
 
 const metrics = computed(() => metricsStore.instance);
 
-function switchTab(tab) {
-	activeTab.value = tab;
-	document.getElementById(`tab-${tab}`)?.focus();
+function activateTab(tabId) {
+	activeTab.value = tabId;
+	document.getElementById(`tab-${tabId}`)?.focus();
+}
+
+function nextTab() {
+	const i = tabs.findIndex((t) => t.id === activeTab.value);
+	activateTab(tabs[(i + 1) % tabs.length].id);
+}
+
+function prevTab() {
+	const i = tabs.findIndex((t) => t.id === activeTab.value);
+	activateTab(tabs[(i - 1 + tabs.length) % tabs.length].id);
 }
 
 usePolling(() => store.fetchInstances(), 10000);
