@@ -51,8 +51,10 @@ test.describe('Authentication', () => {
     await page.getByTestId('sidebar-logout').click();
     await expect(page).toHaveURL(/\/login/);
 
-    // Session is invalidated — going back to / should redirect to login
-    await page.goto('/');
+    // Session is invalidated — going back to / should redirect to login.
+    // Use waitUntil: 'commit' because the SPA's client-side redirect to
+    // /login interrupts the navigation before 'load' fires in Firefox/WebKit.
+    await page.goto('/', { waitUntil: 'commit' });
     await expect(page).toHaveURL(/\/login/);
   });
 });
