@@ -29,8 +29,14 @@
 
 		<!-- Latency distribution chart -->
 		<div :class="$style.chartSection">
-			<h3 :class="$style.chartTitle">Latency Over Time</h3>
-			<div :class="$style.chartContainer">
+			<h3 id="latency-chart-title" :class="$style.chartTitle">
+				Latency Over Time
+			</h3>
+			<div
+				:class="$style.chartContainer"
+				role="img"
+				aria-labelledby="latency-chart-title"
+			>
 				<VChart
 					v-if="hasSeries"
 					:option="latencyChartOption"

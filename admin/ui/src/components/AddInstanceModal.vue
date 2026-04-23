@@ -1,6 +1,7 @@
 <template>
 	<div :class="$style.overlay" @click.self="$emit('close')">
 		<div
+			ref="modalRef"
 			:class="$style.modal"
 			role="dialog"
 			aria-labelledby="modal-title"
@@ -70,11 +71,12 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import BaseInput from './BaseInput.vue';
 import BaseButton from './BaseButton.vue';
 import { useInstanceStore } from '../stores/instances.js';
 import { useInstanceForm } from '../composables/useInstanceForm.js';
+import { useFocusTrap } from '../composables/useFocusTrap.js';
 
 const props = defineProps({
 	instance: { type: Object, default: null },
@@ -82,6 +84,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'saved']);
 const store = useInstanceStore();
+const modalRef = ref(null);
 const {
 	editing,
 	name,
@@ -94,6 +97,15 @@ const {
 	handleSubmit: submit,
 } = useInstanceForm(store, props.instance);
 
+useFocusTrap(modalRef);
+
+function onKeydown(e) {
+	if (e.key === 'Escape') {
+		e.preventDefault();
+		emit('close');
+	}
+}
+
 async function handleSubmit() {
 	const ok = await submit();
 	if (ok) {
@@ -103,7 +115,12 @@ async function handleSubmit() {
 }
 
 onMounted(() => {
+	document.addEventListener('keydown', onKeydown);
 	document.querySelector('[data-testid="instance-name"]')?.focus();
+});
+
+onUnmounted(() => {
+	document.removeEventListener('keydown', onKeydown);
 });
 </script>
 
@@ -166,5 +183,16 @@ onMounted(() => {
 
 .spacer {
 	flex: 1;
+}
+
+@media (max-width: 768px) {
+	.modal {
+		margin: var(--space-4);
+		max-width: calc(100vw - var(--space-8));
+	}
+
+	.actions {
+		flex-wrap: wrap;
+	}
 }
 </style>

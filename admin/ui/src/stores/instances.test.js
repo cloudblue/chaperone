@@ -29,20 +29,17 @@ describe('useInstanceStore', () => {
 			expect(store.instances).toEqual(data);
 		});
 
-		it('sets loading true during fetch and false after', async () => {
-			let resolve;
-			api.get.mockReturnValue(new Promise((r) => (resolve = r)));
-			const p = store.fetchInstances();
-			expect(store.loading).toBe(true);
-			resolve([]);
-			await p;
-			expect(store.loading).toBe(false);
+		it('sets initialized after first fetch', async () => {
+			expect(store.initialized).toBe(false);
+			api.get.mockResolvedValue([]);
+			await store.fetchInstances();
+			expect(store.initialized).toBe(true);
 		});
 
-		it('sets loading false even on error', async () => {
+		it('sets initialized even on error', async () => {
 			api.get.mockRejectedValue(new Error('network error'));
 			await store.fetchInstances().catch(() => {});
-			expect(store.loading).toBe(false);
+			expect(store.initialized).toBe(true);
 		});
 	});
 

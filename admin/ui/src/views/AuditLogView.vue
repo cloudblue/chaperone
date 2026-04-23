@@ -49,25 +49,41 @@
 					{{ opt.label }}
 				</option>
 			</select>
-			<input
-				:class="$style.dateInput"
-				type="date"
-				:value="audit.filters.value.from"
-				aria-label="From date"
-				@change="handleFromDate($event.target.value)"
-			/>
-			<input
-				:class="$style.dateInput"
-				type="date"
-				:value="audit.filters.value.to"
-				aria-label="To date"
-				@change="handleToDate($event.target.value)"
-			/>
+			<label :class="$style.dateLabel">
+				<span :class="$style.dateLabelText">From</span>
+				<input
+					:class="$style.dateInput"
+					type="date"
+					:value="audit.filters.value.from"
+					@change="handleFromDate($event.target.value)"
+				/>
+			</label>
+			<label :class="$style.dateLabel">
+				<span :class="$style.dateLabelText">To</span>
+				<input
+					:class="$style.dateInput"
+					type="date"
+					:value="audit.filters.value.to"
+					@change="handleToDate($event.target.value)"
+				/>
+			</label>
 		</div>
 
 		<div :class="$style.content">
+			<!-- Loading state -->
+			<div
+				v-if="audit.loading.value && audit.items.value.length === 0"
+				:class="$style.loadingContainer"
+			>
+				<LoadingSpinner size="lg" label="Loading audit log..." />
+			</div>
+
 			<!-- Error state -->
-			<div v-if="audit.error.value" :class="$style.errorBanner" role="alert">
+			<div
+				v-else-if="audit.error.value"
+				:class="$style.errorBanner"
+				role="alert"
+			>
 				Failed to load audit log: {{ audit.error.value }}
 			</div>
 
@@ -245,6 +261,7 @@
 import { computed, onMounted, onUnmounted } from 'vue';
 import BaseCard from '../components/BaseCard.vue';
 import BaseEmptyState from '../components/BaseEmptyState.vue';
+import LoadingSpinner from '../components/LoadingSpinner.vue';
 import * as api from '../utils/api.js';
 import { useAuditLog } from '../composables/useAuditLog.js';
 import {
@@ -385,6 +402,19 @@ onMounted(() => audit.fetch());
 	outline: none;
 	border-color: var(--color-accent);
 	box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.dateLabel {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.dateLabelText {
+	font-size: var(--font-size-xs);
+	font-weight: var(--font-weight-medium);
+	color: var(--color-text-secondary);
+	white-space: nowrap;
 }
 
 .dateInput {
@@ -546,5 +576,32 @@ onMounted(() => audit.fetch());
 	color: var(--color-text-secondary);
 	min-width: 60px;
 	text-align: center;
+}
+
+.loadingContainer {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: var(--space-8) 0;
+}
+
+@media (max-width: 768px) {
+	.filters {
+		flex-direction: column;
+	}
+
+	.searchWrapper {
+		max-width: none;
+	}
+
+	.select,
+	.dateInput {
+		width: 100%;
+	}
+
+	.pagination {
+		flex-direction: column;
+		gap: var(--space-2);
+	}
 }
 </style>

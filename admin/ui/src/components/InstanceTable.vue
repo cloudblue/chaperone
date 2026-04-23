@@ -1,6 +1,6 @@
 <template>
 	<div :class="$style.wrapper">
-		<table :class="$style.table">
+		<table :class="$style.table" aria-label="Registered instances">
 			<thead>
 				<tr>
 					<th :class="$style.th">Status</th>
@@ -16,12 +16,15 @@
 					v-for="inst in instances"
 					:key="inst.id"
 					:class="$style.row"
+					tabindex="0"
+					role="link"
+					:aria-label="`View details for ${inst.name}`"
 					@click="$emit('click', inst)"
+					@keydown.enter="onRowKeydown($event, inst)"
+					@keydown.space="onRowKeydown($event, inst)"
 				>
 					<td :class="$style.td">
-						<StatusIndicator
-							:status="isInstanceStale(inst) ? 'stale' : inst.status"
-						/>
+						<StatusIndicator :status="inst.status" />
 					</td>
 					<td :class="[$style.td, $style.name]">{{ inst.name }}</td>
 					<td :class="[$style.td, $style.mono]">{{ inst.address }}</td>
@@ -52,13 +55,19 @@
 <script setup>
 import StatusIndicator from './StatusIndicator.vue';
 import BaseButton from './BaseButton.vue';
-import { isInstanceStale, formatTime } from '../utils/instance.js';
+import { formatTime } from '../utils/instance.js';
 
 defineProps({
 	instances: { type: Array, required: true },
 });
 
-defineEmits(['click', 'edit', 'delete']);
+const emit = defineEmits(['click', 'edit', 'delete']);
+
+function onRowKeydown(e, inst) {
+	if (e.target.closest('button, a')) return;
+	e.preventDefault();
+	emit('click', inst);
+}
 </script>
 
 <style module>
@@ -87,8 +96,14 @@ defineEmits(['click', 'edit', 'delete']);
 	cursor: pointer;
 }
 
-.row:hover {
+.row:hover,
+.row:focus-visible {
 	background-color: var(--color-bg-primary);
+}
+
+.row:focus-visible {
+	outline: 2px solid var(--color-accent);
+	outline-offset: -2px;
 }
 
 .td {

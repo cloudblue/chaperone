@@ -13,34 +13,44 @@
 			:class="$style.charts"
 		>
 			<div :class="$style.chartSection">
-				<h3 :class="$style.chartTitle">Requests Per Second</h3>
-				<VChart
-					ref="rpsChartRef"
-					:option="rpsChartOption"
-					autoresize
-					:class="$style.chart"
-					@datazoom="(e) => syncZoom('rps', e)"
-				/>
+				<h3 id="rps-chart-title" :class="$style.chartTitle">
+					Requests Per Second
+				</h3>
+				<div role="img" aria-labelledby="rps-chart-title">
+					<VChart
+						ref="rpsChartRef"
+						:option="rpsChartOption"
+						autoresize
+						:class="$style.chart"
+						@datazoom="(e) => syncZoom('rps', e)"
+					/>
+				</div>
 			</div>
 			<div :class="$style.chartSection">
-				<h3 :class="$style.chartTitle">Latency</h3>
-				<VChart
-					ref="latencyChartRef"
-					:option="latencyChartOption"
-					autoresize
-					:class="$style.chart"
-					@datazoom="(e) => syncZoom('latency', e)"
-				/>
+				<h3 id="latency-vendor-chart-title" :class="$style.chartTitle">
+					Latency
+				</h3>
+				<div role="img" aria-labelledby="latency-vendor-chart-title">
+					<VChart
+						ref="latencyChartRef"
+						:option="latencyChartOption"
+						autoresize
+						:class="$style.chart"
+						@datazoom="(e) => syncZoom('latency', e)"
+					/>
+				</div>
 			</div>
 			<div :class="$style.chartSection">
-				<h3 :class="$style.chartTitle">Error Rate</h3>
-				<VChart
-					ref="errorChartRef"
-					:option="errorChartOption"
-					autoresize
-					:class="$style.chart"
-					@datazoom="(e) => syncZoom('error', e)"
-				/>
+				<h3 id="error-chart-title" :class="$style.chartTitle">Error Rate</h3>
+				<div role="img" aria-labelledby="error-chart-title">
+					<VChart
+						ref="errorChartRef"
+						:option="errorChartOption"
+						autoresize
+						:class="$style.chart"
+						@datazoom="(e) => syncZoom('error', e)"
+					/>
+				</div>
 			</div>
 		</div>
 

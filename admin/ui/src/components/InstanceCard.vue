@@ -1,11 +1,19 @@
 <template>
-	<BaseCard :class="$style.card" @click="$emit('click')">
+	<BaseCard
+		:class="$style.card"
+		tabindex="0"
+		role="link"
+		:aria-label="`View details for ${instance.name}`"
+		@click="$emit('click')"
+		@keydown.enter="onCardKeydown"
+		@keydown.space="onCardKeydown"
+	>
 		<div :class="$style.header">
 			<div :class="$style.titleRow">
 				<h3 :class="$style.name">{{ instance.name }}</h3>
 				<StatusIndicator
-					:status="isStale ? 'stale' : instance.status"
-					:label="statusLabel"
+					:status="instance.status"
+					:label="getStatusLabel(instance.status)"
 				/>
 			</div>
 			<div :class="$style.address">{{ instance.address }}</div>
@@ -17,7 +25,7 @@
 			</div>
 			<div v-if="instance.last_seen_at" :class="$style.metaItem">
 				<span :class="$style.metaLabel">Last seen</span>
-				<span :class="[$style.metaValue, isStale && $style.staleValue]">{{
+				<span :class="$style.metaValue">{{
 					formatTime(instance.last_seen_at)
 				}}</span>
 			</div>
@@ -42,26 +50,22 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
 import BaseCard from './BaseCard.vue';
 import BaseButton from './BaseButton.vue';
 import StatusIndicator from './StatusIndicator.vue';
-import {
-	isInstanceStale,
-	formatTime,
-	getStatusLabel,
-} from '../utils/instance.js';
+import { formatTime, getStatusLabel } from '../utils/instance.js';
 
-const props = defineProps({
+defineProps({
 	instance: { type: Object, required: true },
 });
 
-defineEmits(['click', 'edit', 'delete']);
+const emit = defineEmits(['click', 'edit', 'delete']);
 
-const isStale = computed(() => isInstanceStale(props.instance));
-const statusLabel = computed(() =>
-	getStatusLabel(props.instance.status, isStale.value),
-);
+function onCardKeydown(e) {
+	if (e.target.closest('button, a')) return;
+	e.preventDefault();
+	emit('click');
+}
 </script>
 
 <style module>
@@ -120,10 +124,6 @@ const statusLabel = computed(() =>
 .metaValue {
 	font-size: var(--font-size-sm);
 	color: var(--color-text-primary);
-}
-
-.staleValue {
-	color: var(--color-warning);
 }
 
 .actions {

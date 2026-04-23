@@ -1,5 +1,5 @@
 <template>
-	<div :class="$style.card">
+	<div :class="$style.card" v-bind="$attrs">
 		<div v-if="$slots.header" :class="$style.header">
 			<slot name="header" />
 		</div>
@@ -9,7 +9,9 @@
 	</div>
 </template>
 
-<script setup></script>
+<script setup>
+defineOptions({ inheritAttrs: false });
+</script>
 
 <style module>
 .card {

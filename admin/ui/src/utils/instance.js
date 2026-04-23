@@ -1,12 +1,3 @@
-export const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
-
-export function isInstanceStale(instance) {
-	if (instance.status !== 'healthy' || !instance.last_seen_at) return false;
-	return (
-		Date.now() - new Date(instance.last_seen_at).getTime() > STALE_THRESHOLD_MS
-	);
-}
-
 export function formatTime(ts) {
 	if (!ts) return '';
 	const d = new Date(ts);
@@ -21,14 +12,8 @@ const STATUS_LABELS = {
 	healthy: 'Healthy',
 	unreachable: 'Unreachable',
 	unknown: 'Unknown',
-	stale: 'Stale',
 };
 
-export function getStatusLabel(status, isStale) {
-	if (isStale) return STATUS_LABELS.stale;
+export function getStatusLabel(status) {
 	return STATUS_LABELS[status] || STATUS_LABELS.unknown;
-}
-
-export function filterStaleInstances(instances) {
-	return instances.filter(isInstanceStale);
 }

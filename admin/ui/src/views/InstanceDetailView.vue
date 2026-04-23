@@ -15,8 +15,8 @@
 				<h1 :class="$style.title">{{ instance.name }}</h1>
 				<div :class="$style.meta">
 					<StatusIndicator
-						:status="isStale ? 'stale' : instance.status"
-						:label="getStatusLabel(instance.status, isStale)"
+						:status="instance.status"
+						:label="getStatusLabel(instance.status)"
 						size="sm"
 					/>
 					<span :class="$style.address">{{ instance.address }}</span>
@@ -30,24 +30,19 @@
 		<!-- Tabs -->
 		<div v-if="instance" :class="$style.tabs" role="tablist">
 			<button
-				id="tab-overview"
-				:class="[$style.tab, activeTab === 'overview' && $style.tabActive]"
-				:aria-selected="activeTab === 'overview'"
+				v-for="tab in tabs"
+				:id="`tab-${tab.id}`"
+				:key="tab.id"
+				:class="[$style.tab, activeTab === tab.id && $style.tabActive]"
+				:aria-selected="activeTab === tab.id"
+				:tabindex="activeTab === tab.id ? 0 : -1"
 				role="tab"
-				aria-controls="tabpanel-overview"
-				@click="activeTab = 'overview'"
+				:aria-controls="`tabpanel-${tab.id}`"
+				@click="activeTab = tab.id"
+				@keydown.right.prevent="nextTab"
+				@keydown.left.prevent="prevTab"
 			>
-				Overview
-			</button>
-			<button
-				id="tab-traffic"
-				:class="[$style.tab, activeTab === 'traffic' && $style.tabActive]"
-				:aria-selected="activeTab === 'traffic'"
-				role="tab"
-				aria-controls="tabpanel-traffic"
-				@click="activeTab = 'traffic'"
-			>
-				Traffic
+				{{ tab.label }}
 			</button>
 		</div>
 
@@ -81,8 +76,13 @@
 			/>
 		</div>
 
+		<!-- Loading state -->
+		<div v-else-if="!store.initialized" :class="$style.loadingContainer">
+			<LoadingSpinner size="lg" label="Loading instance..." />
+		</div>
+
 		<!-- Instance not found -->
-		<div v-else-if="!store.loading && !instance" :class="$style.error">
+		<div v-else-if="!instance" :class="$style.error">
 			<BaseEmptyState
 				title="Instance not found"
 				description="This instance may have been removed. Return to the fleet dashboard to see active instances."
@@ -96,16 +96,22 @@ import { ref, computed, watch, onUnmounted } from 'vue';
 import { useRoute, RouterLink } from 'vue-router';
 import StatusIndicator from '../components/StatusIndicator.vue';
 import BaseEmptyState from '../components/BaseEmptyState.vue';
+import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OverviewTab from '../components/OverviewTab.vue';
 import TrafficTab from '../components/TrafficTab.vue';
 import { useInstanceStore } from '../stores/instances.js';
 import { useMetricsStore } from '../stores/metrics.js';
-import { isInstanceStale, getStatusLabel } from '../utils/instance.js';
+import { getStatusLabel } from '../utils/instance.js';
 import { usePolling } from '../composables/usePolling.js';
 
 const route = useRoute();
 const store = useInstanceStore();
 const metricsStore = useMetricsStore();
+const tabs = [
+	{ id: 'overview', label: 'Overview' },
+	{ id: 'traffic', label: 'Traffic' },
+];
+
 const activeTab = ref('overview');
 
 const instanceId = computed(() => Number(route.params.id));
@@ -114,11 +120,22 @@ const instance = computed(() =>
 	store.instances.find((i) => i.id === instanceId.value),
 );
 
-const isStale = computed(() =>
-	instance.value ? isInstanceStale(instance.value) : false,
-);
-
 const metrics = computed(() => metricsStore.instance);
+
+function activateTab(tabId) {
+	activeTab.value = tabId;
+	document.getElementById(`tab-${tabId}`)?.focus();
+}
+
+function nextTab() {
+	const i = tabs.findIndex((t) => t.id === activeTab.value);
+	activateTab(tabs[(i + 1) % tabs.length].id);
+}
+
+function prevTab() {
+	const i = tabs.findIndex((t) => t.id === activeTab.value);
+	activateTab(tabs[(i - 1 + tabs.length) % tabs.length].id);
+}
 
 usePolling(() => store.fetchInstances(), 10000);
 usePolling(() => metricsStore.fetchInstanceMetrics(instanceId.value), 10000);
@@ -226,6 +243,13 @@ onUnmounted(() => metricsStore.clearInstance());
 
 .collecting,
 .error {
+	padding: var(--space-8) 0;
+}
+
+.loadingContainer {
+	display: flex;
+	align-items: center;
+	justify-content: center;
 	padding: var(--space-8) 0;
 }
 </style>

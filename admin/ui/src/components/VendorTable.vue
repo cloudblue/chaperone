@@ -1,6 +1,10 @@
 <template>
-	<div :class="$style.wrapper">
-		<table :class="$style.table">
+	<div
+		:class="$style.wrapper"
+		role="group"
+		aria-label="Vendor traffic breakdown"
+	>
+		<table :class="$style.table" aria-label="Vendor metrics">
 			<thead>
 				<tr>
 					<th :class="[$style.th, $style.checkCol]">
