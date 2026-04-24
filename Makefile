@@ -138,6 +138,7 @@ build-seed-user: ## Build the seed-user test helper
 
 .PHONY: e2e-admin-setup
 e2e-admin-setup: ## Install Playwright browsers for E2E tests (one-time setup)
+	cd $(ADMIN_UI_DIR) && pnpm install --frozen-lockfile
 	cd $(ADMIN_UI_DIR) && pnpm exec playwright install chromium firefox webkit
 
 .PHONY: e2e-admin
