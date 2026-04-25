@@ -16,7 +16,7 @@
 							viewMode === 'card' && $style.toggleActive,
 						]"
 						:aria-pressed="viewMode === 'card'"
-						title="Card view"
+						aria-label="Card view"
 						data-testid="view-toggle-card"
 						@click="viewMode = 'card'"
 					>
@@ -40,7 +40,7 @@
 							viewMode === 'table' && $style.toggleActive,
 						]"
 						:aria-pressed="viewMode === 'table'"
-						title="Table view"
+						aria-label="Table view"
 						data-testid="view-toggle-table"
 						@click="viewMode = 'table'"
 					>

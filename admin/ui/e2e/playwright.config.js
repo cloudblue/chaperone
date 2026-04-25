@@ -40,12 +40,20 @@ export default defineConfig({
       use: { browserName: 'chromium', storageState },
       dependencies: ['setup'],
       testMatch: 'specs/**/*.spec.js',
-      testIgnore: 'specs/auth.spec.js',
+      testIgnore: ['specs/auth.spec.js', 'specs/accessibility.spec.js'],
     },
     {
       name: 'auth',
       use: { browserName: 'chromium' },
       testMatch: 'specs/auth.spec.js',
+    },
+
+    // --- Accessibility: runs after main suite to avoid state interference ---
+    {
+      name: 'a11y',
+      use: { browserName: 'chromium', storageState },
+      dependencies: ['chromium'],
+      testMatch: 'specs/accessibility.spec.js',
     },
 
     // --- Firefox: cross-browser subset ---

@@ -6,21 +6,21 @@
 	--color-bg-sidebar-hover: #1a2340;
 	--color-bg-sidebar-active: rgba(59, 130, 246, 0.15);
 
-	/* Colors — Accent */
-	--color-accent: #3b82f6;
+	/* Colors — Accent (AA contrast on both --color-bg-surface and --color-bg-primary) */
+	--color-accent: #2563eb;
 	--color-accent-light: #dbeafe;
-	--color-accent-hover: #2563eb;
+	--color-accent-hover: #1d4ed8;
 
-	/* Colors — Text */
+	/* Colors — Text (all meet WCAG AA 4.5:1 on --color-bg-surface) */
 	--color-text-primary: #111827;
-	--color-text-secondary: #6b7280;
-	--color-text-tertiary: #9ca3af;
+	--color-text-secondary: #4b5563;
+	--color-text-tertiary: #6b7280;
 	--color-text-sidebar: #94a3b8;
 	--color-text-sidebar-active: #ffffff;
 	--color-text-inverse: #ffffff;
 
 	/* Colors — Status */
-	--color-success: #059669;
+	--color-success: #047857;
 	--color-success-bg: #ecfdf5;
 	--color-success-border: #a7f3d0;
 	--color-warning: #f59e0b;

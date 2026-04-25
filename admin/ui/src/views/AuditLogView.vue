@@ -523,7 +523,7 @@ onMounted(() => audit.fetch());
 
 .actionInstance {
 	background-color: var(--color-accent-light);
-	color: var(--color-accent);
+	color: var(--color-accent-hover);
 }
 
 .actionUser {
