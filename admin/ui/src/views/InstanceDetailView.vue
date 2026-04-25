@@ -2,7 +2,12 @@
 	<div :class="$style.page">
 		<!-- Breadcrumb -->
 		<nav :class="$style.breadcrumb" aria-label="Breadcrumb">
-			<RouterLink to="/" :class="$style.breadcrumbLink">Fleet</RouterLink>
+			<RouterLink
+				to="/"
+				:class="$style.breadcrumbLink"
+				data-testid="breadcrumb-fleet"
+				>Fleet</RouterLink
+			>
 			<span :class="$style.breadcrumbSep" aria-hidden="true">/</span>
 			<span :class="$style.breadcrumbCurrent">{{
 				instance?.name ?? 'Loading...'
@@ -12,7 +17,9 @@
 		<!-- Header -->
 		<div v-if="instance" :class="$style.header">
 			<div>
-				<h1 :class="$style.title">{{ instance.name }}</h1>
+				<h1 ref="headingRef" :class="$style.title" tabindex="-1">
+					{{ instance.name }}
+				</h1>
 				<div :class="$style.meta">
 					<StatusIndicator
 						:status="instance.status"
@@ -38,6 +45,7 @@
 				:tabindex="activeTab === tab.id ? 0 : -1"
 				role="tab"
 				:aria-controls="`tabpanel-${tab.id}`"
+				:data-testid="`tab-${tab.id}`"
 				@click="activeTab = tab.id"
 				@keydown.right.prevent="nextTab"
 				@keydown.left.prevent="prevTab"
@@ -92,7 +100,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, computed, watch, onUnmounted, nextTick } from 'vue';
 import { useRoute, RouterLink } from 'vue-router';
 import StatusIndicator from '../components/StatusIndicator.vue';
 import BaseEmptyState from '../components/BaseEmptyState.vue';
@@ -113,6 +121,7 @@ const tabs = [
 ];
 
 const activeTab = ref('overview');
+const headingRef = ref(null);
 
 const instanceId = computed(() => Number(route.params.id));
 
@@ -139,6 +148,13 @@ function prevTab() {
 
 usePolling(() => store.fetchInstances(), 10000);
 usePolling(() => metricsStore.fetchInstanceMetrics(instanceId.value), 10000);
+
+// Focus heading when instance data becomes available after navigation
+watch(instance, (inst, prevInst) => {
+	if (inst && !prevInst) {
+		nextTick(() => headingRef.value?.focus());
+	}
+});
 
 watch(instanceId, () => {
 	metricsStore.clearInstance();
@@ -191,6 +207,7 @@ onUnmounted(() => metricsStore.clearInstance());
 	font-weight: var(--font-weight-bold);
 	letter-spacing: -0.02em;
 	margin: 0;
+	outline: none;
 }
 
 .meta {

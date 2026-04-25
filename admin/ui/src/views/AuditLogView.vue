@@ -32,6 +32,7 @@
 					placeholder="Search audit log..."
 					:value="audit.filters.value.q"
 					aria-label="Search audit log"
+					data-testid="audit-search"
 					@input="handleSearch($event.target.value)"
 				/>
 			</div>
@@ -39,6 +40,7 @@
 				:class="$style.select"
 				:value="audit.filters.value.action"
 				aria-label="Filter by action type"
+				data-testid="audit-action-filter"
 				@change="audit.setFilter('action', $event.target.value)"
 			>
 				<option
@@ -154,7 +156,11 @@
 			<!-- Audit table -->
 			<BaseCard v-else>
 				<div :class="$style.tableWrapper">
-					<table :class="$style.table" aria-label="Audit log entries">
+					<table
+						:class="$style.table"
+						aria-label="Audit log entries"
+						data-testid="audit-table"
+					>
 						<thead>
 							<tr>
 								<th :class="$style.th">Time</th>
@@ -168,6 +174,7 @@
 								v-for="entry in audit.items.value"
 								:key="entry.id"
 								:class="$style.row"
+								data-testid="audit-row"
 							>
 								<td :class="[$style.td, $style.timeCell]">
 									<time
@@ -202,6 +209,7 @@
 					:class="$style.pagination"
 					role="navigation"
 					aria-label="Audit log pagination"
+					data-testid="audit-pagination"
 				>
 					<span :class="$style.pageInfo">
 						{{ paginationLabel }}
@@ -234,6 +242,7 @@
 							:class="$style.pageBtn"
 							:disabled="audit.filters.value.page >= audit.pageCount.value"
 							aria-label="Next page"
+							data-testid="audit-next-page"
 							@click="audit.nextPage()"
 						>
 							<svg
@@ -514,7 +523,7 @@ onMounted(() => audit.fetch());
 
 .actionInstance {
 	background-color: var(--color-accent-light);
-	color: var(--color-accent);
+	color: var(--color-accent-hover);
 }
 
 .actionUser {

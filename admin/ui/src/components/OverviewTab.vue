@@ -1,5 +1,5 @@
 <template>
-	<div :class="$style.tab">
+	<div :class="$style.tab" data-testid="overview-tab">
 		<!-- KPI cards -->
 		<div :class="$style.kpiGrid">
 			<KpiCard
@@ -7,6 +7,7 @@
 				:value="formatRps(rps)"
 				:trend="trendDirection(metrics.rps_trend)"
 				trend-sentiment="positive"
+				data-testid="kpi-rps"
 			/>
 			<KpiCard
 				label="P99 Latency"

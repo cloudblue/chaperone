@@ -158,7 +158,7 @@ func (h *AuthHandler) changePassword(w http.ResponseWriter, r *http.Request) {
 
 	err = h.auth.ChangePassword(r.Context(), user.ID, cookie.Value, req.CurrentPassword, req.NewPassword)
 	if errors.Is(err, auth.ErrInvalidCredentials) {
-		respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Current password is incorrect")
+		respondError(w, http.StatusForbidden, "INVALID_PASSWORD", "Current password is incorrect")
 		return
 	}
 	if errors.Is(err, auth.ErrPasswordTooShort) {
