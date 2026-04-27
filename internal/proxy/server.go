@@ -18,6 +18,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -401,6 +402,10 @@ func (s *Server) logStartup() {
 		)
 	}
 
+	if s.config.Plugin == nil {
+		slog.Info("no plugin configured, requests will be forwarded without credential injection")
+	}
+
 	if s.config.TLS.Enabled {
 		slog.Info("starting proxy server with mTLS (Mode A)",
 			"addr", s.config.Addr,
@@ -409,10 +414,13 @@ func (s *Server) logStartup() {
 			"client_auth", "RequireAndVerifyClientCert",
 		)
 		slog.Info("server configuration",
-			"read_timeout", s.config.ReadTimeout,
-			"write_timeout", s.config.WriteTimeout,
-			"idle_timeout", s.config.IdleTimeout,
-			"plugin_timeout", s.config.PluginTimeout,
+			"read_timeout", s.config.ReadTimeout.String(),
+			"write_timeout", s.config.WriteTimeout.String(),
+			"idle_timeout", s.config.IdleTimeout.String(),
+			"plugin_timeout", s.config.PluginTimeout.String(),
+			"connect_timeout", s.config.ConnectTimeout.String(),
+			"keepalive_timeout", s.config.KeepAliveTimeout.String(),
+			"shutdown_timeout", s.config.ShutdownTimeout.String(),
 			"cert_file", s.config.TLS.CertFile,
 			"ca_file", s.config.TLS.CAFile,
 		)
@@ -422,12 +430,33 @@ func (s *Server) logStartup() {
 			"mode", "B (basic)",
 		)
 		slog.Info("server configuration",
-			"read_timeout", s.config.ReadTimeout,
-			"write_timeout", s.config.WriteTimeout,
-			"idle_timeout", s.config.IdleTimeout,
-			"plugin_timeout", s.config.PluginTimeout,
+			"read_timeout", s.config.ReadTimeout.String(),
+			"write_timeout", s.config.WriteTimeout.String(),
+			"idle_timeout", s.config.IdleTimeout.String(),
+			"plugin_timeout", s.config.PluginTimeout.String(),
+			"connect_timeout", s.config.ConnectTimeout.String(),
+			"keepalive_timeout", s.config.KeepAliveTimeout.String(),
+			"shutdown_timeout", s.config.ShutdownTimeout.String(),
 		)
 	}
+
+	s.logAllowList()
+}
+
+// logAllowList logs the configured allow-list at startup for operational visibility.
+func (s *Server) logAllowList() {
+	hosts := make([]string, 0, len(s.config.AllowList))
+	routeCount := 0
+	for host, patterns := range s.config.AllowList {
+		hosts = append(hosts, host)
+		routeCount += len(patterns)
+	}
+	sort.Strings(hosts) // Deterministic output for stable logs and testability
+	slog.Info("allow list configured",
+		"hosts", hosts,
+		"host_count", len(s.config.AllowList),
+		"route_count", routeCount,
+	)
 }
 
 // withMiddleware wraps the handler with the global middleware stack.
@@ -449,7 +478,7 @@ func (s *Server) withMiddleware(handler http.Handler) http.Handler {
 		)
 	}
 
-	handler = observability.RequestLoggerMiddleware(slog.Default(), s.config.HeaderPrefix+"-Vendor-ID", handler)
+	handler = observability.RequestLoggerMiddleware(slog.Default(), s.config.HeaderPrefix, handler)
 	handler = observability.TraceIDMiddleware(s.config.TraceHeader, handler)
 	return handler
 }
@@ -481,6 +510,14 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	slog.Debug("transaction context parsed",
+		"trace_id", traceID,
+		"vendor_id", txCtx.VendorID,
+		"marketplace_id", txCtx.MarketplaceID,
+		"product_id", txCtx.ProductID,
+		"target_host", extractTargetHost(txCtx.TargetURL),
+	)
+
 	targetURL, err := url.Parse(txCtx.TargetURL)
 	if err != nil {
 		s.respondBadRequest(w, traceID, "invalid target URL", err)
@@ -507,9 +544,9 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	r, err = s.injectCredentials(r, txCtx)
+	r, err = s.injectCredentials(r, txCtx, targetURL.Host)
 	if err != nil {
-		s.handlePluginError(w, traceID, err)
+		s.handlePluginError(w, traceID, txCtx, targetURL.Host, err)
 		return
 	}
 
@@ -535,10 +572,13 @@ func (s *Server) respondBadRequest(w http.ResponseWriter, traceID, msg string, e
 // RedactingHandler can detect and redact them if they leak into log output
 // (value-based scanning, Layers 3 & 4).
 //
+// targetHost is the already-parsed host from the target URL, passed from handleProxy
+// to avoid re-parsing and to keep the field in DEBUG log output.
+//
 // Returns the (possibly updated) request and any error. The caller MUST use
 // the returned request for all subsequent operations, because the context may
 // have been enriched with secret values and injected header keys.
-func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContext) (*http.Request, error) {
+func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContext, targetHost string) (*http.Request, error) {
 	if s.config.Plugin == nil {
 		return r, nil
 	}
@@ -571,26 +611,18 @@ func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContex
 		return nil, err
 	}
 
-	// Fast Path: plugin returned headers to inject
+	// Fast Path: plugin returned headers to inject.
 	if cred != nil {
-		reqCtx := r.Context()
-		injectedKeys := make([]string, 0, len(cred.Headers))
-		for k, v := range cred.Headers {
-			r.Header.Set(k, v)
-			injectedKeys = append(injectedKeys, k)
-			// Store each credential value in context for value-based log redaction.
-			// The RedactingHandler will scan all slog string attrs and messages
-			// for these values. Short values (< MinSecretLength) are automatically
-			// skipped by the handler to avoid false positives.
-			reqCtx = observability.WithSecretValue(reqCtx, v)
-		}
-		// Store injected header keys so the Reflector can strip them from
-		// responses (prevents credential reflection for non-standard headers).
-		reqCtx = security.WithInjectedHeaders(reqCtx, injectedKeys)
-		// Propagate enriched context to the returned request. The reverse proxy
-		// will Clone this request, so resp.Request.Context() in ModifyResponse
-		// will carry the secret values and injected header keys.
-		r = r.WithContext(reqCtx)
+		r = s.applyFastPathCredentials(r, cred)
+		slog.Debug("credentials injected",
+			"trace_id", txCtx.TraceID,
+			"vendor_id", txCtx.VendorID,
+			"marketplace_id", txCtx.MarketplaceID,
+			"target_host", targetHost,
+			"credential_path", "fast",
+			"injected_header_count", len(cred.Headers),
+			"plugin_duration_ms", pluginDuration.Milliseconds(),
+		)
 		return r, nil
 	}
 
@@ -599,8 +631,43 @@ func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContex
 	// against our pre-call snapshot. This ensures log redaction and response
 	// stripping work even if the plugin doesn't call WithSecretValue() or
 	// WithInjectedHeaders() itself.
-	r = s.detectSlowPathInjections(r, headersBefore)
+	var injectedCount int
+	r, injectedCount = s.detectSlowPathInjections(r, headersBefore)
+	slog.Debug("credentials injected",
+		"trace_id", txCtx.TraceID,
+		"vendor_id", txCtx.VendorID,
+		"marketplace_id", txCtx.MarketplaceID,
+		"target_host", targetHost,
+		"credential_path", "slow",
+		"injected_header_count", injectedCount,
+		"plugin_duration_ms", pluginDuration.Milliseconds(),
+	)
 	return r, nil
+}
+
+// applyFastPathCredentials injects the credential headers into the request and
+// enriches the context with secret values and injected header keys.
+// All operations must happen together to maintain the context enrichment chain:
+// header injection → value-based redaction → response-stripping keys → context propagation.
+func (s *Server) applyFastPathCredentials(r *http.Request, cred *sdk.Credential) *http.Request {
+	reqCtx := r.Context()
+	injectedKeys := make([]string, 0, len(cred.Headers))
+	for k, v := range cred.Headers {
+		r.Header.Set(k, v)
+		injectedKeys = append(injectedKeys, k)
+		// Store each credential value in context for value-based log redaction.
+		// The RedactingHandler will scan all slog string attrs and messages
+		// for these values. Short values (< MinSecretLength) are automatically
+		// skipped by the handler to avoid false positives.
+		reqCtx = observability.WithSecretValue(reqCtx, v)
+	}
+	// Store injected header keys so the Reflector can strip them from
+	// responses (prevents credential reflection for non-standard headers).
+	reqCtx = security.WithInjectedHeaders(reqCtx, injectedKeys)
+	// Propagate enriched context. The reverse proxy will Clone this request,
+	// so resp.Request.Context() in ModifyResponse carries the secret values
+	// and injected header keys.
+	return r.WithContext(reqCtx)
 }
 
 // detectSlowPathInjections compares the current request headers against
@@ -612,7 +679,7 @@ func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContex
 // This is a safety net — Slow Path plugins MAY still call
 // observability.WithSecretValue() and security.WithInjectedHeaders()
 // for finer control, but forgetting to do so is no longer a security gap.
-func (s *Server) detectSlowPathInjections(r *http.Request, before http.Header) *http.Request {
+func (s *Server) detectSlowPathInjections(r *http.Request, before http.Header) (modified *http.Request, injectedCount int) {
 	var injectedKeys []string
 	reqCtx := r.Context()
 
@@ -631,7 +698,18 @@ func (s *Server) detectSlowPathInjections(r *http.Request, before http.Header) *
 		r = r.WithContext(reqCtx)
 	}
 
-	return r
+	return r, len(injectedKeys)
+}
+
+// extractTargetHost parses rawURL and returns only the host (with port if present).
+// Used in log output to avoid leaking sensitive path or query information.
+// Returns an empty string if the URL is invalid or has no host.
+func extractTargetHost(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Host
 }
 
 // headerValuesEqual returns true if two header value slices are identical.
@@ -666,12 +744,19 @@ func (s *Server) forwardRequest(w http.ResponseWriter, r *http.Request, target *
 	proxy.ServeHTTP(w, r) // #nosec G704 -- target validated against allow-list in handleProxy before reaching here
 }
 
+// StatusClientClosedRequest is a non-standard status code (nginx convention)
+// used when the client disconnects before receiving a response.
+const StatusClientClosedRequest = 499
+
 // handlePluginError handles errors from the plugin.
-func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, err error) {
-	// Check for context errors (timeout/cancellation)
+func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, txCtx *sdk.TransactionContext, targetHost string, err error) {
 	if errors.Is(err, context.DeadlineExceeded) {
 		slog.Error("plugin timeout",
 			"trace_id", traceID,
+			"vendor_id", txCtx.VendorID,
+			"marketplace_id", txCtx.MarketplaceID,
+			"product_id", txCtx.ProductID,
+			"target_host", targetHost,
 			"error", err,
 		)
 		http.Error(w, "Gateway Timeout", http.StatusGatewayTimeout)
@@ -679,16 +764,25 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, err er
 	}
 
 	if errors.Is(err, context.Canceled) {
-		// Client disconnected - don't write response
 		slog.Info("client disconnected",
 			"trace_id", traceID,
+			"vendor_id", txCtx.VendorID,
+			"marketplace_id", txCtx.MarketplaceID,
+			"product_id", txCtx.ProductID,
+			"target_host", targetHost,
 		)
+		// Write 499 so RequestLoggerMiddleware logs the correct status instead of
+		// the default 200. Do NOT write a body — the client is already gone.
+		w.WriteHeader(StatusClientClosedRequest)
 		return
 	}
 
-	// Generic plugin error
 	slog.Error("plugin error",
 		"trace_id", traceID,
+		"vendor_id", txCtx.VendorID,
+		"marketplace_id", txCtx.MarketplaceID,
+		"product_id", txCtx.ProductID,
+		"target_host", targetHost,
 		"error", err,
 	)
 	http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -759,6 +853,10 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 
 		slog.Error("proxy error",
 			"trace_id", traceID,
+			"vendor_id", txCtx.VendorID,
+			"marketplace_id", txCtx.MarketplaceID,
+			"product_id", txCtx.ProductID,
+			"target_host", target.Host,
 			"error", err,
 		)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
@@ -799,7 +897,14 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 			var err error
 			action, err = s.config.Plugin.ModifyResponse(ctx, *txCtx, resp)
 			if err != nil {
-				slog.Warn("plugin ModifyResponse error", "trace_id", traceID, "error", err)
+				slog.Warn("plugin ModifyResponse error",
+					"trace_id", traceID,
+					"vendor_id", txCtx.VendorID,
+					"marketplace_id", txCtx.MarketplaceID,
+					"product_id", txCtx.ProductID,
+					"target_host", resp.Request.URL.Host,
+					"error", err,
+				)
 				// Continue with response processing even if plugin fails
 			}
 		}
@@ -814,17 +919,40 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 		security.StripInjectedHeaders(resp.Request.Context(), resp.Header)
 
 		// Step 3: Core error normalization (safety net - unless plugin opted out)
-		if action == nil || !action.SkipErrorNormalization {
-			if err := security.NormalizeError(resp, traceID); err != nil {
-				slog.Error("error normalization failed",
-					"trace_id", traceID,
-					"error", err,
-				)
-				// Continue even if normalization fails - response will be sent as-is
-			}
-		}
+		s.applyErrorNormalization(traceID, txCtx, resp, action)
 
-		slog.Info("upstream response", "trace_id", traceID, "status", resp.StatusCode, "content_length", resp.ContentLength)
+		slog.Info("upstream response",
+			"trace_id", traceID,
+			"status", resp.StatusCode,
+			"content_length", resp.ContentLength,
+			"vendor_id", txCtx.VendorID,
+			"marketplace_id", txCtx.MarketplaceID,
+			"product_id", txCtx.ProductID,
+			"target_host", resp.Request.URL.Host,
+		)
 		return nil
+	}
+}
+
+// applyErrorNormalization runs Step 3 of the response modification chain.
+// If the plugin opted out via ResponseAction.SkipErrorNormalization, it logs
+// the opt-out at DEBUG and skips. Otherwise it runs the core error normalization.
+func (s *Server) applyErrorNormalization(traceID string, txCtx *sdk.TransactionContext, resp *http.Response, action *sdk.ResponseAction) {
+	if action != nil && action.SkipErrorNormalization {
+		slog.Debug("plugin opted out of error normalization",
+			"trace_id", traceID,
+		)
+		return
+	}
+	if err := security.NormalizeError(resp, traceID); err != nil {
+		slog.Error("error normalization failed",
+			"trace_id", traceID,
+			"vendor_id", txCtx.VendorID,
+			"marketplace_id", txCtx.MarketplaceID,
+			"product_id", txCtx.ProductID,
+			"target_host", resp.Request.URL.Host,
+			"error", err,
+		)
+		// Continue even if normalization fails - response will be sent as-is
 	}
 }
