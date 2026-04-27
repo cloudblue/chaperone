@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 
 	_ "modernc.org/sqlite" // register sqlite driver
 )
@@ -24,22 +25,15 @@ func (s *Store) DB() *sql.DB {
 // Open creates a new Store with the given SQLite database path.
 // It configures WAL mode, busy timeout, and foreign keys, then runs
 // any pending schema migrations.
+//
+// Pragmas are passed via the DSN so that every connection in the
+// database/sql pool receives them, not just the first one.
 func Open(ctx context.Context, dbPath string) (*Store, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	dsn := buildDSN(dbPath)
+
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
-	}
-
-	pragmas := []string{
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA busy_timeout=5000",
-		"PRAGMA foreign_keys=ON",
-	}
-	for _, p := range pragmas {
-		if _, err := db.ExecContext(ctx, p); err != nil {
-			_ = db.Close() // best-effort cleanup; primary error is the pragma failure
-			return nil, fmt.Errorf("setting pragma %q: %w", p, err)
-		}
 	}
 
 	if err := db.PingContext(ctx); err != nil {
@@ -54,6 +48,17 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 	}
 
 	return s, nil
+}
+
+// buildDSN constructs a SQLite DSN with per-connection pragmas.
+// Using _pragma query parameters ensures every pooled connection
+// gets WAL mode, a busy timeout, and foreign key enforcement.
+func buildDSN(dbPath string) string {
+	v := url.Values{}
+	v.Add("_pragma", "journal_mode(WAL)")
+	v.Add("_pragma", "busy_timeout(5000)")
+	v.Add("_pragma", "foreign_keys(1)")
+	return dbPath + "?" + v.Encode()
 }
 
 // Close closes the database connection.
