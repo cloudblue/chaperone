@@ -4,6 +4,7 @@
 		tabindex="0"
 		role="link"
 		:aria-label="`View details for ${instance.name}`"
+		data-testid="instance-card"
 		@click="$emit('click')"
 		@keydown.enter="onCardKeydown"
 		@keydown.space="onCardKeydown"
@@ -34,6 +35,7 @@
 			<BaseButton
 				size="sm"
 				variant="secondary"
+				data-testid="instance-edit"
 				@click.stop="$emit('edit', instance)"
 			>
 				Edit
@@ -41,6 +43,7 @@
 			<BaseButton
 				size="sm"
 				variant="ghost"
+				data-testid="instance-delete"
 				@click.stop="$emit('delete', instance)"
 			>
 				Remove

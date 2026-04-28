@@ -6,6 +6,7 @@
 			role="dialog"
 			aria-labelledby="modal-title"
 			aria-modal="true"
+			tabindex="-1"
 		>
 			<h2 id="modal-title" :class="$style.title">
 				{{ editing ? 'Edit Instance' : 'Add Instance' }}
@@ -33,6 +34,7 @@
 						$style.testResult,
 						testResult.ok ? $style.testOk : $style.testFail,
 					]"
+					data-testid="test-result"
 				>
 					<span v-if="testResult.ok">
 						Connected successfully — version {{ testResult.version }}
@@ -116,7 +118,7 @@ async function handleSubmit() {
 
 onMounted(() => {
 	document.addEventListener('keydown', onKeydown);
-	document.querySelector('[data-testid="instance-name"]')?.focus();
+	modalRef.value?.focus();
 });
 
 onUnmounted(() => {
