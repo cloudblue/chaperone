@@ -52,9 +52,9 @@ test.describe('Authentication', () => {
     await expect(page).toHaveURL(/\/login/);
 
     // Session is invalidated — going back to / should redirect to login.
-    // Use waitUntil: 'commit' because the SPA's client-side redirect to
-    // /login interrupts the navigation before 'load' fires in Firefox/WebKit.
-    await page.goto('/', { waitUntil: 'commit' });
+    // The SPA's auth guard may redirect before the navigation even commits
+    // (especially in WebKit), so tolerate the "interrupted" error.
+    await page.goto('/').catch(() => {});
     await expect(page).toHaveURL(/\/login/);
   });
 });
