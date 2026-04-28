@@ -1,5 +1,5 @@
 <template>
-	<div :class="$style.card" v-bind="$attrs">
+	<div :class="$style.card">
 		<span :class="$style.label">{{ label }}</span>
 		<div :class="$style.valueRow">
 			<span :class="$style.value">{{ value }}</span>

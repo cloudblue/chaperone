@@ -24,7 +24,8 @@ export const test = base.extend({
     // Extract CSRF token from cookies
     const cookies = await ctx.storageState();
     const csrfCookie = cookies.cookies.find((c) => c.name === 'csrf_token');
-    const csrfToken = csrfCookie?.value ?? '';
+    if (!csrfCookie) throw new Error('expected csrf_token cookie after login');
+    const csrfToken = csrfCookie.value;
 
     // Wrap context to auto-include CSRF header on writes
     const originalPost = ctx.post.bind(ctx);
