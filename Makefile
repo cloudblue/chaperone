@@ -51,7 +51,14 @@ LDFLAGS_DEV := -ldflags "\
 all: lint test build
 
 .PHONY: ci
-ci: fmt license-check lint test-race gosec govulncheck build ## Run all CI checks locally
+ci: fmt license-check lint ci-admin-ui test-race gosec govulncheck build build-onboard build-admin-dev ## Run all CI checks locally
+
+.PHONY: ci-admin-ui
+ci-admin-ui: ## Run admin UI checks (format, lint, test)
+	cd $(ADMIN_UI_DIR) && pnpm install --frozen-lockfile
+	cd $(ADMIN_UI_DIR) && pnpm prettier --check "src/**/*.{js,vue,css}"
+	cd $(ADMIN_UI_DIR) && pnpm lint
+	cd $(ADMIN_UI_DIR) && pnpm test
 
 # ============================================================================
 # Build
@@ -88,6 +95,65 @@ clean: ## Remove build artifacts
 	@rm -f coverage.out coverage.html
 
 # ============================================================================
+# Admin Portal
+# ============================================================================
+
+ADMIN_BINARY_NAME := chaperone-admin
+ADMIN_MODULE_DIR := admin
+ADMIN_CMD_PATH := ./cmd/chaperone-admin
+ADMIN_UI_DIR := admin/ui
+
+ADMIN_LDFLAGS := -ldflags "-s -w \
+	-X main.Version=$(VERSION) \
+	-X main.GitCommit=$(GIT_COMMIT) \
+	-X main.BuildDate=$(BUILD_DATE)"
+
+ADMIN_LDFLAGS_DEV := -ldflags "\
+	-X main.Version=$(VERSION)-dev \
+	-X main.GitCommit=$(GIT_COMMIT) \
+	-X main.BuildDate=$(BUILD_DATE)"
+
+.PHONY: build-admin
+build-admin: build-admin-ui ## Build the admin portal binary (production)
+	@echo "Building $(ADMIN_BINARY_NAME)..."
+	@mkdir -p $(BUILD_DIR)
+	cd $(ADMIN_MODULE_DIR) && CGO_ENABLED=0 go build $(ADMIN_LDFLAGS) -o ../$(BUILD_DIR)/$(ADMIN_BINARY_NAME) $(ADMIN_CMD_PATH)
+
+.PHONY: build-admin-dev
+build-admin-dev: ## Build admin portal for development (no UI build needed)
+	@echo "Building $(ADMIN_BINARY_NAME) (development)..."
+	@mkdir -p $(BUILD_DIR)
+	cd $(ADMIN_MODULE_DIR) && go build -tags dev $(ADMIN_LDFLAGS_DEV) -o ../$(BUILD_DIR)/$(ADMIN_BINARY_NAME) $(ADMIN_CMD_PATH)
+
+.PHONY: build-admin-ui
+build-admin-ui: ## Build the admin portal SPA
+	@echo "Building admin UI..."
+	cd $(ADMIN_UI_DIR) && pnpm install && pnpm build
+
+.PHONY: build-seed-user
+build-seed-user: ## Build the seed-user test helper
+	@echo "Building seed-user..."
+	@mkdir -p $(BUILD_DIR)
+	cd $(ADMIN_MODULE_DIR) && go build -o ../$(BUILD_DIR)/seed-user ./cmd/seed-user
+
+.PHONY: e2e-admin-setup
+e2e-admin-setup: ## Install Playwright browsers for E2E tests (one-time setup)
+	cd $(ADMIN_UI_DIR) && pnpm install --frozen-lockfile
+	cd $(ADMIN_UI_DIR) && pnpm exec playwright install chromium firefox webkit
+
+.PHONY: e2e-admin
+e2e-admin: ## Run admin portal E2E tests — all browsers (run e2e-admin-setup first)
+	cd $(ADMIN_UI_DIR) && pnpm e2e
+
+.PHONY: e2e-admin-chromium
+e2e-admin-chromium: ## Run E2E tests on Chromium only
+	cd $(ADMIN_UI_DIR) && pnpm e2e --project=setup --project=chromium --project=auth
+
+.PHONY: run-admin
+run-admin: build-admin-dev ## Build and run admin portal
+	@$(BUILD_DIR)/$(ADMIN_BINARY_NAME)
+
+# ============================================================================
 # Development Certificates
 # ============================================================================
 
@@ -104,24 +170,28 @@ test: ## Run tests (all modules)
 	go test -v ./...
 	cd sdk && go test -v ./...
 	cd plugins/contrib && go test -v ./...
+	cd admin && go test -tags dev -v ./...
 
 .PHONY: test-race
 test-race: ## Run tests with race detector
 	go test -race -v ./...
 	cd sdk && go test -race -v ./...
 	cd plugins/contrib && go test -race -v ./...
+	cd admin && go test -race -tags dev -v ./...
 
 .PHONY: test-cover
 test-cover: ## Run tests with coverage
 	go test -coverprofile=coverage.out ./...
 	cd sdk && go test -coverprofile=coverage-sdk.out ./...
 	cd plugins/contrib && go test -coverprofile=coverage-contrib.out ./...
+	cd admin && go test -tags dev -coverprofile=coverage-admin.out ./...
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
 .PHONY: test-short
 test-short: ## Run short tests only
 	go test -short -v ./...
+	cd admin && go test -short -tags dev -v ./...
 
 .PHONY: test-integration
 test-integration: ## Run integration tests
@@ -254,7 +324,8 @@ lint: ## Run linters (all modules)
 	@if [ -x "$(GOLANGCI_LINT)" ]; then \
 		$(GOLANGCI_LINT) run && \
 		(cd sdk && $(GOLANGCI_LINT) run) && \
-		(cd plugins/contrib && $(GOLANGCI_LINT) run); \
+		(cd plugins/contrib && $(GOLANGCI_LINT) run) && \
+		(cd admin && $(GOLANGCI_LINT) run --build-tags=dev); \
 	else \
 		echo "golangci-lint not installed. Run: make tools"; \
 		exit 1; \
@@ -265,6 +336,7 @@ lint-fix: ## Run linters and fix issues
 	$(GOLANGCI_LINT) run --fix
 	cd sdk && $(GOLANGCI_LINT) run --fix
 	cd plugins/contrib && $(GOLANGCI_LINT) run --fix
+	cd admin && $(GOLANGCI_LINT) run --fix --build-tags=dev
 
 .PHONY: fmt
 fmt: ## Format code (all modules)
@@ -274,12 +346,15 @@ fmt: ## Format code (all modules)
 	cd sdk && gofmt -s -w .
 	cd plugins/contrib && go fmt ./...
 	cd plugins/contrib && gofmt -s -w .
+	cd admin && go fmt ./...
+	cd admin && gofmt -s -w .
 
 .PHONY: vet
-vet: ## Run go vet
+vet: ## Run go vet (all modules)
 	go vet ./...
 	cd sdk && go vet ./...
 	cd plugins/contrib && go vet ./...
+	cd admin && go vet -tags dev ./...
 
 .PHONY: tidy
 tidy: ## Tidy and verify go.mod (all modules)
@@ -287,12 +362,14 @@ tidy: ## Tidy and verify go.mod (all modules)
 	go mod verify
 	cd sdk && go mod tidy
 	cd plugins/contrib && go mod tidy && go mod verify
+	cd admin && go mod tidy
 
 .PHONY: gosec
 gosec: ## Run gosec security scanner (all modules)
 	@if [ -x "$(GOSEC)" ]; then \
-		$(GOSEC) -exclude=G706 -exclude-dir=sdk -exclude-dir=plugins ./... && \
-		(cd sdk && $(GOSEC) ./...); \
+		$(GOSEC) -exclude=G706 -exclude-dir=sdk -exclude-dir=plugins -exclude-dir=admin ./... && \
+		(cd sdk && $(GOSEC) ./...) && \
+		(cd admin && $(GOSEC) -exclude=G706 -tags=dev ./...); \
 	else \
 		echo "gosec not installed. Run: make tools"; \
 		exit 1; \
@@ -302,7 +379,8 @@ gosec: ## Run gosec security scanner (all modules)
 govulncheck: ## Run govulncheck vulnerability scanner (all modules)
 	@if [ -x "$(GOVULNCHECK)" ]; then \
 		$(GOVULNCHECK) ./... && \
-		(cd sdk && $(GOVULNCHECK) ./...); \
+		(cd sdk && $(GOVULNCHECK) ./...) && \
+		(cd admin && $(GOVULNCHECK) ./...); \
 	else \
 		echo "govulncheck not installed. Run: make tools"; \
 		exit 1; \
@@ -324,7 +402,8 @@ ADDLICENSE_FLAGS := -f .copyright-header.tmpl \
 	-ignore 'bin/**' \
 	-ignore 'certs/**' \
 	-ignore '.ai/**' \
-	-ignore '.claude/**'
+	-ignore '.claude/**' \
+	-ignore 'admin/ui/**'
 
 .PHONY: license-check
 license-check: ## Check that all source files have copyright headers
