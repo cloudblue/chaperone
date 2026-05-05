@@ -1,0 +1,88 @@
+:root {
+	/* Colors — Background */
+	--color-bg-primary: #f8f9fc;
+	--color-bg-surface: #ffffff;
+	--color-bg-sidebar: #0f1729;
+	--color-bg-sidebar-hover: #1a2340;
+	--color-bg-sidebar-active: rgba(59, 130, 246, 0.15);
+
+	/* Colors — Accent (AA contrast on both --color-bg-surface and --color-bg-primary) */
+	--color-accent: #2563eb;
+	--color-accent-light: #dbeafe;
+	--color-accent-hover: #1d4ed8;
+
+	/* Colors — Text (all meet WCAG AA 4.5:1 on --color-bg-surface) */
+	--color-text-primary: #111827;
+	--color-text-secondary: #4b5563;
+	--color-text-tertiary: #6b7280;
+	--color-text-sidebar: #94a3b8;
+	--color-text-sidebar-active: #ffffff;
+	--color-text-inverse: #ffffff;
+
+	/* Colors — Status */
+	--color-success: #047857;
+	--color-success-bg: #ecfdf5;
+	--color-success-border: #a7f3d0;
+	--color-warning: #f59e0b;
+	--color-warning-bg: #fffbeb;
+	--color-warning-border: #fde68a;
+	--color-error: #dc2626;
+	--color-error-bg: #fef2f2;
+	--color-error-hover: #b91c1c;
+	--color-error-border: #fecaca;
+	--color-purple: #7c3aed;
+	--color-purple-light: #f3e8ff;
+
+	/* Colors — Border */
+	--color-border: #e5e7eb;
+	--color-border-light: #f3f4f6;
+
+	/* Typography */
+	--font-family:
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+	--font-family-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+	--font-size-xs: 0.6875rem; /* 11px */
+	--font-size-sm: 0.8125rem; /* 13px */
+	--font-size-base: 0.875rem; /* 14px */
+	--font-size-md: 0.9375rem; /* 15px */
+	--font-size-lg: 1.125rem; /* 18px */
+	--font-size-xl: 1.375rem; /* 22px */
+	--font-size-2xl: 1.75rem; /* 28px */
+
+	--font-weight-normal: 400;
+	--font-weight-medium: 500;
+	--font-weight-semibold: 600;
+	--font-weight-bold: 700;
+
+	--line-height-tight: 1.4;
+	--line-height-normal: 1.5;
+	--line-height-relaxed: 1.6;
+
+	/* Spacing */
+	--space-1: 0.25rem; /* 4px */
+	--space-2: 0.5rem; /* 8px */
+	--space-3: 0.75rem; /* 12px */
+	--space-4: 1rem; /* 16px */
+	--space-5: 1.25rem; /* 20px */
+	--space-6: 1.5rem; /* 24px */
+	--space-8: 2rem; /* 32px */
+
+	/* Border Radius */
+	--radius-sm: 4px;
+	--radius-md: 6px;
+	--radius-lg: 8px;
+	--radius-xl: 12px;
+	--radius-2xl: 16px;
+
+	/* Shadows */
+	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+	--shadow-md:
+		0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+	--shadow-lg:
+		0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+	--shadow-modal: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+
+	/* Layout */
+	--sidebar-width: 240px;
+}

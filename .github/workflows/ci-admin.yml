@@ -1,0 +1,193 @@
+# Copyright 2026 CloudBlue LLC
+# SPDX-License-Identifier: Apache-2.0
+
+name: CI (Admin Portal)
+
+on:
+  push:
+    branches:
+      - master
+      - 'release/**'
+    paths:
+      - 'admin/**'
+      - 'Makefile'
+      - '.github/workflows/ci-admin.yml'
+  pull_request:
+    paths:
+      - 'admin/**'
+      - 'test/mock-chaperone/**'
+      - 'Makefile'
+      - '.github/workflows/ci-admin.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GOLANGCI_LINT_VERSION: 'v2.8.0'
+  PNPM_VERSION: '10.28.2'
+
+jobs:
+  lint-go:
+    name: Lint (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: admin/go.mod
+          cache-dependency-path: admin/go.sum
+
+      - name: Run golangci-lint (admin module)
+        # The admin module embeds ui/dist in !dev builds; use dev tags for
+        # backend lint/test so checks do not depend on prebuilt UI artifacts.
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-mode: goinstall
+          working-directory: admin
+          args: --build-tags=dev
+
+  lint-ui:
+    name: Lint (UI)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
+
+      - name: Install dependencies
+        working-directory: admin/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        working-directory: admin/ui
+        run: pnpm prettier --check "src/**/*.{js,vue,css}"
+
+      - name: Lint
+        working-directory: admin/ui
+        run: pnpm lint
+
+  test-go:
+    name: Test (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: admin/go.mod
+          cache-dependency-path: admin/go.sum
+
+      - name: Run tests
+        # Keep Go test path independent from ui/dist embed requirements.
+        run: cd admin && go test -race -tags dev ./...
+
+  test-ui:
+    name: Test (UI)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
+
+      - name: Install dependencies
+        working-directory: admin/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        working-directory: admin/ui
+        run: pnpm test
+
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    needs: [lint-go, lint-ui, test-go, test-ui]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: admin/go.mod
+          cache-dependency-path: admin/go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
+
+      - name: Install dependencies
+        working-directory: admin/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        working-directory: admin/ui
+        run: pnpm exec playwright install chromium firefox webkit --with-deps
+
+      - name: Run E2E tests
+        run: make e2e-admin
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: admin/ui/e2e/playwright-report/
+          retention-days: 14
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint-go, lint-ui, test-go, test-ui]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: admin/go.mod
+          cache-dependency-path: admin/go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
+
+      - name: Build admin portal
+        run: make build-admin
+
+      - name: Verify binary exists
+        run: |
+          test -f bin/chaperone-admin
+          ./bin/chaperone-admin --version

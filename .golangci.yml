@@ -145,6 +145,11 @@ linters:
         path: internal/context/
         text: "var-naming: avoid package names"
 
+      - linters:
+          - revive
+        path: admin/api/
+        text: "var-naming: avoid meaningless package names"
+
       # Allow pkg/crypto name even though it conflicts with stdlib.
       # This package handles certificate generation, not general crypto.
       # TODO: Consider renaming to pkg/certs in future refactor.

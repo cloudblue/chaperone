@@ -5,4 +5,5 @@ use (
 	./plugins/contrib
 	./plugins/contrib/microsoft/keyvault
 	./sdk
+  ./admin
 )
