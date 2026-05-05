@@ -21,7 +21,7 @@ import (
 // directory, synced to disk, and then renamed to the target path. This
 // prevents corruption from a crash mid-write.
 //
-// TenantIDs are validated against [validTenantID] to prevent path traversal,
+// TenantIDs are validated against [ValidateTenantID] to prevent path traversal,
 // regardless of whether the caller has already validated them.
 //
 // It is safe for concurrent use from multiple goroutines.
@@ -41,7 +41,7 @@ func NewFileStore(baseDir string) *FileStore {
 // Load retrieves the current refresh token for the given tenant.
 // Returns [contrib.ErrTenantNotFound] if no token file exists.
 func (f *FileStore) Load(_ context.Context, tenantID string) (string, error) {
-	if err := validateTenantID(tenantID); err != nil {
+	if err := ValidateTenantID(tenantID); err != nil {
 		return "", err
 	}
 
@@ -61,7 +61,7 @@ func (f *FileStore) Load(_ context.Context, tenantID string) (string, error) {
 
 // Save persists a rotated refresh token to disk atomically.
 func (f *FileStore) Save(_ context.Context, tenantID, refreshToken string) error {
-	if err := validateTenantID(tenantID); err != nil {
+	if err := ValidateTenantID(tenantID); err != nil {
 		return err
 	}
 	if refreshToken == "" {
@@ -112,19 +112,4 @@ func (f *FileStore) Save(_ context.Context, tenantID, refreshToken string) error
 
 func (f *FileStore) tokenPath(tenantID string) string {
 	return filepath.Join(f.baseDir, tenantID)
-}
-
-// validateTenantID rejects tenant IDs that could cause path traversal.
-// This is defense-in-depth: RefreshTokenSource also validates, but FileStore
-// is a public type and must not rely on callers for safety.
-func validateTenantID(tenantID string) error {
-	if !validTenantID.MatchString(tenantID) {
-		display := tenantID
-		if len(display) > 64 {
-			display = display[:64] + "..."
-		}
-		return fmt.Errorf("invalid tenant ID %q: must match %s",
-			display, validTenantID.String())
-	}
-	return nil
 }

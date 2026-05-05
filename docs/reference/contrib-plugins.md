@@ -727,8 +727,8 @@ Seed each tenant with [`chaperone-onboard microsoft`](../guides/onboarding-refre
   fabrikam.onmicrosoft.com
 ```
 
-<a id="microsoft-keyvaultstore"></a>
-### Microsoft `KeyVaultStore`
+<a id="microsoft-keyvault-store"></a>
+### Microsoft `keyvault.Store`
 
 ```go
 type Store struct{ /* unexported */ }

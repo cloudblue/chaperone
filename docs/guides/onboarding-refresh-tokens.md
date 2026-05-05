@@ -125,7 +125,7 @@ Each tenant gets a single file. The base directory is created automatically at r
 
 ### Azure Key Vault
 
-[`microsoft.KeyVaultStore`](../reference/contrib-plugins.md#microsoft-keyvaultstore) persists each tenant's refresh token as a Key Vault secret. The secret name is `{prefix}{hex(sha256(tenantID))}`; the original tenantID is preserved on the `tenantID` tag. `chaperone-onboard` has no dedicated Key Vault subcommand — pipe stdout directly into `az keyvault secret set`.
+[`keyvault.Store`](../reference/contrib-plugins.md#microsoft-keyvault-store) persists each tenant's refresh token as a Key Vault secret. The secret name is `{prefix}{hex(sha256(tenantID))}`; the original tenantID is preserved on the `tenantID` tag. `chaperone-onboard` has no dedicated Key Vault subcommand — pipe stdout directly into `az keyvault secret set`.
 
 **Prerequisites:**
 

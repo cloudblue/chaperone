@@ -35,11 +35,16 @@ const defaultPrefix = "chaperone-rt-"
 // does not exist in the vault.
 const secretNotFoundCode = "SecretNotFound"
 
-// validTenantID mirrors microsoft.validTenantID, which is unexported. Any
-// change there should be reflected here. It matches Azure AD tenant
-// identifiers (GUIDs, domain names) and rejects path separators, query
-// strings, and fragments.
-var validTenantID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.\-]*$`)
+// keyVaultSecretNameMaxLen is the Key Vault secret name length limit.
+const keyVaultSecretNameMaxLen = 127
+
+// secretHashLen is the length of the hex-encoded SHA-256 suffix appended to
+// every prefix when building a secret name (see [secretName]).
+const secretHashLen = 64
+
+// validPrefix matches the prefix grammar Key Vault accepts inside a secret
+// name. The empty string is allowed; full-name length is checked separately.
+var validPrefix = regexp.MustCompile(`^[0-9a-zA-Z-]*$`)
 
 // Config configures a Key Vault-backed TokenStore.
 type Config struct {
@@ -86,24 +91,27 @@ type Store struct {
 var _ microsoft.TokenStore = (*Store)(nil)
 
 // NewStore constructs a Store from a Config. Returns an error if VaultURL or
-// Credential is missing, or if the underlying azsecrets client fails to
-// initialize.
+// Credential is missing, the Prefix is incompatible with Key Vault's secret
+// name grammar, or the underlying azsecrets client fails to initialize.
 func NewStore(cfg Config) (*Store, error) {
 	if cfg.VaultURL == "" {
-		return nil, errors.New("keyvault: VaultURL is required")
+		return nil, errors.New("VaultURL is required") //nolint:staticcheck // VaultURL is a Config field identifier
 	}
 	if cfg.Credential == nil {
-		return nil, errors.New("keyvault: Credential is required")
-	}
-
-	client, err := azsecrets.NewClient(cfg.VaultURL, cfg.Credential, cfg.ClientOptions)
-	if err != nil {
-		return nil, fmt.Errorf("keyvault: creating azsecrets client: %w", err)
+		return nil, errors.New("Credential is required") //nolint:staticcheck // Credential is a Config field identifier
 	}
 
 	prefix := cfg.Prefix
 	if prefix == "" {
 		prefix = defaultPrefix
+	}
+	if err := validatePrefix(prefix); err != nil {
+		return nil, err
+	}
+
+	client, err := azsecrets.NewClient(cfg.VaultURL, cfg.Credential, cfg.ClientOptions)
+	if err != nil {
+		return nil, fmt.Errorf("creating azsecrets client: %w", err)
 	}
 
 	return &Store{
@@ -111,6 +119,22 @@ func NewStore(cfg Config) (*Store, error) {
 		prefix: prefix,
 		logger: cfg.Logger,
 	}, nil
+}
+
+// validatePrefix enforces Key Vault's secret name grammar on the configured
+// prefix and ensures the resulting "{prefix}{hex(sha256(tenantID))}" stays
+// within Key Vault's 127-character limit. Catching this at startup avoids
+// surfacing a 400 from Key Vault on every Save/Load.
+func validatePrefix(prefix string) error {
+	if !validPrefix.MatchString(prefix) {
+		return fmt.Errorf("invalid Prefix %q: must match %s",
+			prefix, validPrefix.String())
+	}
+	if len(prefix)+secretHashLen > keyVaultSecretNameMaxLen {
+		return fmt.Errorf("Prefix %q is too long: len(prefix) + %d must be <= %d", //nolint:staticcheck // Prefix is a Config field identifier
+			prefix, secretHashLen, keyVaultSecretNameMaxLen)
+	}
+	return nil
 }
 
 // newStoreWithClient is the test-only constructor that accepts a preconstructed
@@ -134,7 +158,7 @@ func (s *Store) log() *slog.Logger {
 // Returns an error wrapping [contrib.ErrTenantNotFound] if the tenant has no
 // stored token.
 func (s *Store) Load(ctx context.Context, tenantID string) (string, error) {
-	if err := validateTenantID(tenantID); err != nil {
+	if err := microsoft.ValidateTenantID(tenantID); err != nil {
 		return "", err
 	}
 
@@ -165,7 +189,7 @@ func (s *Store) Load(ctx context.Context, tenantID string) (string, error) {
 // Save persists a rotated refresh token to Key Vault. Each call creates a
 // new secret version; Load always reads the latest.
 func (s *Store) Save(ctx context.Context, tenantID, refreshToken string) error {
-	if err := validateTenantID(tenantID); err != nil {
+	if err := microsoft.ValidateTenantID(tenantID); err != nil {
 		return err
 	}
 	if refreshToken == "" {
@@ -188,21 +212,5 @@ func (s *Store) Save(ctx context.Context, tenantID, refreshToken string) error {
 		return fmt.Errorf("saving token for tenant %s: %w", tenantID, err)
 	}
 
-	return nil
-}
-
-// validateTenantID rejects tenant IDs that could cause path traversal or that
-// don't match Azure AD's tenant ID grammar. Defense in depth: the outer
-// RefreshTokenSource already validates, but Store is a public type and must
-// not rely on callers for safety.
-func validateTenantID(tenantID string) error {
-	if !validTenantID.MatchString(tenantID) {
-		display := tenantID
-		if len(display) > 64 {
-			display = display[:64] + "..."
-		}
-		return fmt.Errorf("keyvault: invalid tenant ID %q: must match %s",
-			display, validTenantID.String())
-	}
 	return nil
 }

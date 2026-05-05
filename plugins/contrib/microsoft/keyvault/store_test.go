@@ -440,6 +440,52 @@ func TestNewStore_CustomPrefix(t *testing.T) {
 	}
 }
 
+func TestNewStore_InvalidPrefix_RejectedAtConstruction(t *testing.T) {
+	tests := []struct {
+		name   string
+		prefix string
+	}{
+		{"underscore", "env_staging-"},
+		{"dot", "env.staging-"},
+		{"slash", "env/staging-"},
+		{"space", "env staging-"},
+		{"too long", strings.Repeat("a", keyVaultSecretNameMaxLen-secretHashLen+1)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewStore(Config{
+				VaultURL:   "https://myvault.vault.azure.net/",
+				Credential: &fakeTokenCredential{},
+				Prefix:     tt.prefix,
+			})
+			if err == nil {
+				t.Fatalf("NewStore() expected error for prefix %q, got nil", tt.prefix)
+			}
+			if !strings.Contains(err.Error(), "Prefix") {
+				t.Errorf("error = %q, want substring %q", err.Error(), "Prefix")
+			}
+		})
+	}
+}
+
+func TestNewStore_PrefixAtMaxAllowedLength_Accepted(t *testing.T) {
+	// A prefix of exactly (127 - 64) = 63 chars must produce a 127-char name
+	// — the upper edge of Key Vault's grammar.
+	prefix := strings.Repeat("a", keyVaultSecretNameMaxLen-secretHashLen)
+	s, err := NewStore(Config{
+		VaultURL:   "https://myvault.vault.azure.net/",
+		Credential: &fakeTokenCredential{},
+		Prefix:     prefix,
+	})
+	if err != nil {
+		t.Fatalf("NewStore() with max-length prefix unexpectedly failed: %v", err)
+	}
+	if got := len(secretName(s.prefix, "contoso.onmicrosoft.com")); got != keyVaultSecretNameMaxLen {
+		t.Errorf("secret name length = %d, want %d", got, keyVaultSecretNameMaxLen)
+	}
+}
+
 func TestStore_CustomLogger_EmitsOnNotFound(t *testing.T) {
 	var buf bytes.Buffer
 	custom := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))

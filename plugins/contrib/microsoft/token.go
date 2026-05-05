@@ -25,6 +25,22 @@ import (
 // "consumers". It rejects path separators, query strings, and fragments.
 var validTenantID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.\-]*$`)
 
+// ValidateTenantID rejects tenant IDs that could cause path traversal or that
+// don't match Azure AD's tenant ID grammar. Exported so sibling [TokenStore]
+// implementations (e.g., keyvault.Store) can share the same rule without
+// duplicating the regex.
+func ValidateTenantID(tenantID string) error {
+	if !validTenantID.MatchString(tenantID) {
+		display := tenantID
+		if len(display) > 64 {
+			display = display[:64] + "..."
+		}
+		return fmt.Errorf("invalid tenant ID %q: must match %s",
+			display, validTenantID.String())
+	}
+	return nil
+}
+
 const (
 	// defaultTokenEndpoint is the public Azure AD v1 token endpoint.
 	defaultTokenEndpoint = "https://login.microsoftonline.com" // #nosec G101 -- URL endpoint, not a credential
