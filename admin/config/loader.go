@@ -75,6 +75,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.Scraper.Timeout == 0 {
 		cfg.Scraper.Timeout = Duration(5 * time.Second)
 	}
+	if cfg.Scraper.RetentionWindow == 0 {
+		cfg.Scraper.RetentionWindow = Duration(1 * time.Hour)
+	}
 	if cfg.Session.MaxAge == 0 {
 		cfg.Session.MaxAge = Duration(24 * time.Hour)
 	}
@@ -107,6 +110,7 @@ func applyEnvOverrides(cfg *Config) error {
 
 	parseDuration(&cfg.Scraper.Interval, "SCRAPER_INTERVAL", &errs)
 	parseDuration(&cfg.Scraper.Timeout, "SCRAPER_TIMEOUT", &errs)
+	parseDuration(&cfg.Scraper.RetentionWindow, "SCRAPER_RETENTION_WINDOW", &errs)
 	parseDuration(&cfg.Session.MaxAge, "SESSION_MAX_AGE", &errs)
 	parseDuration(&cfg.Session.IdleTimeout, "SESSION_IDLE_TIMEOUT", &errs)
 

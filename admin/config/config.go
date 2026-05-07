@@ -45,8 +45,9 @@ type DatabaseConfig struct {
 
 // ScraperConfig configures the proxy metrics scraper.
 type ScraperConfig struct {
-	Interval Duration `yaml:"interval"`
-	Timeout  Duration `yaml:"timeout"`
+	Interval        Duration `yaml:"interval"`
+	Timeout         Duration `yaml:"timeout"`
+	RetentionWindow Duration `yaml:"retention_window"`
 }
 
 // SessionConfig configures session management.
