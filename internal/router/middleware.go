@@ -8,7 +8,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"net/url"
 
 	"github.com/cloudblue/chaperone/internal/observability"
 )
@@ -18,6 +17,7 @@ import (
 type AllowListMiddleware struct {
 	validator    *AllowListValidator
 	headerPrefix string
+	addrMode     observability.TargetAddrMode
 	next         http.Handler
 }
 
@@ -26,11 +26,14 @@ type AllowListMiddleware struct {
 // Parameters:
 //   - allowList: The host-to-paths mapping from configuration
 //   - headerPrefix: The prefix for context headers (e.g., "X-Connect")
+//   - addrMode: how to format the target_addr field in WARN/DEBUG logs
+//     (see observability.TargetAddrMode). Empty defaults to host-only.
 //   - next: The next handler in the chain
-func NewAllowListMiddleware(allowList map[string][]string, headerPrefix string, next http.Handler) *AllowListMiddleware {
+func NewAllowListMiddleware(allowList map[string][]string, headerPrefix string, addrMode observability.TargetAddrMode, next http.Handler) *AllowListMiddleware {
 	return &AllowListMiddleware{
 		validator:    NewAllowListValidator(allowList),
 		headerPrefix: headerPrefix,
+		addrMode:     addrMode,
 		next:         next,
 	}
 }
@@ -57,7 +60,7 @@ func (m *AllowListMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	if err := m.validator.Validate(targetURL); err != nil {
 		slog.Warn("allow list validation failed",
 			"trace_id", observability.TraceIDFromContext(r.Context()),
-			"target_host", extractHostFromURL(targetURL),
+			"target_addr", observability.FormatTargetAddr(targetURL, m.addrMode),
 			"error", err.Error(),
 			"remote_addr", r.RemoteAddr,
 		)
@@ -79,21 +82,11 @@ func (m *AllowListMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 	slog.Debug("allow list validation passed",
 		"trace_id", observability.TraceIDFromContext(r.Context()),
-		"target_host", extractHostFromURL(targetURL),
+		"target_addr", observability.FormatTargetAddr(targetURL, m.addrMode),
 	)
 
 	// Validation passed, continue to next handler
 	m.next.ServeHTTP(w, r)
-}
-
-// extractHostFromURL parses a URL string and returns only the host portion.
-// Returns an empty string if the URL is invalid or has no host.
-func extractHostFromURL(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" {
-		return ""
-	}
-	return u.Host
 }
 
 // errorResponse is the JSON structure for error responses.

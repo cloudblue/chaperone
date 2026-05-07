@@ -22,6 +22,8 @@ var (
 	ErrEmptyAllowList = errors.New("upstream.allow_list must not be empty")
 	// ErrInvalidLogLevel is returned when log_level is not a valid value.
 	ErrInvalidLogLevel = errors.New("observability.log_level must be one of: debug, info, warn, error")
+	// ErrInvalidLogTargetAddr is returned when log_target_addr is not a valid value.
+	ErrInvalidLogTargetAddr = errors.New("observability.log_target_addr must be one of: host, path, full")
 	// ErrInvalidServerAddr is returned when server.addr is invalid.
 	ErrInvalidServerAddr = errors.New("server.addr is invalid")
 	// ErrInvalidAdminAddr is returned when server.admin_addr is invalid.
@@ -228,10 +230,19 @@ func validateTimeouts(cfg *TimeoutConfig) error {
 
 // validateObservabilityConfig validates the observability configuration section.
 func validateObservabilityConfig(cfg *ObservabilityConfig) error {
+	var errs []error
+
 	if cfg.LogLevel != "" && !slices.Contains(ValidLogLevels, cfg.LogLevel) {
-		return fmt.Errorf("%w: got %q", ErrInvalidLogLevel, cfg.LogLevel)
+		errs = append(errs, fmt.Errorf("%w: got %q", ErrInvalidLogLevel, cfg.LogLevel))
 	}
 
+	if cfg.LogTargetAddr != "" && !slices.Contains(ValidLogTargetAddrModes, cfg.LogTargetAddr) {
+		errs = append(errs, fmt.Errorf("%w: got %q", ErrInvalidLogTargetAddr, cfg.LogTargetAddr))
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
 	return nil
 }
 

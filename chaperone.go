@@ -144,6 +144,20 @@ func configureLogging(rc *runConfig, cfg *config.Config) {
 			"env_var", "CHAPERONE_OBSERVABILITY_ENABLE_BODY_LOGGING",
 		)
 	}
+
+	// Notify the operator when target_addr logging is set to a non-default
+	// mode. "path" is informational; "full" is loud because query strings
+	// may contain secrets, tokens, or PII.
+	switch cfg.Observability.LogTargetAddr {
+	case string(observability.TargetAddrModePath):
+		slog.Info("target_addr logging set to 'path' — request paths will appear in logs (host + path, no query)",
+			"env_var", "CHAPERONE_OBSERVABILITY_LOG_TARGET_ADDR",
+		)
+	case string(observability.TargetAddrModeFull):
+		slog.Warn("target_addr logging set to 'full' — full target URLs including query parameters will appear in logs; query strings may contain secrets, tokens, or PII. Use only when explicitly required for audit/debugging",
+			"env_var", "CHAPERONE_OBSERVABILITY_LOG_TARGET_ADDR",
+		)
+	}
 }
 
 // startProxy wires up the admin and proxy servers, starts them, and blocks
@@ -222,10 +236,11 @@ func newProxyServer(plugin sdk.Plugin, rc *runConfig, cfg *config.Config, tracin
 			KeyFile:  cfg.Server.TLS.KeyFile,
 			CAFile:   cfg.Server.TLS.CAFile,
 		},
-		ReadTimeout:    *cfg.Upstream.Timeouts.Read,
-		WriteTimeout:   *cfg.Upstream.Timeouts.Write,
-		IdleTimeout:    *cfg.Upstream.Timeouts.Idle,
-		TracingEnabled: tracingEnabled,
+		ReadTimeout:       *cfg.Upstream.Timeouts.Read,
+		WriteTimeout:      *cfg.Upstream.Timeouts.Write,
+		IdleTimeout:       *cfg.Upstream.Timeouts.Idle,
+		TracingEnabled:    tracingEnabled,
+		LogTargetAddrMode: observability.TargetAddrMode(cfg.Observability.LogTargetAddr),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating proxy server: %w", err)

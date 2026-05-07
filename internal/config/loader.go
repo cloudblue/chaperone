@@ -178,6 +178,9 @@ func applyObservabilityDefaults(cfg *ObservabilityConfig) {
 	if cfg.LogLevel == "" {
 		cfg.LogLevel = DefaultLogLevel
 	}
+	if cfg.LogTargetAddr == "" {
+		cfg.LogTargetAddr = DefaultLogTargetAddr
+	}
 	// EnableProfiling defaults to false (secure default), which is Go zero value
 
 	// Security: Always merge user-provided sensitive headers with mandatory
@@ -327,6 +330,9 @@ func applyObservabilityEnvOverrides(cfg *Config) error {
 			return fmt.Errorf("invalid %s_%s value %q: %w", EnvPrefix, "OBSERVABILITY_ENABLE_BODY_LOGGING", v, err)
 		}
 		cfg.Observability.EnableBodyLogging = b
+	}
+	if v := getEnv("OBSERVABILITY_LOG_TARGET_ADDR"); v != "" {
+		cfg.Observability.LogTargetAddr = v
 	}
 	return nil
 }

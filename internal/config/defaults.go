@@ -69,6 +69,10 @@ const (
 	DefaultEnableProfiling = false
 	// DefaultEnableTracing is the secure default for tracing (disabled).
 	DefaultEnableTracing = false
+	// DefaultLogTargetAddr is the default mode for the target_addr log field
+	// (host-only). Safe default — no path or query is exposed in logs unless
+	// the operator explicitly opts in to "path" or "full".
+	DefaultLogTargetAddr = "host"
 )
 
 // defaultSensitiveHeaders returns the list of headers that MUST be redacted
@@ -121,3 +125,6 @@ func MergeSensitiveHeaders(extra []string) []string {
 
 // ValidLogLevels is the list of accepted log level values.
 var ValidLogLevels = []string{"debug", "info", "warn", "error"}
+
+// ValidLogTargetAddrModes is the list of accepted log_target_addr values.
+var ValidLogTargetAddrModes = []string{"host", "path", "full"}

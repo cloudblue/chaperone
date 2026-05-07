@@ -146,6 +146,31 @@ observability:
   # Env: CHAPERONE_OBSERVABILITY_ENABLE_TRACING
   enable_tracing: false
 
+  # Controls how much of the upstream target URL is reported in the
+  # `target_addr` log field. The same value is applied uniformly to every
+  # log line that references the target (request completed, upstream
+  # response, allow-list events, plugin errors, etc.).
+  #
+  # Valid values:
+  #   "host" (default) - Authority only (host[:port]). No scheme, no path,
+  #                       no query. Safest. Example: "api.vendor.com:8443".
+  #   "path"           - scheme://host[:port]/path. Path appears, query
+  #                       stripped. Example: "https://api.vendor.com/v1/users".
+  #                       Useful for "what endpoint was called" auditing.
+  #   "full"           - Full URL including query. Userinfo (user:pass@) is
+  #                       always stripped, in every mode.
+  #                       Example: "https://api.vendor.com/v1/users?key=val".
+  #
+  # SECURITY: "path" and "full" can leak sensitive information. Path
+  # segments may contain PII (e.g., emails or IDs); query strings are a
+  # common location for tokens and API keys. The proxy emits a startup
+  # WARN when "full" is enabled. Use "host" unless an audit/debugging
+  # requirement justifies the extra detail.
+  #
+  # Default: "host"
+  # Env: CHAPERONE_OBSERVABILITY_LOG_TARGET_ADDR
+  log_target_addr: "host"
+
   # Additional headers to redact from logs and strip from responses.
   # These are MERGED with the built-in defaults which are always included:
   #   Authorization, Proxy-Authorization, Cookie, Set-Cookie, X-API-Key, X-Auth-Token
