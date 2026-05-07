@@ -4,6 +4,7 @@
 package proxy_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -427,11 +428,10 @@ func TestIntegration_BackendUnreachable_Returns502(t *testing.T) {
 	}
 }
 
-func TestIntegration_PluginContextCanceled_NoResponse(t *testing.T) {
-	// Arrange - plugin that checks for context cancellation
+func TestIntegration_PluginContextCanceled_Returns499(t *testing.T) {
+	// Arrange - plugin that simulates client disconnect
 	plugin := &mockPlugin{
-		getCredentialsFn: func(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
-			// Simulate context being cancelled (client disconnected)
+		getCredentialsFn: func(_ context.Context, _ sdk.TransactionContext, _ *http.Request) (*sdk.Credential, error) {
 			return nil, context.Canceled
 		},
 	}
@@ -449,11 +449,9 @@ func TestIntegration_PluginContextCanceled_NoResponse(t *testing.T) {
 	// Act
 	handler.ServeHTTP(rec, req)
 
-	// Assert - when context is canceled, we don't write a response (or write minimal)
-	// The important thing is we don't crash and don't return 500
-	// In practice, client won't see this response since they disconnected
-	if rec.Code == http.StatusInternalServerError {
-		t.Error("context.Canceled should not return 500")
+	// Assert - 499 Client Closed Request (nginx convention for client disconnect)
+	if rec.Code != proxy.StatusClientClosedRequest {
+		t.Errorf("status = %d, want %d (StatusClientClosedRequest)", rec.Code, proxy.StatusClientClosedRequest)
 	}
 }
 
@@ -1907,5 +1905,214 @@ func TestIntegration_NonContextHeaders_PreservedOnForwarding(t *testing.T) {
 	}
 	if receivedAccept != "application/json" {
 		t.Errorf("Accept = %q, want %q", receivedAccept, "application/json")
+	}
+}
+
+// =============================================================================
+// Phase 2: DEBUG logging for credential injection
+// =============================================================================
+
+func TestIntegration_FastPath_LogsCredentialInjection(t *testing.T) {
+	// Arrange - capture DEBUG log output
+	var logBuffer bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	originalLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(originalLogger)
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	plugin := &mockPlugin{
+		getCredentialsFn: func(_ context.Context, _ sdk.TransactionContext, _ *http.Request) (*sdk.Credential, error) {
+			return &sdk.Credential{
+				Headers:   map[string]string{"Authorization": "Bearer test-token"},
+				ExpiresAt: time.Now().Add(1 * time.Hour),
+			}, nil
+		},
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL)
+	req.Header.Set("X-Connect-Vendor-ID", "VA-test")
+	req.Header.Set("X-Connect-Marketplace-ID", "MP-test")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	// Assert - "credentials injected" DEBUG log with Fast Path fields
+	logOutput := logBuffer.String()
+	if !strings.Contains(logOutput, `"msg":"credentials injected"`) {
+		t.Errorf("expected credentials injected log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"credential_path":"fast"`) {
+		t.Errorf("expected credential_path=fast in log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"injected_header_count":1`) {
+		t.Errorf("expected injected_header_count=1 in log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"vendor_id":"VA-test"`) {
+		t.Errorf("expected vendor_id in log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"plugin_duration_ms"`) {
+		t.Errorf("expected plugin_duration_ms in log, got: %s", logOutput)
+	}
+}
+
+func TestIntegration_SlowPath_LogsCredentialInjection(t *testing.T) {
+	// Arrange - capture DEBUG log output
+	var logBuffer bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	originalLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(originalLogger)
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	// Slow path: plugin mutates request directly and returns nil credential
+	plugin := &mockPlugin{
+		getCredentialsFn: func(_ context.Context, _ sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+			req.Header.Set("Authorization", "Bearer slow-token")
+			return nil, nil
+		},
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL)
+	req.Header.Set("X-Connect-Vendor-ID", "VA-slow")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	// Assert - "credentials injected" DEBUG log with Slow Path fields
+	logOutput := logBuffer.String()
+	if !strings.Contains(logOutput, `"msg":"credentials injected"`) {
+		t.Errorf("expected credentials injected log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"credential_path":"slow"`) {
+		t.Errorf("expected credential_path=slow in log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"vendor_id":"VA-slow"`) {
+		t.Errorf("expected vendor_id in log, got: %s", logOutput)
+	}
+}
+
+// =============================================================================
+// Phase 6: DEBUG logpoints for context parsing
+// =============================================================================
+
+func TestProxy_ContextParsed_DebugLog_LogsHostOnly(t *testing.T) {
+	// Arrange - capture DEBUG log output
+	var logBuffer bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	originalLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(originalLogger)
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
+	handler := srv.Handler()
+
+	// URL with a sensitive path segment and query params — only the host should appear in logs
+	targetURL := backend.URL + "/v1/users/alice@example.com?api_key=supersecret&token=abc123"
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", targetURL)
+	req.Header.Set("X-Connect-Vendor-ID", "VA-test")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - only the host appears; path, query, and userinfo must not leak
+	logOutput := logBuffer.String()
+	if !strings.Contains(logOutput, `"msg":"transaction context parsed"`) {
+		t.Errorf("expected 'transaction context parsed' debug log, got: %s", logOutput)
+	}
+	if strings.Contains(logOutput, "supersecret") {
+		t.Errorf("log must not contain sensitive query value 'supersecret', got: %s", logOutput)
+	}
+	if strings.Contains(logOutput, "api_key") {
+		t.Errorf("log must not contain query param name 'api_key', got: %s", logOutput)
+	}
+	if strings.Contains(logOutput, "token=") {
+		t.Errorf("log must not contain 'token=' query param, got: %s", logOutput)
+	}
+	if strings.Contains(logOutput, "alice@example.com") {
+		t.Errorf("log must not contain path segment 'alice@example.com', got: %s", logOutput)
+	}
+	if strings.Contains(logOutput, "/v1/users") {
+		t.Errorf("log must not contain URL path, got: %s", logOutput)
+	}
+}
+
+// =============================================================================
+// Phase 3: Status 499 on client disconnect
+// =============================================================================
+
+func TestIntegration_ClientDisconnect_LogsStatus499(t *testing.T) {
+	// Arrange - capture log output
+	var logBuffer bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuffer, nil))
+	originalLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(originalLogger)
+
+	plugin := &mockPlugin{
+		getCredentialsFn: func(_ context.Context, _ sdk.TransactionContext, _ *http.Request) (*sdk.Credential, error) {
+			return nil, context.Canceled
+		},
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", "http://example.com")
+	req.Header.Set("X-Connect-Vendor-ID", "VA-disconnect")
+	req.Header.Set("Connect-Request-ID", "trace-499-test")
+	rec := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(rec, req)
+
+	// Assert - RequestLoggerMiddleware logs status 499 (not the default 200)
+	if rec.Code != proxy.StatusClientClosedRequest {
+		t.Errorf("response status = %d, want %d", rec.Code, proxy.StatusClientClosedRequest)
+	}
+	logOutput := logBuffer.String()
+	if !strings.Contains(logOutput, `"status":499`) {
+		t.Errorf("log should contain status 499, got: %s", logOutput)
 	}
 }
