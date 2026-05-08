@@ -125,6 +125,3 @@ func MergeSensitiveHeaders(extra []string) []string {
 
 // ValidLogLevels is the list of accepted log level values.
 var ValidLogLevels = []string{"debug", "info", "warn", "error"}
-
-// ValidLogTargetAddrModes is the list of accepted log_target_addr values.
-var ValidLogTargetAddrModes = []string{"host", "path", "full"}

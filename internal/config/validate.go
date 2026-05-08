@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/cloudblue/chaperone/internal/observability"
 	"github.com/cloudblue/chaperone/internal/router"
 )
 
@@ -236,8 +237,10 @@ func validateObservabilityConfig(cfg *ObservabilityConfig) error {
 		errs = append(errs, fmt.Errorf("%w: got %q", ErrInvalidLogLevel, cfg.LogLevel))
 	}
 
-	if cfg.LogTargetAddr != "" && !slices.Contains(ValidLogTargetAddrModes, cfg.LogTargetAddr) {
-		errs = append(errs, fmt.Errorf("%w: got %q", ErrInvalidLogTargetAddr, cfg.LogTargetAddr))
+	if cfg.LogTargetAddr != "" {
+		if _, err := observability.ParseTargetAddrMode(string(cfg.LogTargetAddr)); err != nil {
+			errs = append(errs, fmt.Errorf("%w: got %q", ErrInvalidLogTargetAddr, cfg.LogTargetAddr))
+		}
 	}
 
 	if len(errs) > 0 {

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudblue/chaperone/internal/observability"
 	"github.com/cloudblue/chaperone/internal/router"
 )
 
@@ -972,7 +973,7 @@ upstream:
 // TestLoad_LogTargetAddr_YAMLAcceptsAllValidValues verifies that all three
 // valid modes can be set from the YAML config.
 func TestLoad_LogTargetAddr_YAMLAcceptsAllValidValues(t *testing.T) {
-	for _, mode := range ValidLogTargetAddrModes {
+	for _, mode := range observability.ValidTargetAddrModes {
 		t.Run(mode, func(t *testing.T) {
 			yamlContent := `
 server:
@@ -990,7 +991,7 @@ observability:
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if cfg.Observability.LogTargetAddr != mode {
+			if cfg.Observability.LogTargetAddr != observability.TargetAddrMode(mode) {
 				t.Errorf("LogTargetAddr = %q, want %q", cfg.Observability.LogTargetAddr, mode)
 			}
 		})

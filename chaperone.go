@@ -149,11 +149,13 @@ func configureLogging(rc *runConfig, cfg *config.Config) {
 	// mode. "path" is informational; "full" is loud because query strings
 	// may contain secrets, tokens, or PII.
 	switch cfg.Observability.LogTargetAddr {
-	case string(observability.TargetAddrModePath):
+	case observability.TargetAddrModeHost:
+		// default — no warning needed
+	case observability.TargetAddrModePath:
 		slog.Info("target_addr logging set to 'path' — request paths will appear in logs (host + path, no query)",
 			"env_var", "CHAPERONE_OBSERVABILITY_LOG_TARGET_ADDR",
 		)
-	case string(observability.TargetAddrModeFull):
+	case observability.TargetAddrModeFull:
 		slog.Warn("target_addr logging set to 'full' — full target URLs including query parameters will appear in logs; query strings may contain secrets, tokens, or PII. Use only when explicitly required for audit/debugging",
 			"env_var", "CHAPERONE_OBSERVABILITY_LOG_TARGET_ADDR",
 		)
@@ -240,7 +242,7 @@ func newProxyServer(plugin sdk.Plugin, rc *runConfig, cfg *config.Config, tracin
 		WriteTimeout:      *cfg.Upstream.Timeouts.Write,
 		IdleTimeout:       *cfg.Upstream.Timeouts.Idle,
 		TracingEnabled:    tracingEnabled,
-		LogTargetAddrMode: observability.TargetAddrMode(cfg.Observability.LogTargetAddr),
+		LogTargetAddrMode: cfg.Observability.LogTargetAddr,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating proxy server: %w", err)

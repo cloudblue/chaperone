@@ -3,7 +3,11 @@
 
 package config
 
-import "time"
+import (
+	"time"
+
+	"github.com/cloudblue/chaperone/internal/observability"
+)
 
 // Config is the root configuration structure for Chaperone.
 type Config struct {
@@ -107,7 +111,7 @@ type ObservabilityConfig struct {
 	// A startup warning is emitted for "path" and "full" — they may expose
 	// path segments or query parameters that contain PII or secrets.
 	// Default: "host".
-	LogTargetAddr string `yaml:"log_target_addr"`
+	LogTargetAddr observability.TargetAddrMode `yaml:"log_target_addr"`
 	// SensitiveHeaders is the list of additional headers to redact from logs
 	// and strip from responses. These are merged with the built-in defaults
 	// (Authorization, Proxy-Authorization, Cookie, Set-Cookie, X-API-Key,

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/cloudblue/chaperone/internal/observability"
 )
 
 // EnvPrefix is the prefix for environment variable overrides.
@@ -332,7 +334,7 @@ func applyObservabilityEnvOverrides(cfg *Config) error {
 		cfg.Observability.EnableBodyLogging = b
 	}
 	if v := getEnv("OBSERVABILITY_LOG_TARGET_ADDR"); v != "" {
-		cfg.Observability.LogTargetAddr = v
+		cfg.Observability.LogTargetAddr = observability.TargetAddrMode(v)
 	}
 	return nil
 }

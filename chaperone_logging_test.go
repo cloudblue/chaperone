@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/cloudblue/chaperone/internal/config"
+	"github.com/cloudblue/chaperone/internal/observability"
 )
 
 // TestConfigureLogging_LogTargetAddrWarnings verifies that configureLogging
@@ -50,7 +51,7 @@ func TestConfigureLogging_LogTargetAddrWarnings(t *testing.T) {
 			rc := &runConfig{logOutput: &buf}
 			cfg := &config.Config{}
 			cfg.Observability.LogLevel = "info"
-			cfg.Observability.LogTargetAddr = tt.mode
+			cfg.Observability.LogTargetAddr = observability.TargetAddrMode(tt.mode)
 
 			configureLogging(rc, cfg)
 
