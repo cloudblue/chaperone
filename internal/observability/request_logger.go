@@ -6,7 +6,6 @@ package observability
 import (
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 )
@@ -86,6 +85,8 @@ func (rc *ResponseCapturer) Status() int {
 //   - logger: structured logger for output
 //   - headerPrefix: the context header prefix (e.g., "X-Connect"). The middleware
 //     constructs header names internally using the stable suffix constants.
+//   - addrMode: how to format the upstream target in the target_addr field
+//     (see TargetAddrMode). Empty defaults to host-only.
 //   - next: the downstream handler
 //
 // Fields emitted:
@@ -97,7 +98,8 @@ func (rc *ResponseCapturer) Status() int {
 //   - vendor_id: Vendor ID from the <prefix>-Vendor-ID request header
 //   - marketplace_id: Marketplace ID from the <prefix>-Marketplace-ID request header
 //   - product_id: Product ID from the <prefix>-Product-ID request header
-//   - target_host: Host extracted from the <prefix>-Target-URL request header
+//   - target_addr: Upstream target formatted per addrMode (host / path / full).
+//     Sourced from the <prefix>-Target-URL request header.
 //   - client_ip: Client IP from proxy headers (X-Forwarded-For > X-Real-IP);
 //     empty when no proxy headers are present (use remote_addr instead)
 //   - remote_addr: Raw TCP peer address (always r.RemoteAddr, useful for
@@ -107,7 +109,7 @@ func (rc *ResponseCapturer) Status() int {
 // already in the request context when this handler receives the request.
 // Uses defer to ensure logging occurs even if downstream handlers panic
 // (when used with panic recovery middleware).
-func RequestLoggerMiddleware(logger *slog.Logger, headerPrefix string, next http.Handler) http.Handler {
+func RequestLoggerMiddleware(logger *slog.Logger, headerPrefix string, addrMode TargetAddrMode, next http.Handler) http.Handler {
 	vendorHdr := headerPrefix + "-Vendor-ID"
 	marketplaceHdr := headerPrefix + "-Marketplace-ID"
 	productHdr := headerPrefix + "-Product-ID"
@@ -131,7 +133,7 @@ func RequestLoggerMiddleware(logger *slog.Logger, headerPrefix string, next http
 				"vendor_id", r.Header.Get(vendorHdr),
 				"marketplace_id", r.Header.Get(marketplaceHdr),
 				"product_id", r.Header.Get(productHdr),
-				"target_host", extractHost(r.Header.Get(targetURLHdr)),
+				"target_addr", FormatTargetAddr(r.Header.Get(targetURLHdr), addrMode),
 				"client_ip", ClientIP(r),
 				"remote_addr", r.RemoteAddr,
 			)
@@ -139,16 +141,6 @@ func RequestLoggerMiddleware(logger *slog.Logger, headerPrefix string, next http
 
 		next.ServeHTTP(capturer, r)
 	})
-}
-
-// extractHost parses rawURL and returns only the host (with port if present).
-// Returns an empty string if the URL is invalid or has no host.
-func extractHost(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" {
-		return ""
-	}
-	return u.Host
 }
 
 // ClientIP extracts the client IP from proxy headers only.

@@ -125,6 +125,7 @@ observability:
   log_level: "info"
   enable_profiling: false
   enable_tracing: false
+  log_target_addr: "host"
   sensitive_headers:
     - "X-Custom-Secret"
     - "X-Vendor-Token"
@@ -136,6 +137,7 @@ observability:
 | `enable_profiling` | `CHAPERONE_OBSERVABILITY_ENABLE_PROFILING` | bool | `false` | Enable `/debug/pprof` endpoints on the admin port |
 | `enable_tracing` | `CHAPERONE_OBSERVABILITY_ENABLE_TRACING` | bool | `false` | Enable OpenTelemetry distributed tracing (see [Tracing](#tracing)) |
 | — | `CHAPERONE_OBSERVABILITY_ENABLE_BODY_LOGGING` | bool | `false` | Log request/response bodies at debug level. **Env-var only** — cannot be set in the YAML file (security safeguard). A startup warning is emitted when enabled. |
+| `log_target_addr` | `CHAPERONE_OBSERVABILITY_LOG_TARGET_ADDR` | string | `host` | Detail level of the upstream target in the `target_addr` log field: `host` / `path` / `full`. See [Target Address Logging](#target-address-logging). |
 | `sensitive_headers` | — | []string | See below | Additional headers to redact (merged with defaults) |
 
 #### Sensitive Headers
@@ -160,6 +162,32 @@ observability:
     - "X-Custom-Secret"
     - "X-Vendor-Token"
 ```
+
+#### Target Address Logging
+
+The `log_target_addr` setting controls how much of the upstream target URL
+appears in the `target_addr` log field. The same value is applied uniformly
+to every log line that references the target — `request completed`,
+`upstream response`, allow-list events, plugin errors, and DEBUG breadcrumbs.
+
+| Mode | Output example | Use it when |
+|------|---------------|-------------|
+| `host` (default) | `api.vendor.com:8443` | Always safe. Authority only — no scheme, no path, no query. |
+| `path` | `https://api.vendor.com:8443/v1/users` | You need to know which endpoint was called. Path appears; query is stripped. |
+| `full` | `https://api.vendor.com:8443/v1/users?key=val` | You need full request audit/debugging. Includes the query string. |
+
+**Userinfo (`user:pass@host`) is always stripped, in every mode.**
+
+> **Security:** `path` and `full` may expose sensitive information.
+> Path segments often carry IDs or PII (e.g., `/users/alice@example.com`);
+> query strings are a common location for tokens and API keys.
+> Chaperone emits a startup `WARN` when `full` is selected, and an
+> informational `INFO` when `path` is selected.
+
+For full per-request audit trails without leaking sensitive data into
+plaintext logs, prefer enabling [OpenTelemetry tracing](#tracing) — spans
+include the full target URL but are exported through your observability
+pipeline rather than the local log stream.
 
 ### Tracing
 

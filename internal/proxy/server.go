@@ -83,6 +83,11 @@ type Config struct {
 	// TracingEnabled controls whether OpenTelemetry tracing middleware is active.
 	TracingEnabled bool
 
+	// LogTargetAddrMode controls how the upstream target appears in log
+	// output (the `target_addr` field). See observability.TargetAddrMode.
+	// Empty defaults to host-only, the safest behavior.
+	LogTargetAddrMode observability.TargetAddrMode
+
 	// Timeouts
 	ReadTimeout      time.Duration
 	WriteTimeout     time.Duration
@@ -245,6 +250,7 @@ func (s *Server) Handler() http.Handler {
 			router.NewAllowListMiddleware(
 				s.config.AllowList,
 				s.config.HeaderPrefix,
+				s.config.LogTargetAddrMode,
 				http.HandlerFunc(s.handleProxy),
 			),
 		),
@@ -478,7 +484,7 @@ func (s *Server) withMiddleware(handler http.Handler) http.Handler {
 		)
 	}
 
-	handler = observability.RequestLoggerMiddleware(slog.Default(), s.config.HeaderPrefix, handler)
+	handler = observability.RequestLoggerMiddleware(slog.Default(), s.config.HeaderPrefix, s.config.LogTargetAddrMode, handler)
 	handler = observability.TraceIDMiddleware(s.config.TraceHeader, handler)
 	return handler
 }
@@ -510,17 +516,25 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse the target URL once. If parsing fails, target_addr defaults to ""
+	// (consistent with FormatTargetAddr's behavior for malformed input) so
+	// the DEBUG breadcrumb still fires before the bad-request response.
+	targetURL, parseErr := url.Parse(txCtx.TargetURL)
+	var targetAddr string
+	if parseErr == nil {
+		targetAddr = observability.FormatTargetAddrFromURL(targetURL, s.config.LogTargetAddrMode)
+	}
+
 	slog.Debug("transaction context parsed",
 		"trace_id", traceID,
 		"vendor_id", txCtx.VendorID,
 		"marketplace_id", txCtx.MarketplaceID,
 		"product_id", txCtx.ProductID,
-		"target_host", extractTargetHost(txCtx.TargetURL),
+		"target_addr", targetAddr,
 	)
 
-	targetURL, err := url.Parse(txCtx.TargetURL)
-	if err != nil {
-		s.respondBadRequest(w, traceID, "invalid target URL", err)
+	if parseErr != nil {
+		s.respondBadRequest(w, traceID, "invalid target URL", parseErr)
 		return
 	}
 
@@ -530,7 +544,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("insecure target URL rejected",
 			"trace_id", traceID,
 			"target_scheme", targetURL.Scheme,
-			"target_host", targetURL.Host,
+			"target_addr", targetAddr,
 		)
 		http.Error(w, "Bad Request: "+err.Error(), http.StatusBadRequest)
 		return
@@ -540,18 +554,18 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	if targetURL.Scheme == "http" {
 		slog.Warn("forwarding to insecure HTTP target - DEVELOPMENT ONLY",
 			"trace_id", traceID,
-			"target_host", targetURL.Host,
+			"target_addr", targetAddr,
 		)
 	}
 
-	r, err = s.injectCredentials(r, txCtx, targetURL.Host)
+	r, err = s.injectCredentials(r, txCtx, targetAddr)
 	if err != nil {
-		s.handlePluginError(w, traceID, txCtx, targetURL.Host, err)
+		s.handlePluginError(w, traceID, txCtx, targetAddr, err)
 		return
 	}
 
 	//nolint:contextcheck // ModifyResponse uses resp.Request.Context() internally
-	s.forwardRequest(w, r, targetURL, traceID, txCtx)
+	s.forwardRequest(w, r, targetURL, traceID, txCtx, targetAddr)
 }
 
 // respondBadRequest logs and responds with a 400 Bad Request.
@@ -572,13 +586,14 @@ func (s *Server) respondBadRequest(w http.ResponseWriter, traceID, msg string, e
 // RedactingHandler can detect and redact them if they leak into log output
 // (value-based scanning, Layers 3 & 4).
 //
-// targetHost is the already-parsed host from the target URL, passed from handleProxy
-// to avoid re-parsing and to keep the field in DEBUG log output.
+// targetAddr is the pre-formatted target address (per LogTargetAddrMode),
+// passed from handleProxy to avoid re-formatting and to keep the field
+// consistent in DEBUG log output across all sites.
 //
 // Returns the (possibly updated) request and any error. The caller MUST use
 // the returned request for all subsequent operations, because the context may
 // have been enriched with secret values and injected header keys.
-func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContext, targetHost string) (*http.Request, error) {
+func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContext, targetAddr string) (*http.Request, error) {
 	if s.config.Plugin == nil {
 		return r, nil
 	}
@@ -618,7 +633,7 @@ func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContex
 			"trace_id", txCtx.TraceID,
 			"vendor_id", txCtx.VendorID,
 			"marketplace_id", txCtx.MarketplaceID,
-			"target_host", targetHost,
+			"target_addr", targetAddr,
 			"credential_path", "fast",
 			"injected_header_count", len(cred.Headers),
 			"plugin_duration_ms", pluginDuration.Milliseconds(),
@@ -637,7 +652,7 @@ func (s *Server) injectCredentials(r *http.Request, txCtx *sdk.TransactionContex
 		"trace_id", txCtx.TraceID,
 		"vendor_id", txCtx.VendorID,
 		"marketplace_id", txCtx.MarketplaceID,
-		"target_host", targetHost,
+		"target_addr", targetAddr,
 		"credential_path", "slow",
 		"injected_header_count", injectedCount,
 		"plugin_duration_ms", pluginDuration.Milliseconds(),
@@ -701,17 +716,6 @@ func (s *Server) detectSlowPathInjections(r *http.Request, before http.Header) (
 	return r, len(injectedKeys)
 }
 
-// extractTargetHost parses rawURL and returns only the host (with port if present).
-// Used in log output to avoid leaking sensitive path or query information.
-// Returns an empty string if the URL is invalid or has no host.
-func extractTargetHost(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" {
-		return ""
-	}
-	return u.Host
-}
-
 // headerValuesEqual returns true if two header value slices are identical.
 func headerValuesEqual(a, b []string) bool {
 	if len(a) != len(b) {
@@ -735,12 +739,12 @@ func (s *Server) stripContextHeaders(req *http.Request) {
 }
 
 // forwardRequest forwards the request to the target URL via reverse proxy.
-func (s *Server) forwardRequest(w http.ResponseWriter, r *http.Request, target *url.URL, traceID string, txCtx *sdk.TransactionContext) {
+func (s *Server) forwardRequest(w http.ResponseWriter, r *http.Request, target *url.URL, traceID string, txCtx *sdk.TransactionContext, targetAddr string) {
 	// Record upstream timing for both telemetry metrics and Server-Timing header
 	telTiming := telemetry.TimingFromContext(r.Context())
 	upstreamStart := time.Now()
 
-	proxy := s.createReverseProxy(target, traceID, txCtx, telTiming, upstreamStart)
+	proxy := s.createReverseProxy(target, traceID, txCtx, telTiming, upstreamStart, targetAddr)
 	proxy.ServeHTTP(w, r) // #nosec G704 -- target validated against allow-list in handleProxy before reaching here
 }
 
@@ -749,14 +753,14 @@ func (s *Server) forwardRequest(w http.ResponseWriter, r *http.Request, target *
 const StatusClientClosedRequest = 499
 
 // handlePluginError handles errors from the plugin.
-func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, txCtx *sdk.TransactionContext, targetHost string, err error) {
+func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, txCtx *sdk.TransactionContext, targetAddr string, err error) {
 	if errors.Is(err, context.DeadlineExceeded) {
 		slog.Error("plugin timeout",
 			"trace_id", traceID,
 			"vendor_id", txCtx.VendorID,
 			"marketplace_id", txCtx.MarketplaceID,
 			"product_id", txCtx.ProductID,
-			"target_host", targetHost,
+			"target_addr", targetAddr,
 			"error", err,
 		)
 		http.Error(w, "Gateway Timeout", http.StatusGatewayTimeout)
@@ -769,7 +773,7 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, txCtx 
 			"vendor_id", txCtx.VendorID,
 			"marketplace_id", txCtx.MarketplaceID,
 			"product_id", txCtx.ProductID,
-			"target_host", targetHost,
+			"target_addr", targetAddr,
 		)
 		// Write 499 so RequestLoggerMiddleware logs the correct status instead of
 		// the default 200. Do NOT write a body — the client is already gone.
@@ -782,7 +786,7 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, txCtx 
 		"vendor_id", txCtx.VendorID,
 		"marketplace_id", txCtx.MarketplaceID,
 		"product_id", txCtx.ProductID,
-		"target_host", targetHost,
+		"target_addr", targetAddr,
 		"error", err,
 	)
 	http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -799,7 +803,7 @@ func (s *Server) handlePluginError(w http.ResponseWriter, traceID string, txCtx 
 // Exactly one of ModifyResponse or ErrorHandler fires per request — never both.
 //
 //nolint:contextcheck // ErrorHandler signature is defined by httputil.ReverseProxy; context is accessed via r.Context()
-func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.TransactionContext, telTiming *telemetry.Timing, upstreamStart time.Time) *httputil.ReverseProxy {
+func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.TransactionContext, telTiming *telemetry.Timing, upstreamStart time.Time, targetAddr string) *httputil.ReverseProxy {
 	proxy := httputil.NewSingleHostReverseProxy(target) // #nosec G704 -- target validated against allow-list in handleProxy before reaching here
 
 	// Apply upstream transport with configurable timeouts.
@@ -832,7 +836,7 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 	}
 
 	// Response modification chain: Timing → Plugin → Strip Headers → Error Normalization
-	proxy.ModifyResponse = s.buildModifyResponse(traceID, txCtx, telTiming, upstreamStart) //nolint:bodyclose // resp.Body is managed by httputil.ReverseProxy
+	proxy.ModifyResponse = s.buildModifyResponse(traceID, txCtx, telTiming, upstreamStart, targetAddr) //nolint:bodyclose // resp.Body is managed by httputil.ReverseProxy
 
 	// Handle proxy errors (upstream unreachable, connection refused, etc.)
 	// ErrorHandler fires instead of ModifyResponse when the upstream is unreachable.
@@ -856,7 +860,7 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 			"vendor_id", txCtx.VendorID,
 			"marketplace_id", txCtx.MarketplaceID,
 			"product_id", txCtx.ProductID,
-			"target_host", target.Host,
+			"target_addr", targetAddr,
 			"error", err,
 		)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
@@ -874,7 +878,7 @@ func (s *Server) upstreamTransport() http.RoundTripper {
 
 // buildModifyResponse creates the response modification closure that runs
 // the timing → plugin → strip headers → error normalization chain.
-func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionContext, telTiming *telemetry.Timing, upstreamStart time.Time) func(*http.Response) error {
+func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionContext, telTiming *telemetry.Timing, upstreamStart time.Time, targetAddr string) func(*http.Response) error {
 	return func(resp *http.Response) error {
 		// Step 0a: Record upstream duration for telemetry metrics (safe across goroutines)
 		telemetry.RecordUpstreamDuration(resp.Request.Context(), telTiming)
@@ -902,7 +906,7 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 					"vendor_id", txCtx.VendorID,
 					"marketplace_id", txCtx.MarketplaceID,
 					"product_id", txCtx.ProductID,
-					"target_host", resp.Request.URL.Host,
+					"target_addr", targetAddr,
 					"error", err,
 				)
 				// Continue with response processing even if plugin fails
@@ -919,7 +923,7 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 		security.StripInjectedHeaders(resp.Request.Context(), resp.Header)
 
 		// Step 3: Core error normalization (safety net - unless plugin opted out)
-		s.applyErrorNormalization(traceID, txCtx, resp, action)
+		s.applyErrorNormalization(traceID, txCtx, resp, action, targetAddr)
 
 		slog.Info("upstream response",
 			"trace_id", traceID,
@@ -928,7 +932,7 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 			"vendor_id", txCtx.VendorID,
 			"marketplace_id", txCtx.MarketplaceID,
 			"product_id", txCtx.ProductID,
-			"target_host", resp.Request.URL.Host,
+			"target_addr", targetAddr,
 		)
 		return nil
 	}
@@ -937,7 +941,7 @@ func (s *Server) buildModifyResponse(traceID string, txCtx *sdk.TransactionConte
 // applyErrorNormalization runs Step 3 of the response modification chain.
 // If the plugin opted out via ResponseAction.SkipErrorNormalization, it logs
 // the opt-out at DEBUG and skips. Otherwise it runs the core error normalization.
-func (s *Server) applyErrorNormalization(traceID string, txCtx *sdk.TransactionContext, resp *http.Response, action *sdk.ResponseAction) {
+func (s *Server) applyErrorNormalization(traceID string, txCtx *sdk.TransactionContext, resp *http.Response, action *sdk.ResponseAction, targetAddr string) {
 	if action != nil && action.SkipErrorNormalization {
 		slog.Debug("plugin opted out of error normalization",
 			"trace_id", traceID,
@@ -950,7 +954,7 @@ func (s *Server) applyErrorNormalization(traceID string, txCtx *sdk.TransactionC
 			"vendor_id", txCtx.VendorID,
 			"marketplace_id", txCtx.MarketplaceID,
 			"product_id", txCtx.ProductID,
-			"target_host", resp.Request.URL.Host,
+			"target_addr", targetAddr,
 			"error", err,
 		)
 		// Continue even if normalization fails - response will be sent as-is

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudblue/chaperone/internal/observability"
 	"github.com/cloudblue/chaperone/internal/router"
 )
 
@@ -941,6 +942,111 @@ observability:
 	}
 	if cfg.Observability.EnableBodyLogging {
 		t.Error("EnableBodyLogging should be false — yaml:\"-\" tag must prevent config file from setting it")
+	}
+}
+
+// TestLoad_LogTargetAddr_DefaultsToHost verifies the secure default for the
+// new log_target_addr field. An unset value must yield "host" — neither
+// "path" nor "full" should ever be the default.
+func TestLoad_LogTargetAddr_DefaultsToHost(t *testing.T) {
+	yamlContent := `
+server:
+  tls:
+    enabled: false
+upstream:
+  allow_list:
+    api.example.com:
+      - "/**"
+`
+	configPath := writeTestConfig(t, yamlContent)
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Observability.LogTargetAddr != DefaultLogTargetAddr {
+		t.Errorf("LogTargetAddr = %q, want %q (secure default)",
+			cfg.Observability.LogTargetAddr, DefaultLogTargetAddr)
+	}
+}
+
+// TestLoad_LogTargetAddr_YAMLAcceptsAllValidValues verifies that all three
+// valid modes can be set from the YAML config.
+func TestLoad_LogTargetAddr_YAMLAcceptsAllValidValues(t *testing.T) {
+	for _, mode := range observability.ValidTargetAddrModes {
+		t.Run(mode, func(t *testing.T) {
+			yamlContent := `
+server:
+  tls:
+    enabled: false
+upstream:
+  allow_list:
+    api.example.com:
+      - "/**"
+observability:
+  log_target_addr: "` + mode + `"
+`
+			configPath := writeTestConfig(t, yamlContent)
+			cfg, err := Load(configPath)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.Observability.LogTargetAddr != observability.TargetAddrMode(mode) {
+				t.Errorf("LogTargetAddr = %q, want %q", cfg.Observability.LogTargetAddr, mode)
+			}
+		})
+	}
+}
+
+// TestLoad_LogTargetAddr_EnvOverridesYAML verifies the env var takes
+// precedence over the YAML value.
+func TestLoad_LogTargetAddr_EnvOverridesYAML(t *testing.T) {
+	yamlContent := `
+server:
+  tls:
+    enabled: false
+upstream:
+  allow_list:
+    api.example.com:
+      - "/**"
+observability:
+  log_target_addr: "host"
+`
+	configPath := writeTestConfig(t, yamlContent)
+	t.Setenv("CHAPERONE_OBSERVABILITY_LOG_TARGET_ADDR", "full")
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Observability.LogTargetAddr != "full" {
+		t.Errorf("LogTargetAddr = %q, want %q (env should override YAML)",
+			cfg.Observability.LogTargetAddr, "full")
+	}
+}
+
+// TestLoad_LogTargetAddr_RejectsInvalidValue verifies that an unknown mode
+// fails validation rather than silently falling back.
+func TestLoad_LogTargetAddr_RejectsInvalidValue(t *testing.T) {
+	yamlContent := `
+server:
+  tls:
+    enabled: false
+upstream:
+  allow_list:
+    api.example.com:
+      - "/**"
+observability:
+  log_target_addr: "verbose"
+`
+	configPath := writeTestConfig(t, yamlContent)
+
+	_, err := Load(configPath)
+	if err == nil {
+		t.Fatal("expected validation error for invalid log_target_addr value, got nil")
+	}
+	if !errors.Is(err, ErrInvalidLogTargetAddr) {
+		t.Errorf("expected ErrInvalidLogTargetAddr, got: %v", err)
 	}
 }
 

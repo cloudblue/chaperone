@@ -25,7 +25,7 @@ func TestAllowListMiddleware_ValidRequest(t *testing.T) {
 		_, _ = w.Write([]byte("OK"))
 	})
 
-	middleware := NewAllowListMiddleware(allowList, "X-Connect", nextHandler)
+	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://api.example.com/v1/customers")
@@ -52,7 +52,7 @@ func TestAllowListMiddleware_BlockedHost(t *testing.T) {
 		t.Error("next handler should not be called for blocked host")
 	})
 
-	middleware := NewAllowListMiddleware(allowList, "X-Connect", nextHandler)
+	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://evil.com/data")
@@ -79,7 +79,7 @@ func TestAllowListMiddleware_BlockedPath(t *testing.T) {
 		t.Error("next handler should not be called for blocked path")
 	})
 
-	middleware := NewAllowListMiddleware(allowList, "X-Connect", nextHandler)
+	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://api.example.com/admin/users")
@@ -106,7 +106,7 @@ func TestAllowListMiddleware_MissingTargetURL(t *testing.T) {
 		t.Error("next handler should not be called when target URL is missing")
 	})
 
-	middleware := NewAllowListMiddleware(allowList, "X-Connect", nextHandler)
+	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	// Not setting X-Connect-Target-URL header
@@ -128,7 +128,7 @@ func TestAllowListMiddleware_CustomHeaderPrefix(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middleware := NewAllowListMiddleware(allowList, "X-Custom", nextHandler)
+	middleware := NewAllowListMiddleware(allowList, "X-Custom", observability.TargetAddrModeHost, nextHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Custom-Target-URL", "https://api.example.com/test")
@@ -146,7 +146,7 @@ func TestAllowListMiddleware_EmptyAllowList(t *testing.T) {
 		t.Error("next handler should not be called for empty allow list")
 	})
 
-	middleware := NewAllowListMiddleware(nil, "X-Connect", nextHandler)
+	middleware := NewAllowListMiddleware(nil, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://api.example.com/test")
@@ -168,7 +168,7 @@ func TestAllowListMiddleware_ResponseBody(t *testing.T) {
 		t.Error("next handler should not be called for blocked host")
 	})
 
-	middleware := NewAllowListMiddleware(allowList, "X-Connect", nextHandler)
+	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://evil.com/data")
@@ -204,7 +204,7 @@ func TestAllowListMiddleware_InvalidTargetURL(t *testing.T) {
 		t.Error("next handler should not be called for invalid URL")
 	})
 
-	middleware := NewAllowListMiddleware(allowList, "X-Connect", nextHandler)
+	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
 	tests := []struct {
 		name           string
@@ -252,7 +252,7 @@ func TestAllowListMiddleware_DoesNotLeakURLDetails(t *testing.T) {
 		t.Error("next handler should not be called")
 	})
 
-	middleware := NewAllowListMiddleware(allowList, "X-Connect", nextHandler)
+	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
 	// Test with sensitive-looking URL
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
@@ -298,7 +298,7 @@ func TestAllowListMiddleware_AllMethods(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			})
 
-			middleware := NewAllowListMiddleware(allowList, "X-Connect", nextHandler)
+			middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
 			req := httptest.NewRequest(method, "/proxy", nil)
 			req.Header.Set("X-Connect-Target-URL", "https://api.example.com/test")
@@ -327,7 +327,7 @@ func TestAllowListMiddleware_ValidationPassed_DebugLog(t *testing.T) {
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	middleware := NewAllowListMiddleware(allowList, "X-Connect", nextHandler)
+	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	req = req.WithContext(observability.WithTraceID(req.Context(), "trace-debug-123"))
@@ -347,8 +347,8 @@ func TestAllowListMiddleware_ValidationPassed_DebugLog(t *testing.T) {
 	if !strings.Contains(logOutput, `"trace_id":"trace-debug-123"`) {
 		t.Errorf("expected trace_id in log, got: %s", logOutput)
 	}
-	if !strings.Contains(logOutput, `"target_host":"api.example.com"`) {
-		t.Errorf("expected target_host in log, got: %s", logOutput)
+	if !strings.Contains(logOutput, `"target_addr":"api.example.com"`) {
+		t.Errorf("expected target_addr in log, got: %s", logOutput)
 	}
 }
 
@@ -363,7 +363,7 @@ func TestAllowListMiddleware_ValidationFailed_HasTraceID(t *testing.T) {
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("next handler should not be called")
 	})
-	middleware := NewAllowListMiddleware(allowList, "X-Connect", nextHandler)
+	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	req = req.WithContext(observability.WithTraceID(req.Context(), "trace-fail-456"))
@@ -380,8 +380,8 @@ func TestAllowListMiddleware_ValidationFailed_HasTraceID(t *testing.T) {
 	if !strings.Contains(logOutput, `"trace_id":"trace-fail-456"`) {
 		t.Errorf("expected trace_id in failure log, got: %s", logOutput)
 	}
-	if !strings.Contains(logOutput, `"target_host":"evil.com"`) {
-		t.Errorf("expected target_host in failure log, got: %s", logOutput)
+	if !strings.Contains(logOutput, `"target_addr":"evil.com"`) {
+		t.Errorf("expected target_addr in failure log, got: %s", logOutput)
 	}
 }
 
@@ -401,7 +401,7 @@ func TestAllowListMiddleware_EmptyAllowListDeniesAll(t *testing.T) {
 				t.Error("next handler should not be called")
 			})
 
-			middleware := NewAllowListMiddleware(tc.allowList, "X-Connect", nextHandler)
+			middleware := NewAllowListMiddleware(tc.allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
 			req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 			req.Header.Set("X-Connect-Target-URL", "https://api.example.com/test")
