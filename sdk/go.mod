@@ -1,3 +1,3 @@
 module github.com/cloudblue/chaperone/sdk
 
-go 1.26.2
+go 1.26.3
