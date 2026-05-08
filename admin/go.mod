@@ -1,6 +1,6 @@
 module github.com/cloudblue/chaperone/admin
 
-go 1.26.2
+go 1.26.3
 
 require (
 	github.com/prometheus/client_model v0.6.2
