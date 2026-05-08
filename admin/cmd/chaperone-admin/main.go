@@ -93,10 +93,10 @@ func runServer(args []string) error {
 	}
 	defer st.Close()
 
-	collector := metrics.NewCollector(metrics.CapacityFor(
+	collector := metrics.NewCollector(
+		metrics.CapacityFor(cfg.Scraper.RetentionWindow.Unwrap(), cfg.Scraper.Interval.Unwrap()),
 		cfg.Scraper.RetentionWindow.Unwrap(),
-		cfg.Scraper.Interval.Unwrap(),
-	))
+	)
 
 	srv, err := admin.NewServer(cfg, st, collector)
 	if err != nil {

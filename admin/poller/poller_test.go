@@ -298,7 +298,7 @@ func TestPoller_RunStopsOnContextCancel(t *testing.T) {
 func TestPoller_MetricsScraping_RecordsToCollector(t *testing.T) {
 	t.Parallel()
 	st := openTestStore(t)
-	c := metrics.NewCollector(10)
+	c := metrics.NewCollector(10, time.Hour)
 	proxy := fakeProxyWithMetrics(t)
 	addr := strings.TrimPrefix(proxy.URL, "http://")
 
@@ -327,7 +327,7 @@ func TestPoller_MetricsScraping_RecordsToCollector(t *testing.T) {
 func TestPoller_MetricsScraping_SkippedOnHealthFailure(t *testing.T) {
 	t.Parallel()
 	st := openTestStore(t)
-	c := metrics.NewCollector(10)
+	c := metrics.NewCollector(10, time.Hour)
 
 	ctx := context.Background()
 	inst, err := st.CreateInstance(ctx, "test-proxy", "127.0.0.1:1")
@@ -347,7 +347,7 @@ func TestPoller_MetricsScraping_SkippedOnHealthFailure(t *testing.T) {
 func TestPoller_DeletedInstance_PrunesCollector(t *testing.T) {
 	t.Parallel()
 	st := openTestStore(t)
-	c := metrics.NewCollector(10)
+	c := metrics.NewCollector(10, time.Hour)
 	proxy := fakeProxyWithMetrics(t)
 	addr := strings.TrimPrefix(proxy.URL, "http://")
 

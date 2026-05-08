@@ -39,7 +39,7 @@ func makeSnapshot(t time.Time, totalReq, errReq, active, panics float64) metrics
 func TestMetricsHandler_Fleet_ReturnsAggregated(t *testing.T) {
 	t.Parallel()
 	st := openTestStore(t)
-	c := metrics.NewCollector(10)
+	c := metrics.NewCollector(10, time.Hour)
 
 	ctx := context.Background()
 	inst, err := st.CreateInstance(ctx, "proxy-1", "10.0.0.1:9090")
@@ -78,7 +78,7 @@ func TestMetricsHandler_Fleet_ReturnsAggregated(t *testing.T) {
 func TestMetricsHandler_Instance_ReturnsMetrics(t *testing.T) {
 	t.Parallel()
 	st := openTestStore(t)
-	c := metrics.NewCollector(10)
+	c := metrics.NewCollector(10, time.Hour)
 
 	ctx := context.Background()
 	inst, err := st.CreateInstance(ctx, "proxy-1", "10.0.0.1:9090")
@@ -117,7 +117,7 @@ func TestMetricsHandler_Instance_ReturnsMetrics(t *testing.T) {
 func TestMetricsHandler_Instance_NoData_Returns404(t *testing.T) {
 	t.Parallel()
 	st := openTestStore(t)
-	c := metrics.NewCollector(10)
+	c := metrics.NewCollector(10, time.Hour)
 
 	h := NewMetricsHandler(st, c)
 	mux := http.NewServeMux()
@@ -135,7 +135,7 @@ func TestMetricsHandler_Instance_NoData_Returns404(t *testing.T) {
 func TestMetricsHandler_Instance_InvalidID_Returns400(t *testing.T) {
 	t.Parallel()
 	st := openTestStore(t)
-	c := metrics.NewCollector(10)
+	c := metrics.NewCollector(10, time.Hour)
 
 	h := NewMetricsHandler(st, c)
 	mux := http.NewServeMux()
@@ -153,7 +153,7 @@ func TestMetricsHandler_Instance_InvalidID_Returns400(t *testing.T) {
 func TestMetricsHandler_Fleet_EmptyFleet_ReturnsEmptyInstances(t *testing.T) {
 	t.Parallel()
 	st := openTestStore(t)
-	c := metrics.NewCollector(10)
+	c := metrics.NewCollector(10, time.Hour)
 
 	h := NewMetricsHandler(st, c)
 	mux := http.NewServeMux()

@@ -12,16 +12,20 @@ import (
 // Collector manages per-instance metric ring buffers and computes derived
 // metrics (rates, percentiles) on demand.
 type Collector struct {
-	mu       sync.RWMutex
-	buffers  map[int64]*Ring
-	capacity int
+	mu          sync.RWMutex
+	buffers     map[int64]*Ring
+	capacity    int
+	trendWindow time.Duration
 }
 
-// NewCollector creates a Collector with the given ring buffer capacity.
-func NewCollector(capacity int) *Collector {
+// NewCollector creates a Collector with the given ring buffer capacity and
+// trend lookback window. Trends compare current rates against rates from
+// approximately trendWindow ago; a zero trendWindow disables trends.
+func NewCollector(capacity int, trendWindow time.Duration) *Collector {
 	return &Collector{
-		buffers:  make(map[int64]*Ring),
-		capacity: capacity,
+		buffers:     make(map[int64]*Ring),
+		capacity:    capacity,
+		trendWindow: trendWindow,
 	}
 }
 
@@ -253,20 +257,22 @@ func (*Collector) fillVendorMetrics(im *InstanceMetrics, prev, curr Snapshot) {
 	})
 }
 
-// historicalPair returns the two snapshots forming a rate pair from ~1 hour
-// ago in the ring buffer. If the buffer doesn't span at least 50 minutes,
-// ok is false.
-func historicalPair(buf *Ring) (prev, curr Snapshot, ok bool) {
-	if buf.Len() < 4 {
+// historicalPair returns the two snapshots forming a rate pair from
+// approximately c.trendWindow ago in the ring buffer. The buffer must span
+// at least 5/6 of the trend window before a pair is returned, which keeps
+// the comparison meaningful while the ring is still filling. If the trend
+// window is zero or the buffer is too short, ok is false.
+func (c *Collector) historicalPair(buf *Ring) (prev, curr Snapshot, ok bool) {
+	if c.trendWindow == 0 || buf.Len() < 4 {
 		return Snapshot{}, Snapshot{}, false
 	}
 	newest := buf.At(buf.Len() - 1)
 	oldest := buf.At(0)
-	if newest.Time.Sub(oldest.Time) < 50*time.Minute {
+	if newest.Time.Sub(oldest.Time) < (c.trendWindow*5)/6 {
 		return Snapshot{}, Snapshot{}, false
 	}
 
-	target := newest.Time.Add(-1 * time.Hour)
+	target := newest.Time.Add(-c.trendWindow)
 	idx := findNearest(buf, target)
 	start := idx
 	if start > 0 {
@@ -279,9 +285,9 @@ func historicalPair(buf *Ring) (prev, curr Snapshot, ok bool) {
 }
 
 // fillTrends computes trend values by comparing the current rate to the rate
-// from approximately 1 hour ago.
-func (*Collector) fillTrends(im *InstanceMetrics, buf *Ring) {
-	prev, curr, ok := historicalPair(buf)
+// from approximately c.trendWindow ago.
+func (c *Collector) fillTrends(im *InstanceMetrics, buf *Ring) {
+	prev, curr, ok := c.historicalPair(buf)
 	if !ok {
 		return
 	}
@@ -302,9 +308,10 @@ type historicalTrend struct {
 	errDelta float64
 }
 
-// trendSnapshot returns historical RPS and request/error deltas from ~1h ago.
-func (*Collector) trendSnapshot(buf *Ring) (historicalTrend, bool) {
-	prev, curr, ok := historicalPair(buf)
+// trendSnapshot returns historical RPS and request/error deltas from
+// approximately c.trendWindow ago.
+func (c *Collector) trendSnapshot(buf *Ring) (historicalTrend, bool) {
+	prev, curr, ok := c.historicalPair(buf)
 	if !ok {
 		return historicalTrend{}, false
 	}
