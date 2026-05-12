@@ -57,8 +57,16 @@ export function trendDirection(value) {
 
 export function assignVendorColors(vendorIds) {
 	const map = {};
-	vendorIds.forEach((id, i) => {
-		map[id] = VENDOR_COLORS[i % VENDOR_COLORS.length];
+	vendorIds.forEach((id) => {
+		map[id] = VENDOR_COLORS[colorIndexForVendor(id)];
 	});
 	return map;
+}
+
+function colorIndexForVendor(id) {
+	let hash = 0;
+	for (let index = 0; index < id.length; index += 1) {
+		hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
+	}
+	return hash % VENDOR_COLORS.length;
 }

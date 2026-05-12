@@ -120,20 +120,26 @@ describe('trendDirection', () => {
 });
 
 describe('assignVendorColors', () => {
-	it('assigns unique colors to vendors', () => {
-		const map = assignVendorColors(['a', 'b', 'c']);
-		expect(map.a).toBe(VENDOR_COLORS[0]);
-		expect(map.b).toBe(VENDOR_COLORS[1]);
-		expect(map.c).toBe(VENDOR_COLORS[2]);
+	it('assigns palette colors to vendors deterministically', () => {
+		const map = assignVendorColors(['alpha', 'beta', 'gamma']);
+		expect(VENDOR_COLORS).toContain(map.alpha);
+		expect(VENDOR_COLORS).toContain(map.beta);
+		expect(VENDOR_COLORS).toContain(map.gamma);
 	});
 
-	it('wraps around when more vendors than colors', () => {
-		const ids = Array.from(
-			{ length: VENDOR_COLORS.length + 1 },
-			(_, i) => `v${i}`,
-		);
-		const map = assignVendorColors(ids);
-		expect(map[`v${VENDOR_COLORS.length}`]).toBe(VENDOR_COLORS[0]);
+	it('keeps the same color when vendor order changes', () => {
+		const first = assignVendorColors(['alpha', 'beta', 'gamma']);
+		const second = assignVendorColors(['gamma', 'alpha', 'beta']);
+		expect(second.alpha).toBe(first.alpha);
+		expect(second.beta).toBe(first.beta);
+		expect(second.gamma).toBe(first.gamma);
+	});
+
+	it('keeps existing vendor colors when new vendors appear', () => {
+		const base = assignVendorColors(['alpha', 'beta']);
+		const expanded = assignVendorColors(['zeta', 'alpha', 'beta', 'omega']);
+		expect(expanded.alpha).toBe(base.alpha);
+		expect(expanded.beta).toBe(base.beta);
 	});
 
 	it('returns empty map for empty input', () => {

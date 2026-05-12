@@ -15,6 +15,7 @@
 			<div :class="$style.chartSection">
 				<h3 id="rps-chart-title" :class="$style.chartTitle">
 					Requests Per Second
+					<span :class="$style.chartHint">· per vendor, req/s</span>
 				</h3>
 				<div role="img" aria-labelledby="rps-chart-title">
 					<VChart
@@ -29,6 +30,7 @@
 			<div :class="$style.chartSection">
 				<h3 id="latency-vendor-chart-title" :class="$style.chartTitle">
 					Latency
+					<span :class="$style.chartHint">{{ latencyHint }}</span>
 				</h3>
 				<div role="img" aria-labelledby="latency-vendor-chart-title">
 					<VChart
@@ -41,7 +43,10 @@
 				</div>
 			</div>
 			<div :class="$style.chartSection">
-				<h3 id="error-chart-title" :class="$style.chartTitle">Error Rate</h3>
+				<h3 id="error-chart-title" :class="$style.chartTitle">
+					Error Rate
+					<span :class="$style.chartHint">· per vendor, %</span>
+				</h3>
 				<div role="img" aria-labelledby="error-chart-title">
 					<VChart
 						ref="errorChartRef"
@@ -102,6 +107,9 @@ const hasVendorSeries = computed(() => {
 const vendorIds = computed(() => sortedVendors.value.map((v) => v.vendor_id));
 
 const colorMap = computed(() => assignVendorColors(vendorIds.value));
+const latencyHint = computed(() =>
+	singleVendor.value ? '· P50, P95, P99, in ms' : '· P99 per vendor, in ms',
+);
 
 // Auto-select top 3 vendors by RPS when vendor list changes
 watch(
@@ -159,7 +167,13 @@ function syncZoom(source, event) {
 
 function buildBaseOption() {
 	return {
-		grid: { top: 16, right: 16, bottom: 56, left: 56 },
+		grid: {
+			top: 0,
+			right: 0,
+			bottom: 40,
+			left: 0,
+			containLabel: true,
+		},
 		xAxis: {
 			type: 'time',
 			axisLabel: { fontSize: 11 },
@@ -180,6 +194,8 @@ function buildBaseOption() {
 				xAxisIndex: 0,
 				start: zoomStart.value,
 				end: zoomEnd.value,
+				zoomOnMouseWheel: 'alt',
+				moveOnMouseWheel: false,
 			},
 		],
 		animationDuration: 300,
@@ -193,8 +209,6 @@ const rpsChartOption = computed(() => {
 		...base,
 		yAxis: {
 			type: 'value',
-			name: 'req/s',
-			nameTextStyle: { fontSize: 11 },
 			axisLabel: { fontSize: 11 },
 			splitLine: { lineStyle: { color: '#f0f0f0' } },
 		},
@@ -278,8 +292,6 @@ const latencyChartOption = computed(() => {
 		...base,
 		yAxis: {
 			type: 'value',
-			name: 'ms',
-			nameTextStyle: { fontSize: 11 },
 			axisLabel: { fontSize: 11 },
 			splitLine: { lineStyle: { color: '#f0f0f0' } },
 		},
@@ -305,8 +317,6 @@ const errorChartOption = computed(() => {
 		...base,
 		yAxis: {
 			type: 'value',
-			name: '%',
-			nameTextStyle: { fontSize: 11 },
 			axisLabel: {
 				fontSize: 11,
 				formatter: (v) => `${(v * 100).toFixed(1)}`,
@@ -364,6 +374,11 @@ const errorChartOption = computed(() => {
 	font-weight: var(--font-weight-semibold);
 	color: var(--color-text-primary);
 	margin: 0 0 var(--space-2) 0;
+}
+
+.chartHint {
+	color: var(--color-text-tertiary);
+	font-weight: var(--font-weight-normal);
 }
 
 .chart {
