@@ -24,7 +24,10 @@
 					@keydown.space="onRowKeydown($event, inst)"
 				>
 					<td :class="$style.td">
-						<StatusIndicator :status="inst.status" />
+						<StatusIndicator
+							:status="inst.status"
+							:label="getStatusLabel(inst.status)"
+						/>
 					</td>
 					<td :class="[$style.td, $style.name]">{{ inst.name }}</td>
 					<td :class="[$style.td, $style.mono]">{{ inst.address }}</td>
@@ -38,13 +41,11 @@
 						>
 							Edit
 						</BaseButton>
-						<BaseButton
-							size="sm"
-							variant="ghost"
-							@click.stop="$emit('delete', inst)"
-						>
-							Remove
-						</BaseButton>
+						<InstanceActionMenu
+							:label="inst.name"
+							@click.stop
+							@remove="$emit('delete', inst)"
+						/>
 					</td>
 				</tr>
 			</tbody>
@@ -53,9 +54,10 @@
 </template>
 
 <script setup>
+import InstanceActionMenu from './InstanceActionMenu.vue';
 import StatusIndicator from './StatusIndicator.vue';
 import BaseButton from './BaseButton.vue';
-import { formatTime } from '../utils/instance.js';
+import { formatTime, getStatusLabel } from '../utils/instance.js';
 
 defineProps({
 	instances: { type: Array, required: true },

@@ -67,8 +67,20 @@ const scopeNote = computed(() => {
 
 .grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	grid-template-columns: repeat(4, minmax(0, 1fr));
 	gap: var(--space-3);
+}
+
+@media (max-width: 900px) {
+	.grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 520px) {
+	.grid {
+		grid-template-columns: 1fr;
+	}
 }
 
 .scope {
