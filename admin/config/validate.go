@@ -33,6 +33,9 @@ func (c *Config) Validate() error {
 	if c.Scraper.Timeout.Unwrap() >= c.Scraper.Interval.Unwrap() {
 		errs = append(errs, errors.New("scraper.timeout must be less than scraper.interval"))
 	}
+	if c.Scraper.RetentionWindow.Unwrap() < c.Scraper.Interval.Unwrap() {
+		errs = append(errs, errors.New("scraper.retention_window must be at least one scraper.interval"))
+	}
 
 	if c.Session.MaxAge.Unwrap() < 1*time.Minute {
 		errs = append(errs, errors.New("session.max_age must be at least 1m"))

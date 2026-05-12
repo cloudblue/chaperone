@@ -7,9 +7,29 @@ package metrics
 
 import "time"
 
-// DefaultCapacity is the number of scrape snapshots retained per instance.
-// At 10s intervals this gives ~1 hour of history.
+// DefaultCapacity is a generous ring size used by tests. Production code
+// computes capacity from the configured retention window via CapacityFor.
 const DefaultCapacity = 360
+
+// CapacityFor returns the ring buffer capacity needed to retain `window`
+// of history when scraping every `interval`.
+//
+// Snapshots span (capacity-1)*interval since rates and series are computed
+// from adjacent pairs, so we round up and add one to guarantee the buffer
+// covers at least `window`. Always returns at least 2 — the minimum needed
+// for a single rate pair — so degenerate inputs never produce an unusable
+// collector.
+func CapacityFor(window, interval time.Duration) int {
+	const minCapacity = 2
+	if interval <= 0 || window <= 0 {
+		return minCapacity
+	}
+	n := int((window+interval-1)/interval) + 1
+	if n < minCapacity {
+		return minCapacity
+	}
+	return n
+}
 
 // Prometheus metric names emitted by the Chaperone proxy.
 const (

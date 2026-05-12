@@ -52,6 +52,7 @@ database:
 scraper:
   interval: "10s"
   timeout: "5s"
+  retention_window: "1h"
 
 session:
   max_age: "24h"
@@ -80,6 +81,7 @@ Every config key can be overridden via environment variables using the `CHAPERON
 | `database.path` | `CHAPERONE_ADMIN_DATABASE_PATH` |
 | `scraper.interval` | `CHAPERONE_ADMIN_SCRAPER_INTERVAL` |
 | `scraper.timeout` | `CHAPERONE_ADMIN_SCRAPER_TIMEOUT` |
+| `scraper.retention_window` | `CHAPERONE_ADMIN_SCRAPER_RETENTION_WINDOW` |
 | `session.max_age` | `CHAPERONE_ADMIN_SESSION_MAX_AGE` |
 | `session.idle_timeout` | `CHAPERONE_ADMIN_SESSION_IDLE_TIMEOUT` |
 | `audit.retention_days` | `CHAPERONE_ADMIN_AUDIT_RETENTION_DAYS` |
@@ -172,4 +174,4 @@ All portal actions (instance add/edit/remove, login, logout, password changes) a
 - To view per-instance metrics, open the dashboard. It displays RPS, latency percentiles (p50, p95, p99), error rate, active connections, and panic count for each proxy, computed from each proxy's `/metrics` endpoint polled every 10 seconds.
 - To interpret health badges, read them as: **unknown** (before first poll), **healthy** (last poll succeeded), or **unreachable** (3 consecutive failures). A single successful poll restores an unreachable instance to healthy.
 - To wait through the post-restart placeholder, give the portal at least two scrape cycles (~20 seconds) after a restart — charts show "Collecting data points..." until two snapshots exist to compute rates from.
-- To plan around history retention, note that metrics are kept in memory only. The portal retains 360 scrape snapshots per instance (`DefaultCapacity` in `admin/metrics/metrics.go`), which at 10s intervals is exactly 1 hour of history. A restart clears all metrics.
+- To plan around history retention, note that metrics are kept in memory only. Each instance retains enough scrape snapshots to cover `scraper.retention_window` (default 1h) at the configured `scraper.interval` (default 10s) — capacity is computed at startup. A restart clears all metrics.

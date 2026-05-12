@@ -45,6 +45,9 @@ func TestLoad_NoFile_AppliesDefaults(t *testing.T) {
 	if cfg.Scraper.Timeout.Unwrap() != 5*time.Second {
 		t.Errorf("Scraper.Timeout = %v, want %v", cfg.Scraper.Timeout.Unwrap(), 5*time.Second)
 	}
+	if cfg.Scraper.RetentionWindow.Unwrap() != 1*time.Hour {
+		t.Errorf("Scraper.RetentionWindow = %v, want %v", cfg.Scraper.RetentionWindow.Unwrap(), 1*time.Hour)
+	}
 	if cfg.Session.MaxAge.Unwrap() != 24*time.Hour {
 		t.Errorf("Session.MaxAge = %v, want %v", cfg.Session.MaxAge.Unwrap(), 24*time.Hour)
 	}
@@ -75,6 +78,7 @@ database:
 scraper:
   interval: "30s"
   timeout: "10s"
+  retention_window: "2h"
 session:
   max_age: "12h"
   idle_timeout: "1h"
@@ -106,6 +110,9 @@ log:
 	}
 	if cfg.Scraper.Timeout.Unwrap() != 10*time.Second {
 		t.Errorf("Scraper.Timeout = %v, want %v", cfg.Scraper.Timeout.Unwrap(), 10*time.Second)
+	}
+	if cfg.Scraper.RetentionWindow.Unwrap() != 2*time.Hour {
+		t.Errorf("Scraper.RetentionWindow = %v, want %v", cfg.Scraper.RetentionWindow.Unwrap(), 2*time.Hour)
 	}
 	if cfg.Session.MaxAge.Unwrap() != 12*time.Hour {
 		t.Errorf("Session.MaxAge = %v, want %v", cfg.Session.MaxAge.Unwrap(), 12*time.Hour)
@@ -171,6 +178,7 @@ func TestLoad_EnvOverrides_AllFields(t *testing.T) {
 	t.Setenv("CHAPERONE_ADMIN_DATABASE_PATH", "/tmp/test.db")
 	t.Setenv("CHAPERONE_ADMIN_SCRAPER_INTERVAL", "20s")
 	t.Setenv("CHAPERONE_ADMIN_SCRAPER_TIMEOUT", "8s")
+	t.Setenv("CHAPERONE_ADMIN_SCRAPER_RETENTION_WINDOW", "30m")
 	t.Setenv("CHAPERONE_ADMIN_SESSION_MAX_AGE", "48h")
 	t.Setenv("CHAPERONE_ADMIN_SESSION_IDLE_TIMEOUT", "4h")
 	t.Setenv("CHAPERONE_ADMIN_AUDIT_RETENTION_DAYS", "60")
@@ -198,6 +206,9 @@ func TestLoad_EnvOverrides_AllFields(t *testing.T) {
 	}
 	if cfg.Scraper.Timeout.Unwrap() != 8*time.Second {
 		t.Errorf("Scraper.Timeout = %v, want %v", cfg.Scraper.Timeout.Unwrap(), 8*time.Second)
+	}
+	if cfg.Scraper.RetentionWindow.Unwrap() != 30*time.Minute {
+		t.Errorf("Scraper.RetentionWindow = %v, want %v", cfg.Scraper.RetentionWindow.Unwrap(), 30*time.Minute)
 	}
 	if cfg.Session.MaxAge.Unwrap() != 48*time.Hour {
 		t.Errorf("Session.MaxAge = %v, want %v", cfg.Session.MaxAge.Unwrap(), 48*time.Hour)
@@ -268,6 +279,9 @@ func TestApplyDefaults_ZeroConfig_SetsAllDefaults(t *testing.T) {
 	}
 	if cfg.Scraper.Timeout.Unwrap() != 5*time.Second {
 		t.Errorf("Scraper.Timeout = %v, want 5s", cfg.Scraper.Timeout.Unwrap())
+	}
+	if cfg.Scraper.RetentionWindow.Unwrap() != 1*time.Hour {
+		t.Errorf("Scraper.RetentionWindow = %v, want 1h", cfg.Scraper.RetentionWindow.Unwrap())
 	}
 	if cfg.Session.MaxAge.Unwrap() != 24*time.Hour {
 		t.Errorf("Session.MaxAge = %v, want 24h", cfg.Session.MaxAge.Unwrap())

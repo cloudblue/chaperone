@@ -16,8 +16,9 @@ func validConfig() *Config {
 		Server:   ServerConfig{Addr: DefaultAddr},
 		Database: DatabaseConfig{Path: "./test.db"},
 		Scraper: ScraperConfig{
-			Interval: Duration(10 * time.Second),
-			Timeout:  Duration(5 * time.Second),
+			Interval:        Duration(10 * time.Second),
+			Timeout:         Duration(5 * time.Second),
+			RetentionWindow: Duration(1 * time.Hour),
 		},
 		Session: SessionConfig{
 			MaxAge:      Duration(24 * time.Hour),
@@ -121,6 +122,43 @@ func TestValidate_TimeoutGteInterval_ReturnsError(t *testing.T) {
 				t.Errorf("error = %q, want to contain %q", err.Error(), "timeout must be less than")
 			}
 		})
+	}
+}
+
+func TestValidate_RetentionWindowLessThanInterval_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange — retention window must be at least one interval long
+	cfg := validConfig()
+	cfg.Scraper.Interval = Duration(10 * time.Second)
+	cfg.Scraper.RetentionWindow = Duration(5 * time.Second)
+
+	// Act
+	err := cfg.Validate()
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "retention_window") {
+		t.Errorf("error = %q, want to contain %q", err.Error(), "retention_window")
+	}
+}
+
+func TestValidate_RetentionWindowEqualsInterval_NoError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange — equal is allowed (degenerate but valid: capacity = 1)
+	cfg := validConfig()
+	cfg.Scraper.Interval = Duration(10 * time.Second)
+	cfg.Scraper.RetentionWindow = Duration(10 * time.Second)
+
+	// Act
+	err := cfg.Validate()
+
+	// Assert
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
 

@@ -51,7 +51,7 @@ func makeSnapshot(t time.Time, totalReq, errReq, active, panics float64) Snapsho
 
 func TestCollector_RecordScrape_ParsesAndStores(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(10)
+	c := NewCollector(10, time.Hour)
 
 	err := c.RecordScrape(1, []byte(sampleMetrics), time.Now())
 	if err != nil {
@@ -72,7 +72,7 @@ func TestCollector_RecordScrape_ParsesAndStores(t *testing.T) {
 
 func TestCollector_RecordScrape_MalformedData_ReturnsError(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(10)
+	c := NewCollector(10, time.Hour)
 
 	err := c.RecordScrape(1, []byte("# TYPE foo gauge\n# TYPE foo counter\nfoo 1\n"), time.Now())
 	if err == nil {
@@ -82,7 +82,7 @@ func TestCollector_RecordScrape_MalformedData_ReturnsError(t *testing.T) {
 
 func TestCollector_Remove(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(10)
+	c := NewCollector(10, time.Hour)
 	c.Record(1, Snapshot{Time: time.Now()})
 	c.Remove(1)
 
@@ -97,7 +97,7 @@ func TestCollector_Remove(t *testing.T) {
 
 func TestCollector_Prune(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(10)
+	c := NewCollector(10, time.Hour)
 	c.Record(1, Snapshot{Time: time.Now()})
 	c.Record(2, Snapshot{Time: time.Now()})
 	c.Record(3, Snapshot{Time: time.Now()})
@@ -115,7 +115,7 @@ func TestCollector_Prune(t *testing.T) {
 
 func TestCollector_GetInstanceMetrics_NoData_ReturnsNil(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(10)
+	c := NewCollector(10, time.Hour)
 	if got := c.GetInstanceMetrics(99); got != nil {
 		t.Error("expected nil for unknown instance")
 	}
@@ -123,7 +123,7 @@ func TestCollector_GetInstanceMetrics_NoData_ReturnsNil(t *testing.T) {
 
 func TestCollector_GetInstanceMetrics_SingleSnapshot_NoRates(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(10)
+	c := NewCollector(10, time.Hour)
 	c.Record(1, makeSnapshot(time.Now(), 1000, 50, 10, 2))
 
 	im := c.GetInstanceMetrics(1)
@@ -144,7 +144,7 @@ func TestCollector_GetInstanceMetrics_SingleSnapshot_NoRates(t *testing.T) {
 
 func TestCollector_GetInstanceMetrics_TwoSnapshots_ComputesRates(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(10)
+	c := NewCollector(10, time.Hour)
 	t0 := time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)
 	t1 := t0.Add(10 * time.Second)
 
@@ -189,7 +189,7 @@ func TestCollector_GetInstanceMetrics_TwoSnapshots_ComputesRates(t *testing.T) {
 
 func TestCollector_GetInstanceMetrics_SeriesGenerated(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(100)
+	c := NewCollector(100, time.Hour)
 	t0 := time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)
 
 	for i := 0; i < 5; i++ {
@@ -225,7 +225,7 @@ func TestCollector_GetInstanceMetrics_SeriesGenerated(t *testing.T) {
 
 func TestCollector_GetInstanceMetrics_TrendWithEnoughData(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(DefaultCapacity)
+	c := NewCollector(DefaultCapacity, time.Hour)
 	t0 := time.Date(2026, 3, 7, 11, 0, 0, 0, time.UTC)
 
 	// Fill 1h of data at 10s intervals
@@ -253,7 +253,7 @@ func TestCollector_GetInstanceMetrics_TrendWithEnoughData(t *testing.T) {
 
 func TestCollector_GetInstanceMetrics_NoTrendWithInsufficientData(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(100)
+	c := NewCollector(100, time.Hour)
 	t0 := time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)
 
 	for i := 0; i < 5; i++ {
@@ -277,7 +277,7 @@ func TestCollector_GetInstanceMetrics_NoTrendWithInsufficientData(t *testing.T) 
 
 func TestCollector_GetFleetMetrics_AggregatesAcrossInstances(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(10)
+	c := NewCollector(10, time.Hour)
 	t0 := time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)
 	t1 := t0.Add(10 * time.Second)
 
@@ -306,7 +306,7 @@ func TestCollector_GetFleetMetrics_AggregatesAcrossInstances(t *testing.T) {
 
 func TestCollector_GetFleetMetrics_SkipsMissingInstances(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(10)
+	c := NewCollector(10, time.Hour)
 	t0 := time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)
 	t1 := t0.Add(10 * time.Second)
 
@@ -344,7 +344,7 @@ func TestAddHistograms_MismatchedBoundaries_FallsBack(t *testing.T) {
 
 func TestGetFleetMetrics_CounterReset_DoesNotCorruptErrorRate(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(10)
+	c := NewCollector(10, time.Hour)
 	t0 := time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)
 	t1 := t0.Add(10 * time.Second)
 
@@ -370,7 +370,7 @@ func TestGetFleetMetrics_CounterReset_DoesNotCorruptErrorRate(t *testing.T) {
 
 func TestGetFleetMetrics_ErrorRateTrend_Populated(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(DefaultCapacity)
+	c := NewCollector(DefaultCapacity, time.Hour)
 	t0 := time.Date(2026, 3, 7, 11, 0, 0, 0, time.UTC)
 
 	for i := 0; i <= 360; i++ {
@@ -391,7 +391,7 @@ func TestGetFleetMetrics_ErrorRateTrend_Populated(t *testing.T) {
 
 func TestCollector_GetInstanceSummary_NoData_ReturnsNil(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(10)
+	c := NewCollector(10, time.Hour)
 	if got := c.GetInstanceSummary(1); got != nil {
 		t.Error("expected nil for unknown instance")
 	}
@@ -399,7 +399,7 @@ func TestCollector_GetInstanceSummary_NoData_ReturnsNil(t *testing.T) {
 
 func TestCollector_GetInstanceSummary_ComputesKPIs(t *testing.T) {
 	t.Parallel()
-	c := NewCollector(10)
+	c := NewCollector(10, time.Hour)
 	t0 := time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)
 	t1 := t0.Add(10 * time.Second)
 
@@ -415,5 +415,70 @@ func TestCollector_GetInstanceSummary_ComputesKPIs(t *testing.T) {
 	}
 	if s.ActiveConnections != 12 {
 		t.Errorf("ActiveConnections = %v, want 12", s.ActiveConnections)
+	}
+}
+
+func TestCollector_TrendWindow_LongerThanOneHour_LooksBackFullWindow(t *testing.T) {
+	t.Parallel()
+	// With trendWindow=2h, the historical comparison must look back ~2h, not
+	// the previously hardcoded 1h. Data has two regimes:
+	//   pairs[0..360):    100 req/s
+	//   pairs[360..1080): 200 req/s
+	// At the latest snapshot RPS ~200. RPS 1h ago is also ~200 (regime B), so
+	// the old hardcoded lookback would yield trend ~0. RPS 2h ago is ~100
+	// (regime A), so a correct 2h lookback yields trend ~100.
+	c := NewCollector(1080, 2*time.Hour)
+	t0 := time.Date(2026, 3, 7, 11, 0, 0, 0, time.UTC)
+
+	var totalReq, totalErr float64
+	const boundary = 360
+	for i := 0; i < 1080; i++ {
+		ts := t0.Add(time.Duration(i) * 10 * time.Second)
+		c.Record(1, makeSnapshot(ts, totalReq, totalErr, 10, 0))
+		if i < boundary {
+			totalReq += 1000
+			totalErr += 50
+		} else {
+			totalReq += 2000
+			totalErr += 100
+		}
+	}
+
+	im := c.GetInstanceMetrics(1)
+	if im == nil {
+		t.Fatal("expected non-nil InstanceMetrics")
+	}
+	if im.RPSTrend == nil {
+		t.Fatal("expected RPSTrend to be set")
+	}
+	if math.Abs(*im.RPSTrend-100) > 5 {
+		t.Errorf("RPSTrend = %v, want ~100 (2h lookback should compare against regime A)", *im.RPSTrend)
+	}
+}
+
+func TestCollector_TrendWindow_ShortWindow_RendersOnceBufferSpansIt(t *testing.T) {
+	t.Parallel()
+	// With trendWindow=30min, trends must render once the buffer spans
+	// 5/6 of that (25min). Previously the hardcoded 50min threshold would
+	// have suppressed the trend entirely for any retention window under 1h.
+	c := NewCollector(180, 30*time.Minute)
+	t0 := time.Date(2026, 3, 7, 11, 0, 0, 0, time.UTC)
+
+	for i := 0; i < 151; i++ {
+		c.Record(1, makeSnapshot(
+			t0.Add(time.Duration(i)*10*time.Second),
+			float64(i*100),
+			float64(i*5),
+			10,
+			0,
+		))
+	}
+
+	im := c.GetInstanceMetrics(1)
+	if im == nil {
+		t.Fatal("expected non-nil InstanceMetrics")
+	}
+	if im.RPSTrend == nil {
+		t.Error("expected RPSTrend to be set with 25min of data when trendWindow=30min")
 	}
 }
