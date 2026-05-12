@@ -40,6 +40,11 @@
 				</BaseButton>
 			</form>
 		</div>
+		<div :class="$style.branding" aria-label="Chaperone, a CloudBlue project">
+			<span>Chaperone &mdash; a</span>
+			<img :class="$style.brandingLogo" :src="cloudBlueLogo" alt="CloudBlue" />
+			<span>project</span>
+		</div>
 	</div>
 </template>
 
@@ -49,6 +54,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.js';
 import BaseInput from '../components/BaseInput.vue';
 import BaseButton from '../components/BaseButton.vue';
+import cloudBlueLogo from '../assets/cloudblue-logo-white.png';
 
 const router = useRouter();
 const auth = useAuthStore();
@@ -82,10 +88,13 @@ async function handleSubmit() {
 <style module>
 .page {
 	display: flex;
+	flex-direction: column;
 	align-items: center;
 	justify-content: center;
 	min-height: 100vh;
 	background-color: var(--color-bg-primary);
+	padding: var(--space-8) var(--space-4);
+	gap: var(--space-6);
 }
 
 .card {
@@ -133,5 +142,29 @@ async function handleSubmit() {
 	border: 1px solid var(--color-error-border);
 	color: var(--color-error);
 	font-size: var(--font-size-sm);
+}
+
+.branding {
+	display: inline-flex;
+	align-items: baseline;
+	gap: var(--space-3);
+	margin: 0;
+	font-size: var(--font-size-xs);
+	color: var(--color-text-secondary);
+	text-align: center;
+	letter-spacing: -0.02em;
+}
+
+.brandingLogo {
+	height: 1.3rem;
+	width: auto;
+	filter: brightness(0) saturate(100%);
+}
+
+@media (max-width: 520px) {
+	.branding {
+		flex-wrap: wrap;
+		justify-content: center;
+	}
 }
 </style>
