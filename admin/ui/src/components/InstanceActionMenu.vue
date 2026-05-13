@@ -5,6 +5,7 @@
 			size="sm"
 			variant="ghost"
 			type="button"
+			data-testid="instance-actions"
 			:aria-label="`More actions for ${label}`"
 			aria-haspopup="menu"
 			:aria-expanded="open ? 'true' : 'false'"
@@ -31,6 +32,7 @@
 				:class="$style.item"
 				type="button"
 				role="menuitem"
+				data-testid="instance-delete"
 				@click.stop="handleRemove"
 			>
 				Remove

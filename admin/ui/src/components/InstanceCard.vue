@@ -44,7 +44,6 @@
 			</BaseButton>
 			<InstanceActionMenu
 				:label="instance.name"
-				data-testid="instance-actions"
 				@remove="$emit('delete', instance)"
 			/>
 		</div>
