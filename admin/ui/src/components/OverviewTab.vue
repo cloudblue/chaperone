@@ -32,6 +32,7 @@
 		<div :class="$style.chartSection">
 			<h3 id="latency-chart-title" :class="$style.chartTitle">
 				Latency Over Time
+				<span :class="$style.chartHint">· P50, P95, P99, in ms</span>
 			</h3>
 			<div
 				:class="$style.chartContainer"
@@ -89,7 +90,13 @@ const hasSeries = computed(
 const latencyChartOption = computed(() => {
 	const series = props.metrics.series || [];
 	return {
-		grid: { top: 40, right: 16, bottom: 40, left: 56 },
+		grid: {
+			top: 0,
+			right: 0,
+			bottom: 28,
+			left: 0,
+			containLabel: true,
+		},
 		tooltip: {
 			trigger: 'axis',
 			formatter(params) {
@@ -113,8 +120,6 @@ const latencyChartOption = computed(() => {
 		},
 		yAxis: {
 			type: 'value',
-			name: 'ms',
-			nameTextStyle: { fontSize: 11 },
 			axisLabel: { fontSize: 11 },
 			splitLine: { lineStyle: { color: '#f0f0f0' } },
 		},
@@ -161,7 +166,7 @@ const latencyChartOption = computed(() => {
 
 .kpiGrid {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	grid-template-columns: repeat(5, minmax(0, 1fr));
 	gap: var(--space-3);
 }
 
@@ -177,6 +182,11 @@ const latencyChartOption = computed(() => {
 	font-weight: var(--font-weight-semibold);
 	color: var(--color-text-primary);
 	margin: 0 0 var(--space-3) 0;
+}
+
+.chartHint {
+	color: var(--color-text-tertiary);
+	font-weight: var(--font-weight-normal);
 }
 
 .chartContainer {
@@ -195,5 +205,23 @@ const latencyChartOption = computed(() => {
 	height: 300px;
 	color: var(--color-text-tertiary);
 	font-size: var(--font-size-sm);
+}
+
+@media (max-width: 1200px) {
+	.kpiGrid {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 900px) {
+	.kpiGrid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 520px) {
+	.kpiGrid {
+		grid-template-columns: 1fr;
+	}
 }
 </style>

@@ -93,8 +93,10 @@ test.describe('Fleet Dashboard', () => {
 
     const cardCount = await page.getByTestId('instance-card').count();
 
-    // Click remove on last card
-    await page.getByTestId('instance-card').last().getByTestId('instance-delete').click();
+    // Open the actions menu on the last card and click Remove
+    const lastCard = page.getByTestId('instance-card').last();
+    await lastCard.getByTestId('instance-actions').click();
+    await lastCard.getByTestId('instance-delete').click();
 
     // Confirm dialog
     await expect(page.getByTestId('confirm-ok')).toBeVisible();

@@ -11,7 +11,9 @@
 	>
 		<div :class="$style.header">
 			<div :class="$style.titleRow">
-				<h3 :class="$style.name">{{ instance.name }}</h3>
+				<h3 :class="$style.name">
+					<span :class="$style.nameLink">{{ instance.name }}</span>
+				</h3>
 				<StatusIndicator
 					:status="instance.status"
 					:label="getStatusLabel(instance.status)"
@@ -20,14 +22,14 @@
 			<div :class="$style.address">{{ instance.address }}</div>
 		</div>
 		<div :class="$style.meta">
-			<div v-if="instance.version" :class="$style.metaItem">
+			<div :class="$style.metaItem">
 				<span :class="$style.metaLabel">Version</span>
-				<span :class="$style.metaValue">{{ instance.version }}</span>
+				<span :class="$style.metaValue">{{ instance.version || '—' }}</span>
 			</div>
-			<div v-if="instance.last_seen_at" :class="$style.metaItem">
+			<div :class="$style.metaItem">
 				<span :class="$style.metaLabel">Last seen</span>
 				<span :class="$style.metaValue">{{
-					formatTime(instance.last_seen_at)
+					formatTime(instance.last_seen_at) || '—'
 				}}</span>
 			</div>
 		</div>
@@ -40,14 +42,10 @@
 			>
 				Edit
 			</BaseButton>
-			<BaseButton
-				size="sm"
-				variant="ghost"
-				data-testid="instance-delete"
-				@click.stop="$emit('delete', instance)"
-			>
-				Remove
-			</BaseButton>
+			<InstanceActionMenu
+				:label="instance.name"
+				@remove="$emit('delete', instance)"
+			/>
 		</div>
 	</BaseCard>
 </template>
@@ -55,6 +53,7 @@
 <script setup>
 import BaseCard from './BaseCard.vue';
 import BaseButton from './BaseButton.vue';
+import InstanceActionMenu from './InstanceActionMenu.vue';
 import StatusIndicator from './StatusIndicator.vue';
 import { formatTime, getStatusLabel } from '../utils/instance.js';
 
@@ -98,6 +97,19 @@ function onCardKeydown(e) {
 	margin: 0;
 }
 
+.nameLink {
+	color: var(--color-accent);
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.14em;
+	transition: color 0.15s;
+}
+
+.card:hover .nameLink,
+.card:focus-visible .nameLink {
+	color: var(--color-accent-hover);
+}
+
 .address {
 	font-size: var(--font-size-xs);
 	color: var(--color-text-secondary);
@@ -106,7 +118,8 @@ function onCardKeydown(e) {
 }
 
 .meta {
-	display: flex;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
 	gap: var(--space-5);
 	margin-bottom: var(--space-3);
 }
@@ -131,6 +144,8 @@ function onCardKeydown(e) {
 
 .actions {
 	display: flex;
+	align-items: center;
+	justify-content: space-between;
 	gap: var(--space-2);
 	padding-top: var(--space-3);
 	border-top: 1px solid var(--color-border-light);

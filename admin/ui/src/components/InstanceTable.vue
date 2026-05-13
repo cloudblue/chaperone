@@ -24,27 +24,30 @@
 					@keydown.space="onRowKeydown($event, inst)"
 				>
 					<td :class="$style.td">
-						<StatusIndicator :status="inst.status" />
+						<StatusIndicator
+							:status="inst.status"
+							:label="getStatusLabel(inst.status)"
+						/>
 					</td>
 					<td :class="[$style.td, $style.name]">{{ inst.name }}</td>
 					<td :class="[$style.td, $style.mono]">{{ inst.address }}</td>
 					<td :class="$style.td">{{ inst.version || '—' }}</td>
 					<td :class="$style.td">{{ formatTime(inst.last_seen_at) || '—' }}</td>
 					<td :class="[$style.td, $style.actionsCol]">
-						<BaseButton
-							size="sm"
-							variant="secondary"
-							@click.stop="$emit('edit', inst)"
-						>
-							Edit
-						</BaseButton>
-						<BaseButton
-							size="sm"
-							variant="ghost"
-							@click.stop="$emit('delete', inst)"
-						>
-							Remove
-						</BaseButton>
+						<div :class="$style.actionGroup">
+							<BaseButton
+								size="sm"
+								variant="secondary"
+								@click.stop="$emit('edit', inst)"
+							>
+								Edit
+							</BaseButton>
+							<InstanceActionMenu
+								:label="inst.name"
+								@click.stop
+								@remove="$emit('delete', inst)"
+							/>
+						</div>
 					</td>
 				</tr>
 			</tbody>
@@ -53,9 +56,10 @@
 </template>
 
 <script setup>
+import InstanceActionMenu from './InstanceActionMenu.vue';
 import StatusIndicator from './StatusIndicator.vue';
 import BaseButton from './BaseButton.vue';
-import { formatTime } from '../utils/instance.js';
+import { formatTime, getStatusLabel } from '../utils/instance.js';
 
 defineProps({
 	instances: { type: Array, required: true },
@@ -128,11 +132,10 @@ function onRowKeydown(e, inst) {
 	white-space: nowrap;
 }
 
-.actionsCol :global(button) {
-	margin-left: var(--space-2);
-}
-
-.actionsCol :global(button:first-child) {
-	margin-left: 0;
+.actionGroup {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--space-2);
 }
 </style>

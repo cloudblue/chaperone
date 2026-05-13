@@ -23,7 +23,11 @@
 					<line x1="3" y1="18" x2="21" y2="18" />
 				</svg>
 			</button>
-			<RouterLink to="/" :class="$style.mobileTitle">Chaperone</RouterLink>
+			<RouterLink to="/" :class="$style.mobileTitle">
+				<span>Chaperone</span>
+				<span :class="$style.mobileTitleMuted">by</span>
+				<img :class="$style.mobileLogo" :src="cloudBlueLogo" alt="CloudBlue" />
+			</RouterLink>
 		</header>
 
 		<!-- Backdrop for mobile sidebar -->
@@ -35,7 +39,17 @@
 
 		<aside :class="[$style.sidebar, sidebarOpen && $style.sidebarOpen]">
 			<div :class="$style.logo">
-				<RouterLink to="/" :class="$style.logoText">Chaperone</RouterLink>
+				<RouterLink to="/" :class="$style.logoText">
+					<span :class="$style.logoPrimary">Chaperone</span>
+					<span :class="$style.logoSecondary">
+						<span :class="$style.logoSecondaryMuted">by</span>
+						<img
+							:class="$style.logoMark"
+							:src="cloudBlueLogo"
+							alt="CloudBlue"
+						/>
+					</span>
+				</RouterLink>
 				<button
 					:class="$style.closeButton"
 					aria-label="Close navigation"
@@ -199,6 +213,7 @@
 import { ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.js';
+import cloudBlueLogo from '../assets/cloudblue-logo-white.png';
 
 const route = useRoute();
 const router = useRouter();
@@ -254,11 +269,44 @@ async function handleLogout() {
 }
 
 .logoText {
-	font-size: var(--font-size-md);
-	font-weight: var(--font-weight-bold);
+	display: inline-flex;
+	flex-direction: column;
+	gap: var(--space-1);
 	color: var(--color-text-sidebar-active);
-	letter-spacing: -0.01em;
 	text-decoration: none;
+}
+
+.logoText:hover {
+	text-decoration: none;
+}
+
+.logoPrimary {
+	font-size: var(--font-size-2xl);
+	line-height: 1.05;
+	font-weight: var(--font-weight-bold);
+	letter-spacing: -0.03em;
+}
+
+.logoSecondary {
+	display: inline-flex;
+	align-items: baseline;
+	gap: var(--space-2);
+	font-size: var(--font-size-sm);
+	line-height: 1;
+	color: var(--color-text-sidebar-active);
+	letter-spacing: -0.02em;
+}
+
+.logoSecondaryMuted {
+	font-weight: var(--font-weight-normal);
+	color: var(--color-text-sidebar);
+}
+
+.logoMark {
+	height: 1.1rem;
+	width: auto;
+	object-fit: contain;
+	transform: translateY(1px);
 }
 
 .nav {
@@ -386,10 +434,29 @@ async function handleLogout() {
 	}
 
 	.mobileTitle {
-		font-size: var(--font-size-md);
+		display: inline-flex;
+		align-items: baseline;
+		gap: var(--space-2);
+		font-size: var(--font-size-lg);
 		font-weight: var(--font-weight-bold);
 		color: var(--color-text-sidebar-active);
 		text-decoration: none;
+	}
+
+	.mobileTitle:hover {
+		text-decoration: none;
+	}
+
+	.mobileTitleMuted {
+		font-weight: var(--font-weight-normal);
+		color: var(--color-text-sidebar);
+	}
+
+	.mobileLogo {
+		height: 1rem;
+		width: auto;
+		object-fit: contain;
+		transform: translateY(1px);
 	}
 
 	.menuButton {
