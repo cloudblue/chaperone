@@ -84,6 +84,7 @@ admin/seed-user
 # Admin E2E tests
 admin/ui/e2e/.auth/
 admin/ui/e2e/results/
+admin/ui/e2e/results.json
 admin/ui/e2e/playwright-report/
 
 # Playwright MCP output

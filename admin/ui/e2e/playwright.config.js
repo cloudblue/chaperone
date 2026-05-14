@@ -29,6 +29,11 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     testIdAttribute: 'data-testid',
   },
+  reporter: [
+    ['list'],
+    ['html', { outputFolder: 'playwright-report', open: 'never' }],
+    ['json', { outputFile: 'results.json' }],
+  ],
   projects: [
     // --- Chromium (primary): full suite ---
     {
