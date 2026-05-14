@@ -9,6 +9,7 @@ on:
       - 'v*' # Core releases: v1.0.0, v1.2.3
       - 'sdk/v*' # SDK releases: sdk/v1.0.0
       - 'plugins/contrib/v*' # Contrib releases: plugins/contrib/v0.1.0
+      - 'admin/v*' # Admin portal releases: admin/v1.0.0
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,6 +20,7 @@ permissions:
 
 env:
   GOVULNCHECK_VERSION: 'v1.1.4'
+  PNPM_VERSION: '10.28.2'
 
 jobs:
   release:
@@ -225,3 +227,107 @@ jobs:
             ```bash
             go get github.com/cloudblue/chaperone/plugins/contrib@${{ steps.version.outputs.contrib_version }}
             ```
+
+  # Build admin portal binaries (UI embedded into chaperone-admin)
+  admin-release:
+    name: Admin Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: startsWith(github.ref, 'refs/tags/admin/v')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
+
+      - name: Install UI dependencies
+        working-directory: admin/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Build UI
+        working-directory: admin/ui
+        run: pnpm build
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: admin/go.mod
+          cache-dependency-path: admin/go.sum
+
+      - name: Run vulnerability check
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
+          cd admin && govulncheck ./...
+
+      - name: Run tests before release
+        run: cd admin && go test -race ./...
+
+      - name: Extract admin version
+        id: version
+        run: echo "admin_version=${GITHUB_REF_NAME#admin/}" >> $GITHUB_OUTPUT
+
+      - name: Build admin binaries for multiple platforms
+        run: |
+          mkdir -p dist
+
+          VERSION="${{ steps.version.outputs.admin_version }}"
+          GIT_COMMIT="${{ github.sha }}"
+          BUILD_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          LDFLAGS="-s -w \
+            -X main.Version=${VERSION} \
+            -X main.GitCommit=${GIT_COMMIT} \
+            -X main.BuildDate=${BUILD_DATE}"
+
+          cd admin
+
+          # chaperone-admin: Linux AMD64
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -ldflags "${LDFLAGS}" \
+            -o ../dist/chaperone-admin-linux-amd64 \
+            ./cmd/chaperone-admin
+
+          # chaperone-admin: Linux ARM64
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -ldflags "${LDFLAGS}" \
+            -o ../dist/chaperone-admin-linux-arm64 \
+            ./cmd/chaperone-admin
+
+          # chaperone-admin: Darwin (macOS) AMD64
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build \
+            -ldflags "${LDFLAGS}" \
+            -o ../dist/chaperone-admin-darwin-amd64 \
+            ./cmd/chaperone-admin
+
+          # chaperone-admin: Darwin (macOS) ARM64 (Apple Silicon)
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+            -ldflags "${LDFLAGS}" \
+            -o ../dist/chaperone-admin-darwin-arm64 \
+            ./cmd/chaperone-admin
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+
+      - name: Create GitHub Release for Admin
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            dist/chaperone-admin-*
+            dist/checksums.txt
+          body: |
+            ## Admin Portal Release ${{ steps.version.outputs.admin_version }}
+
+            Ships the `chaperone-admin` binary with the Vue UI embedded.
+            Use `chaperone-admin create-user` to seed the initial admin user.
