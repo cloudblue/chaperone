@@ -416,19 +416,38 @@ func runE2EConsent(t *testing.T, cmd *exec.Cmd) (string, *strings.Builder) {
 
 // simulateCallback sends a GET request to the callback server with the given
 // authorization code and state.
+//
+// The binary prints the auth URL to stderr as soon as net.Listen returns, but
+// the goroutine that calls Accept may not be scheduled yet on a busy runner.
+// Retry briefly on transport errors so this races cleanly with server startup.
+// The callback handler is single-use (triggers server.Shutdown on success), so
+// retries only fire when the first attempt never reached the handler.
 func simulateCallback(ctx context.Context, t *testing.T, redirectURI, state, code string) {
 	t.Helper()
 
 	callbackURL := fmt.Sprintf("%s?code=%s&state=%s", redirectURI, url.QueryEscape(code), url.QueryEscape(state))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, callbackURL, nil)
-	if err != nil {
-		t.Fatalf("failed to create callback request: %v", err)
+
+	const maxAttempts = 10
+	const backoff = 100 * time.Millisecond
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, callbackURL, nil)
+		if err != nil {
+			t.Fatalf("failed to create callback request: %v", err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			return
+		}
+		lastErr = err
+		select {
+		case <-ctx.Done():
+			t.Fatalf("callback request failed: %v (ctx: %v)", lastErr, ctx.Err())
+		case <-time.After(backoff):
+		}
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("callback request failed: %v", err)
-	}
-	resp.Body.Close()
+	t.Fatalf("callback request failed after %d attempts: %v", maxAttempts, lastErr)
 }
 
 func TestRun_HelpFlag(t *testing.T) {
