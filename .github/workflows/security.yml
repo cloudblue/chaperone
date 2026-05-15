@@ -74,6 +74,9 @@ jobs:
       - name: Run govulncheck (Contrib module)
         run: cd plugins/contrib && govulncheck ./...
 
+      - name: Run govulncheck (admin module)
+        run: cd admin && govulncheck ./...
+
   gosec:
     name: Security Scan (gosec)
     needs: [changes]
