@@ -9,6 +9,65 @@ import (
 	"strings"
 )
 
+// defaultSensitiveHeaders is the canonical list of headers that MUST be
+// redacted in logs and stripped from responses. This is a security-critical
+// default per Design Spec Section 5.3 and is the single source of truth used
+// by both internal/config (for the merged sensitive_headers list applied to
+// the vendor proxy path) and the forward proxy path (which uses these
+// defaults verbatim).
+//
+// Do not duplicate this list elsewhere — consumers should call
+// DefaultSensitiveHeaders or StripSensitiveResponseHeaders.
+var defaultSensitiveHeaders = []string{
+	"Authorization",
+	"Proxy-Authorization",
+	"Cookie",
+	"Set-Cookie",
+	"X-API-Key",
+	"X-Auth-Token",
+}
+
+// defaultSensitiveHeadersSet is the lookup table built from
+// defaultSensitiveHeaders, used by StripSensitiveResponseHeaders. Keys are
+// stored lowercase for case-insensitive matching.
+var defaultSensitiveHeadersSet = func() map[string]struct{} {
+	m := make(map[string]struct{}, len(defaultSensitiveHeaders))
+	for _, h := range defaultSensitiveHeaders {
+		m[strings.ToLower(h)] = struct{}{}
+	}
+	return m
+}()
+
+// DefaultSensitiveHeaders returns a fresh copy of the built-in static list
+// of sensitive headers. The caller is free to mutate the returned slice.
+func DefaultSensitiveHeaders() []string {
+	out := make([]string, len(defaultSensitiveHeaders))
+	copy(out, defaultSensitiveHeaders)
+	return out
+}
+
+// StripSensitiveResponseHeaders removes the built-in static set of sensitive
+// headers (Authorization, Cookie, etc.) from headers in place. Matching is
+// case-insensitive.
+//
+// This is the free-function counterpart to Reflector.StripResponseHeaders.
+// Use it on code paths that do not have access to a configured Reflector
+// (e.g., the forward proxy path), where the user-extended sensitive_headers
+// list is intentionally not applied.
+//
+// Per Design Spec Section 5.3 "Credential Reflection Protection".
+func StripSensitiveResponseHeaders(headers http.Header) {
+	var toDelete []string
+	for header := range headers {
+		if _, ok := defaultSensitiveHeadersSet[strings.ToLower(header)]; ok {
+			toDelete = append(toDelete, header)
+		}
+	}
+	for _, header := range toDelete {
+		headers.Del(header)
+	}
+}
+
 // Reflector handles stripping sensitive headers from HTTP responses.
 // Per Design Spec Section 5.3 "Credential Reflection Protection":
 // "The Proxy strips all Injection Headers (like Authorization) from the

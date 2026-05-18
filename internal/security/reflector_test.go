@@ -7,13 +7,11 @@ import (
 	"context"
 	"net/http"
 	"testing"
-
-	"github.com/cloudblue/chaperone/internal/config"
 )
 
 // testSensitiveHeaders returns the default sensitive headers for testing.
 func testSensitiveHeaders() []string {
-	return config.MergeSensitiveHeaders(nil)
+	return DefaultSensitiveHeaders()
 }
 
 func TestReflector_StripResponseHeaders_RemovesSensitiveHeaders(t *testing.T) {
