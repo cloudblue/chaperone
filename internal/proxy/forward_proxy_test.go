@@ -5,6 +5,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"net"
 	"net/http"
@@ -542,6 +543,43 @@ func TestClassifyForwardError_Matrix(t *testing.T) {
 				t.Errorf("classifyForwardError(%v) = %q, want %q", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestNewForwardTransport_InheritsDefaultTransportSettings verifies that the
+// per-target transport is built by cloning http.DefaultTransport so it keeps
+// HTTP/2 negotiation, connection pooling, the dialer defaults, and the
+// stdlib-tuned timeouts (TLSHandshakeTimeout, IdleConnTimeout, etc.). It also
+// verifies our explicit overrides on TLSClientConfig stick.
+func TestNewForwardTransport_InheritsDefaultTransportSettings(t *testing.T) {
+	fp, err := NewForwardProxy("x", config.ForwardTargetConfig{
+		URL:  "https://example.test/",
+		Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+	})
+	if err != nil {
+		t.Fatalf("NewForwardProxy: %v", err)
+	}
+	tr, ok := fp.proxy.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("proxy.Transport = %T, want *http.Transport", fp.proxy.Transport)
+	}
+	if !tr.ForceAttemptHTTP2 {
+		t.Error("ForceAttemptHTTP2 false; expected DefaultTransport defaults to be inherited")
+	}
+	if tr.TLSHandshakeTimeout == 0 {
+		t.Error("TLSHandshakeTimeout 0; expected DefaultTransport defaults to be inherited")
+	}
+	if tr.IdleConnTimeout == 0 {
+		t.Error("IdleConnTimeout 0; expected DefaultTransport defaults to be inherited")
+	}
+	if tr.MaxIdleConns == 0 {
+		t.Error("MaxIdleConns 0; expected DefaultTransport defaults to be inherited")
+	}
+	if tr.TLSClientConfig == nil || tr.TLSClientConfig.MinVersion != tls.VersionTLS13 {
+		t.Error("TLSClientConfig not configured with TLS 1.3 minimum")
+	}
+	if tr.TLSClientConfig.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify true; expected false")
 	}
 }
 

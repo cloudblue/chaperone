@@ -200,21 +200,35 @@ func classifyForwardError(err error) string {
 // the response-header wait (i.e., how long we are willing to block before
 // the target writes status); body streaming is not bounded here, which
 // matches the streaming semantics of httputil.ReverseProxy.
+//
+// The transport is built by cloning http.DefaultTransport so we inherit
+// HTTP/2 negotiation (ForceAttemptHTTP2), connection pooling (MaxIdleConns,
+// IdleConnTimeout), the dialer defaults (DialContext) and the various
+// stdlib-tuned timeouts (TLSHandshakeTimeout, ExpectContinueTimeout).
+// We override only ResponseHeaderTimeout and TLSClientConfig.
 func newForwardTransport(timeout time.Duration) *http.Transport {
 	if timeout <= 0 {
 		timeout = defaultForwardTimeout
 	}
-	return &http.Transport{
-		ResponseHeaderTimeout: timeout,
-		TLSClientConfig: &tls.Config{
-			MinVersion: tls.VersionTLS13,
-			// Explicit: we always verify forward-target certificates. The
-			// linter flags this field because the zero value is also false,
-			// but being explicit guards against future refactors silently
-			// flipping the default.
-			InsecureSkipVerify: false, //nolint:gosec // explicit: always verify
-		},
+	// http.DefaultTransport is documented as *http.Transport. The comma-ok
+	// form keeps the linter happy without losing the invariant.
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		// Stdlib invariant broken — fall back to a fresh transport rather
+		// than panicking. This branch is effectively unreachable.
+		base = &http.Transport{}
 	}
+	t := base.Clone()
+	t.ResponseHeaderTimeout = timeout
+	t.TLSClientConfig = &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		// Explicit: we always verify forward-target certificates. The
+		// linter flags this field because the zero value is also false,
+		// but being explicit guards against future refactors silently
+		// flipping the default.
+		InsecureSkipVerify: false, //nolint:gosec // explicit: always verify
+	}
+	return t
 }
 
 // singleJoiningSlash mirrors httputil.singleJoiningSlash (unexported in
