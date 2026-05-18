@@ -13,8 +13,9 @@ import (
 	"github.com/cloudblue/chaperone/sdk"
 )
 
-// Compile-time check that Mux implements sdk.Plugin.
+// Compile-time checks that Mux implements its expected interfaces.
 var _ sdk.Plugin = (*Mux)(nil)
+var _ sdk.RequestRouter = (*Mux)(nil)
 
 // routeEntry binds a route pattern to its dispatch action,
 // preserving registration order for tie-breaking.
@@ -191,6 +192,20 @@ func (m *Mux) SignCSR(ctx context.Context, csrPEM []byte) ([]byte, error) {
 func (m *Mux) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) (*sdk.ResponseAction, error) {
 	if m.modifier != nil {
 		return m.modifier.ModifyResponse(ctx, tx, resp)
+	}
+	return nil, nil
+}
+
+// RouteRequest implements sdk.RequestRouter. It returns a non-nil RouteAction
+// only when the matched route is a ForwardAction. Credential matches fall
+// through (return nil) so that the normal Mux.GetCredentials path handles them.
+func (m *Mux) RouteRequest(_ context.Context, tx sdk.TransactionContext, _ *http.Request) (*sdk.RouteAction, error) {
+	best := m.match(tx)
+	if best == nil {
+		return nil, nil
+	}
+	if fa, ok := best.action.(ForwardAction); ok {
+		return &sdk.RouteAction{ForwardTo: fa.Target}, nil
 	}
 	return nil, nil
 }
