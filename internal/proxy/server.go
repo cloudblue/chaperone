@@ -177,6 +177,16 @@ func NewServer(cfg Config) (*Server, error) {
 		return nil, err
 	}
 
+	// Cross-validate forward references: if the plugin implements ForwardReferences(),
+	// ensure all referenced targets exist in the config.
+	if err := validateForwardReferences(cfg.Plugin, cfg.ForwardTargets); err != nil {
+		return nil, err
+	}
+
+	// Log warning for any forward_target entries that are never referenced
+	// (only if the plugin can report its references).
+	warnUnusedForwardTargets(cfg.Plugin, cfg.ForwardTargets)
+
 	// Detect if the plugin implements RequestRouter capability
 	var requestRouter sdk.RequestRouter
 	if cfg.Plugin != nil {
@@ -1118,5 +1128,71 @@ func (s *Server) applyErrorNormalization(traceID string, txCtx *sdk.TransactionC
 			"error", err,
 		)
 		// Continue even if normalization fails - response will be sent as-is
+	}
+}
+
+// validateForwardReferences checks that all forward target references in the
+// plugin (if it implements the ForwardReferences() method) are defined in
+// the forward targets configuration.
+//
+// If the plugin implements the interface { ForwardReferences() []string },
+// each name returned is verified to exist in cfg.ForwardTargets. If any
+// reference is missing, an error is returned. If the plugin does not
+// implement the interface, validation is skipped (we can't know what targets
+// it uses).
+func validateForwardReferences(plugin sdk.Plugin, targets map[string]config.ForwardTargetConfig) error {
+	if plugin == nil {
+		return nil
+	}
+
+	// Anonymous interface type assertion: check if plugin has ForwardReferences()
+	lister, ok := plugin.(interface{ ForwardReferences() []string })
+	if !ok {
+		// Plugin doesn't expose forward references — nothing to validate
+		return nil
+	}
+
+	refs := lister.ForwardReferences()
+	for _, ref := range refs {
+		if _, ok := targets[ref]; !ok {
+			return fmt.Errorf("plugin references forward_target %q which is not defined in config", ref)
+		}
+	}
+
+	return nil
+}
+
+// warnUnusedForwardTargets logs a warning for any forward_target entry that
+// is not referenced by the plugin. Only runs if the plugin implements the
+// ForwardReferences() method.
+//
+// This helps catch configuration errors where targets are defined but never
+// actually used by any route.
+func warnUnusedForwardTargets(plugin sdk.Plugin, targets map[string]config.ForwardTargetConfig) {
+	if plugin == nil {
+		return
+	}
+
+	lister, ok := plugin.(interface{ ForwardReferences() []string })
+	if !ok {
+		// Plugin doesn't expose forward references — can't determine which
+		// targets are unused, so skip the warning.
+		return
+	}
+
+	refs := lister.ForwardReferences()
+	// Build a set of referenced targets (deduplicated)
+	referenced := make(map[string]bool)
+	for _, ref := range refs {
+		referenced[ref] = true
+	}
+
+	// Warn about any configured targets that are not referenced
+	for name := range targets {
+		if !referenced[name] {
+			slog.Warn("forward_target defined but never referenced",
+				"target", name,
+			)
+		}
 	}
 }

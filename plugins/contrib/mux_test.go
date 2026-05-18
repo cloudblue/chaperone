@@ -1111,3 +1111,79 @@ func TestMux_GetCredentials_MoreSpecificCredentialBeatsLessSpecificForward(t *te
 		t.Errorf("Authorization = %q, want %q", got, "Bearer specific")
 	}
 }
+
+// --- ForwardReferences tests ---
+
+func TestMux_ForwardReferences_Empty(t *testing.T) {
+	m := NewMux()
+
+	refs := m.ForwardReferences()
+	if len(refs) != 0 {
+		t.Errorf("refs = %v, want empty", refs)
+	}
+}
+
+func TestMux_ForwardReferences_SingleForwardRoute(t *testing.T) {
+	m := NewMux()
+	m.HandleForward(Route{VendorID: "acme"}, "target-acme")
+
+	refs := m.ForwardReferences()
+	if len(refs) != 1 || refs[0] != "target-acme" {
+		t.Errorf("refs = %v, want [target-acme]", refs)
+	}
+}
+
+func TestMux_ForwardReferences_MultipleForwardRoutes(t *testing.T) {
+	m := NewMux()
+	m.HandleForward(Route{VendorID: "acme"}, "target-acme")
+	m.HandleForward(Route{VendorID: "globex"}, "target-globex")
+	m.HandleForward(Route{VendorID: "contoso"}, "target-contoso")
+
+	refs := m.ForwardReferences()
+	if len(refs) != 3 {
+		t.Errorf("refs length = %d, want 3", len(refs))
+	}
+
+	// Order should match registration order
+	expected := []string{"target-acme", "target-globex", "target-contoso"}
+	for i, exp := range expected {
+		if i >= len(refs) || refs[i] != exp {
+			t.Errorf("refs[%d] = %q, want %q", i, refs[i], exp)
+		}
+	}
+}
+
+func TestMux_ForwardReferences_MixedActions_OnlyIncludesForwards(t *testing.T) {
+	m := NewMux()
+	m.Handle(Route{VendorID: "cred-vendor"}, &namedProvider{name: "cred-provider"})
+	m.HandleForward(Route{VendorID: "forward-vendor"}, "target-forward")
+	m.Handle(Route{VendorID: "another-cred"}, &namedProvider{name: "another-provider"})
+
+	refs := m.ForwardReferences()
+	if len(refs) != 1 || refs[0] != "target-forward" {
+		t.Errorf("refs = %v, want [target-forward]", refs)
+	}
+}
+
+func TestMux_ForwardReferences_DuplicateTargets(t *testing.T) {
+	m := NewMux()
+	m.HandleForward(Route{VendorID: "vendor-a"}, "same-target")
+	m.HandleForward(Route{VendorID: "vendor-b"}, "same-target")
+	m.HandleForward(Route{VendorID: "vendor-c"}, "different-target")
+
+	refs := m.ForwardReferences()
+	if len(refs) != 3 {
+		t.Errorf("refs length = %d, want 3 (including duplicates)", len(refs))
+	}
+
+	// Verify that duplicates are preserved (not deduplicated by ForwardReferences itself)
+	count := 0
+	for _, ref := range refs {
+		if ref == "same-target" {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Errorf("same-target appears %d times, want 2", count)
+	}
+}

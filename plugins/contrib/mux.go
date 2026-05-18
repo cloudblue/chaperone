@@ -210,6 +210,23 @@ func (m *Mux) RouteRequest(_ context.Context, tx sdk.TransactionContext, _ *http
 	return nil, nil
 }
 
+// ForwardReferences returns the set of forward_target names referenced by all
+// registered routes. Each entry in the returned slice corresponds to a route
+// with a ForwardAction. Deduplication is not applied — if the same target is
+// referenced by multiple routes, it may appear multiple times.
+//
+// This is used for startup validation to ensure all referenced targets are
+// defined in the configuration.
+func (m *Mux) ForwardReferences() []string {
+	var refs []string
+	for _, e := range m.entries {
+		if fa, ok := e.action.(ForwardAction); ok {
+			refs = append(refs, fa.Target)
+		}
+	}
+	return refs
+}
+
 // match finds the best matching route entry for the given transaction.
 // When multiple routes match at the same specificity, the first registered wins.
 func (m *Mux) match(tx sdk.TransactionContext) *routeEntry {

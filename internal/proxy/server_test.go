@@ -1395,3 +1395,342 @@ func createFile(path string) (*file, error) {
 type file = os.File
 
 var osCreate = os.Create
+
+// =============================================================================
+// Forward Reference Validation Tests (Task 13)
+// =============================================================================
+
+func TestRun_ForwardActionReferencingUnknownTarget_FailsAtStartup(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - Mux with forward action referencing non-existent target
+	mux := newTestMux()
+	mux.HandleForward(newTestRoute("vendor-x"), "missing-target")
+
+	cfg := testConfig()
+	cfg.Plugin = mux
+	cfg.ForwardTargets = map[string]config.ForwardTargetConfig{
+		"company-b": {
+			URL:  "https://company-b.example/ingress",
+			Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+		},
+	}
+
+	// Act
+	_, err := proxy.NewServer(cfg)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected startup error for unknown forward target")
+	}
+	if !strings.Contains(err.Error(), "missing-target") {
+		t.Errorf("error should mention missing-target: %v", err)
+	}
+}
+
+func TestRun_AllForwardReferencesValid_SucceedsAtStartup(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - Mux with forward actions all referencing known targets
+	mux := newTestMux()
+	mux.HandleForward(newTestRoute("vendor-a"), "company-b")
+	mux.HandleForward(newTestRoute("vendor-c"), "company-d")
+
+	cfg := testConfig()
+	cfg.Plugin = mux
+	cfg.ForwardTargets = map[string]config.ForwardTargetConfig{
+		"company-b": {
+			URL:  "https://company-b.example/ingress",
+			Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+		},
+		"company-d": {
+			URL:  "https://company-d.example",
+			Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+		},
+	}
+
+	// Act
+	srv, err := proxy.NewServer(cfg)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if srv == nil {
+		t.Fatal("server should be created")
+	}
+}
+
+func TestRun_PluginWithoutForwardReferencesMethods_NoValidationError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - custom plugin without ForwardReferences() method
+	plugin := &plainPlugin{} // does not implement ForwardReferences()
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	// Configured forward_targets that are never referenced
+	cfg.ForwardTargets = map[string]config.ForwardTargetConfig{
+		"unused-target": {
+			URL:  "https://unused.example",
+			Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+		},
+	}
+
+	// Act
+	srv, err := proxy.NewServer(cfg)
+
+	// Assert - should succeed; no validation against custom plugins
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if srv == nil {
+		t.Fatal("server should be created")
+	}
+}
+
+func TestRun_MultipleReferencesOneUnknown_ErrorMentionsUnknownOne(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - Mux with multiple forward references, one is unknown
+	mux := newTestMux()
+	mux.HandleForward(newTestRoute("vendor-a"), "valid-target")
+	mux.HandleForward(newTestRoute("vendor-b"), "unknown-target")
+	mux.HandleForward(newTestRoute("vendor-c"), "another-valid")
+
+	cfg := testConfig()
+	cfg.Plugin = mux
+	cfg.ForwardTargets = map[string]config.ForwardTargetConfig{
+		"valid-target": {
+			URL:  "https://valid.example",
+			Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+		},
+		"another-valid": {
+			URL:  "https://another.example",
+			Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+		},
+	}
+
+	// Act
+	_, err := proxy.NewServer(cfg)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected error for unknown target")
+	}
+	if !strings.Contains(err.Error(), "unknown-target") {
+		t.Errorf("error should mention unknown-target, got: %v", err)
+	}
+	// Error should NOT require the valid targets to also be mentioned
+}
+
+func TestRun_EmptyForwardTargetsWithMuxNoForwardRoutes_Success(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - Mux with only credential routes, no forward targets configured
+	mux := newTestMux()
+	mux.Handle(newTestRoute("vendor-a"), &plainPlugin{})
+
+	cfg := testConfig()
+	cfg.Plugin = mux
+	cfg.ForwardTargets = nil // or empty map
+
+	// Act
+	srv, err := proxy.NewServer(cfg)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if srv == nil {
+		t.Fatal("server should be created")
+	}
+}
+
+func TestRun_EmptyForwardTargetsWithMuxForwardRoute_FailsAtStartup(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - Mux with forward route but no targets configured
+	mux := newTestMux()
+	mux.HandleForward(newTestRoute("vendor-a"), "missing-target")
+
+	cfg := testConfig()
+	cfg.Plugin = mux
+	cfg.ForwardTargets = nil // empty
+
+	// Act
+	_, err := proxy.NewServer(cfg)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected error for forward route with no targets")
+	}
+	if !strings.Contains(err.Error(), "missing-target") {
+		t.Errorf("error should mention missing-target, got: %v", err)
+	}
+}
+
+func TestRun_UnusedForwardTarget_WarnsAtStartup(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - capture log output
+	logBuf, restore := captureLogs(t)
+	defer restore()
+
+	// Mux with one forward reference
+	mux := newTestMux()
+	mux.HandleForward(newTestRoute("vendor-a"), "used-target")
+
+	// But config has two targets (one unused)
+	cfg := testConfig()
+	cfg.Plugin = mux
+	cfg.ForwardTargets = map[string]config.ForwardTargetConfig{
+		"used-target": {
+			URL:  "https://used.example",
+			Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+		},
+		"unused-target": {
+			URL:  "https://unused.example",
+			Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+		},
+	}
+
+	// Act
+	srv, err := proxy.NewServer(cfg)
+
+	// Assert - must succeed
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if srv == nil {
+		t.Fatal("server should be created")
+	}
+
+	// Warning should be logged for unused target
+	logOut := logBuf.String()
+	if !strings.Contains(logOut, "unused-target") {
+		t.Errorf("expected warning about unused-target, got: %s", logOut)
+	}
+	if !strings.Contains(logOut, "forward_target") {
+		t.Errorf("expected 'forward_target' in warning, got: %s", logOut)
+	}
+}
+
+func TestRun_AllForwardTargetsReferenced_NoWarning(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	logBuf, restore := captureLogs(t)
+	defer restore()
+
+	mux := newTestMux()
+	mux.HandleForward(newTestRoute("vendor-a"), "target-1")
+	mux.HandleForward(newTestRoute("vendor-b"), "target-2")
+
+	cfg := testConfig()
+	cfg.Plugin = mux
+	cfg.ForwardTargets = map[string]config.ForwardTargetConfig{
+		"target-1": {
+			URL:  "https://target1.example",
+			Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+		},
+		"target-2": {
+			URL:  "https://target2.example",
+			Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+		},
+	}
+
+	// Act
+	_, err := proxy.NewServer(cfg)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	logOut := logBuf.String()
+	if strings.Contains(logOut, "forward_target defined but never referenced") {
+		t.Errorf("should not warn about unreferenced targets when all are referenced: %s", logOut)
+	}
+}
+
+func TestRun_DuplicateForwardReferences_NotAnError(t *testing.T) {
+	t.Parallel()
+
+	// Arrange - Mux with duplicate references to the same target
+	mux := newTestMux()
+	mux.HandleForward(newTestRoute("vendor-a"), "company-b")
+	mux.HandleForward(newTestRoute("vendor-b"), "company-b") // same target, different route
+
+	cfg := testConfig()
+	cfg.Plugin = mux
+	cfg.ForwardTargets = map[string]config.ForwardTargetConfig{
+		"company-b": {
+			URL:  "https://company-b.example",
+			Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+		},
+	}
+
+	// Act
+	srv, err := proxy.NewServer(cfg)
+
+	// Assert - duplicates are fine
+	if err != nil {
+		t.Fatalf("expected no error for duplicate references, got: %v", err)
+	}
+	if srv == nil {
+		t.Fatal("server should be created")
+	}
+}
+
+// Helper: creates a Mux compatible with the test contrib package.
+// Since contrib is a separate module, we create a testMux that wraps it.
+type testMux struct {
+	entries []testMuxEntry
+}
+
+type testMuxEntry struct {
+	target string // for forward references
+	isRefs bool   // true if this is a forward reference
+}
+
+func newTestMux() *testMux {
+	return &testMux{}
+}
+
+func (tm *testMux) Handle(route interface{}, provider interface{}) {
+	// Stub for testing
+}
+
+func (tm *testMux) HandleForward(route interface{}, target string) {
+	tm.entries = append(tm.entries, testMuxEntry{target: target, isRefs: true})
+}
+
+// ForwardReferences returns the list of forward target references.
+func (tm *testMux) ForwardReferences() []string {
+	refs := make([]string, 0, len(tm.entries))
+	for _, e := range tm.entries {
+		if e.isRefs {
+			refs = append(refs, e.target)
+		}
+	}
+	return refs
+}
+
+func (tm *testMux) GetCredentials(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+	return nil, nil
+}
+
+func (tm *testMux) SignCSR(ctx context.Context, csrPEM []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (tm *testMux) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) (*sdk.ResponseAction, error) {
+	return nil, nil
+}
+
+var _ sdk.Plugin = (*testMux)(nil)
+
+func newTestRoute(vendorID string) interface{} {
+	return struct{ VendorID string }{VendorID: vendorID}
+}
