@@ -4,15 +4,20 @@
 package proxy
 
 import (
+	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/cloudblue/chaperone/internal/config"
 	"github.com/cloudblue/chaperone/internal/security"
+	"github.com/cloudblue/chaperone/internal/telemetry"
 )
 
 // defaultForwardTimeout is applied when ForwardTargetConfig.Timeout is zero
@@ -68,7 +73,22 @@ func NewForwardProxy(name string, cfg config.ForwardTargetConfig) (*ForwardProxy
 }
 
 // ServeHTTP forwards the request to the configured target.
+//
+// Observability:
+//   - chaperone_forward_target_duration_seconds{target} is observed for every
+//     request that enters ServeHTTP, including those that fail at the
+//     transport layer. The deferred observation captures end-to-end time
+//     (entry → response written / error handled) so dashboards reflect the
+//     real wall-clock cost of forwarding even when the target is unreachable.
+//   - chaperone_forward_target_errors_total{target,kind} is incremented by
+//     errorHandler for infrastructure failures. 5xx responses returned by the
+//     target are NOT counted here — they are target responses, not Chaperone
+//     errors.
 func (fp *ForwardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		telemetry.ForwardTargetDuration.WithLabelValues(fp.name).Observe(time.Since(start).Seconds())
+	}()
 	fp.proxy.ServeHTTP(w, r)
 }
 
@@ -122,10 +142,58 @@ func (fp *ForwardProxy) modifyResponse(resp *http.Response) error {
 //
 // SECURITY: Do not include the error string in the response body. Internal
 // observability of the cause belongs in logs, not in the wire response.
-func (fp *ForwardProxy) errorHandler(w http.ResponseWriter, _ *http.Request, _ error) {
+func (fp *ForwardProxy) errorHandler(w http.ResponseWriter, _ *http.Request, err error) {
+	telemetry.ForwardTargetErrors.WithLabelValues(fp.name, classifyForwardError(err)).Inc()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadGateway)
 	_, _ = w.Write([]byte(`{"error":"forward target unavailable"}`))
+}
+
+// classifyForwardError maps a transport-level error from httputil.ReverseProxy
+// into a small set of well-known kinds for the forward_target_errors_total
+// metric. Go's net/http error surface is intentionally fuzzy, so we classify
+// what we can confidently identify and fall back to "other" for the rest.
+//
+// Order matters: timeouts and TLS failures can both surface as *net.OpError
+// with a wrapped underlying error, so we check the most specific signals
+// first.
+func classifyForwardError(err error) string {
+	if err == nil {
+		return "other"
+	}
+
+	// Timeout: context deadline, response-header timeout, or any error that
+	// implements the net.Error timeout contract.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "timeout"
+	}
+
+	// TLS: handshake / record errors. The TLS package's error types aren't all
+	// exported, so we fall back to a substring check against the well-known
+	// "tls:" prefix used by crypto/tls error messages.
+	var recordHeaderErr tls.RecordHeaderError
+	if errors.As(err, &recordHeaderErr) {
+		return "tls"
+	}
+	if msg := err.Error(); strings.Contains(msg, "tls:") || strings.Contains(msg, "x509:") {
+		return "tls"
+	}
+
+	// Connection: DNS failure, refused, reset, EOF mid-handshake, etc.
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return "connection"
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return "connection"
+	}
+
+	return "other"
 }
 
 // newForwardTransport returns the per-target transport. Timeouts apply to

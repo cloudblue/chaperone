@@ -625,6 +625,10 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		"marketplace_id", txCtx.MarketplaceID,
 		"action", "credentials",
 	)
+	// Use empty-string target for credentials path: there is no named forward
+	// target. Empty string is the natural "absence" value and avoids reserving
+	// a sentinel label like "vendor".
+	telemetry.RouteDecisionsTotal.WithLabelValues("credentials", "").Inc()
 
 	r, err = s.injectCredentials(r, txCtx, targetAddr)
 	if err != nil {
@@ -719,6 +723,7 @@ func (s *Server) routeAndMaybeForward(w http.ResponseWriter, r *http.Request, tr
 		"action", "forward",
 		"target", action.ForwardTo,
 	)
+	telemetry.RouteDecisionsTotal.WithLabelValues("forward", action.ForwardTo).Inc()
 	fp.ServeHTTP(w, r)
 	return true
 }

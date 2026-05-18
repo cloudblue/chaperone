@@ -89,6 +89,60 @@ var (
 			Help:      "Total number of recovered panics",
 		},
 	)
+
+	// RouteDecisionsTotal counts per-request routing decisions made by the
+	// RequestRouter (or the default credential flow when no router is registered).
+	//
+	// Labels:
+	//   - action: "forward" or "credentials"
+	//   - target: forward target name when action="forward"; empty string ("")
+	//     when action="credentials" (no named forward target involved).
+	//     Empty string is preferred over a sentinel like "vendor" so that
+	//     dashboards can naturally aggregate the credentials path without
+	//     introducing a reserved label value.
+	RouteDecisionsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "chaperone",
+			Name:      "route_decisions_total",
+			Help:      "Per-request routing decisions made by the RequestRouter (or default).",
+		},
+		[]string{"action", "target"},
+	)
+
+	// ForwardTargetDuration measures end-to-end duration of requests forwarded
+	// to a named forward target. Bounded by the configured forward-target names,
+	// so cardinality is bounded by deployment config (tens of targets at most).
+	//
+	// Labels: target (forward target name)
+	ForwardTargetDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "chaperone",
+			Name:      "forward_target_duration_seconds",
+			Help:      "End-to-end duration of requests forwarded to a named target.",
+			Buckets:   APILatencyBuckets,
+		},
+		[]string{"target"},
+	)
+
+	// ForwardTargetErrors counts infrastructure errors encountered while
+	// forwarding to a named target. Does NOT count 5xx responses returned by
+	// the target itself (those are target responses, not Chaperone errors).
+	//
+	// Labels:
+	//   - target: forward target name
+	//   - kind: error classification
+	//       - "timeout"    — context deadline / response-header timeout
+	//       - "tls"        — TLS handshake failure
+	//       - "connection" — DNS failure, connection refused, reset, etc.
+	//       - "other"      — any other transport-level error
+	ForwardTargetErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "chaperone",
+			Name:      "forward_target_errors_total",
+			Help:      "Errors encountered while forwarding to a named target.",
+		},
+		[]string{"target", "kind"},
+	)
 )
 
 // DefaultVendorID is the label value used when the X-Connect-Vendor-ID header

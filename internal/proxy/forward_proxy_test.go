@@ -5,16 +5,25 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	"github.com/cloudblue/chaperone/internal/config"
+	"github.com/cloudblue/chaperone/internal/telemetry"
 )
+
+// errCtxDeadlineExceeded is captured once so test tables can reference it
+// without re-importing context in every helper.
+var errCtxDeadlineExceeded = context.DeadlineExceeded
 
 func newTestTarget(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Helper()
@@ -345,6 +354,202 @@ func TestForwardProxy_TargetUnreachable_Returns502(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Task 8: forward-target metrics
+// =============================================================================
+//
+// These tests assert on the global telemetry.Forward* metrics. They MUST NOT
+// use t.Parallel() because the metrics are registered with the default
+// Prometheus registry. Test isolation is via telemetry.ResetMetrics().
+
+func TestMetrics_ForwardTarget_DurationHistogram_Records(t *testing.T) {
+	telemetry.ResetMetrics(t)
+
+	target := newTestTarget(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	defer target.Close()
+
+	h, err := NewForwardProxy("company-b", config.ForwardTargetConfig{
+		URL:  target.URL,
+		Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthBearer, Token: "secret"},
+	})
+	if err != nil {
+		t.Fatalf("NewForwardProxy: %v", err)
+	}
+
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/proxy", nil))
+
+	// SampleCount: total observations under the {target=company-b} histogram.
+	if got := testutil.CollectAndCount(telemetry.ForwardTargetDuration); got == 0 {
+		t.Error("expected ForwardTargetDuration to have at least one observation")
+	}
+	// No infrastructure errors expected on a successful round-trip.
+	if got := testutil.ToFloat64(telemetry.ForwardTargetErrors.WithLabelValues("company-b", "connection")); got != 0 {
+		t.Errorf("connection errors counter = %v, want 0", got)
+	}
+}
+
+func TestMetrics_ForwardTarget_Errors_IncrementsByKind_Connection(t *testing.T) {
+	telemetry.ResetMetrics(t)
+
+	// Start and immediately close a server to obtain a guaranteed-closed port.
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
+	url := srv.URL
+	srv.Close()
+
+	h, _ := NewForwardProxy("company-b", config.ForwardTargetConfig{
+		URL:  url,
+		Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+	})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy", nil))
+
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadGateway)
+	}
+	got := testutil.ToFloat64(telemetry.ForwardTargetErrors.WithLabelValues("company-b", "connection"))
+	if got != 1 {
+		t.Errorf("forward_target_errors_total{target=company-b,kind=connection} = %v, want 1", got)
+	}
+	// Duration is still observed: the deferred Observe in ServeHTTP runs
+	// regardless of whether the request succeeded or hit errorHandler. This
+	// is intentional — operators want end-to-end latency including failures.
+	if got := testutil.CollectAndCount(telemetry.ForwardTargetDuration); got == 0 {
+		t.Error("expected ForwardTargetDuration to record even on error path")
+	}
+}
+
+func TestMetrics_ForwardTarget_Errors_IncrementsByKind_Timeout(t *testing.T) {
+	telemetry.ResetMetrics(t)
+
+	// Target that never responds within the test budget.
+	target := newTestTarget(t, func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	defer target.Close()
+
+	h, _ := NewForwardProxy("company-b", config.ForwardTargetConfig{
+		URL:     target.URL,
+		Timeout: 25 * time.Millisecond,
+		Auth:    config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+	})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy", nil))
+
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadGateway)
+	}
+	got := testutil.ToFloat64(telemetry.ForwardTargetErrors.WithLabelValues("company-b", "timeout"))
+	if got != 1 {
+		t.Errorf("forward_target_errors_total{target=company-b,kind=timeout} = %v, want 1", got)
+	}
+}
+
+// TestMetrics_ForwardTarget_500Response_NoErrorCounter verifies that a 5xx
+// response from the target is treated as a target response (not a Chaperone
+// infrastructure error) — the duration histogram observes but the errors
+// counter does NOT increment.
+func TestMetrics_ForwardTarget_500Response_NoErrorCounter(t *testing.T) {
+	telemetry.ResetMetrics(t)
+
+	target := newTestTarget(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, "boom")
+	})
+	defer target.Close()
+
+	h, _ := NewForwardProxy("company-b", config.ForwardTargetConfig{
+		URL:  target.URL,
+		Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+	})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy", nil))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	// Duration: observed.
+	if got := testutil.CollectAndCount(telemetry.ForwardTargetDuration); got == 0 {
+		t.Error("expected duration histogram to record on 5xx response")
+	}
+	// Errors: NOT incremented (any kind).
+	for _, kind := range []string{"connection", "timeout", "tls", "other"} {
+		if got := testutil.ToFloat64(telemetry.ForwardTargetErrors.WithLabelValues("company-b", kind)); got != 0 {
+			t.Errorf("5xx response must not increment errors_total{kind=%s}, got %v", kind, got)
+		}
+	}
+}
+
+// TestMetrics_ForwardTarget_MultipleTargets verifies each target gets its own
+// histogram cell (no cross-aliasing).
+func TestMetrics_ForwardTarget_MultipleTargets(t *testing.T) {
+	telemetry.ResetMetrics(t)
+
+	targetA := newTestTarget(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	defer targetA.Close()
+	targetB := newTestTarget(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	defer targetB.Close()
+
+	hA, _ := NewForwardProxy("a", config.ForwardTargetConfig{
+		URL:  targetA.URL,
+		Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+	})
+	hB, _ := NewForwardProxy("b", config.ForwardTargetConfig{
+		URL:  targetB.URL,
+		Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+	})
+
+	hA.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/proxy", nil))
+	hB.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/proxy", nil))
+	hB.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/proxy", nil))
+
+	// Each named target should have its own histogram cell.
+	// CollectAndCount counts the number of distinct label sets — two here.
+	count := testutil.CollectAndCount(telemetry.ForwardTargetDuration)
+	if count < 2 {
+		t.Errorf("expected at least 2 distinct duration histogram cells, got %d", count)
+	}
+}
+
+// TestClassifyForwardError_Matrix exercises the error classifier directly to
+// pin the kind labels we surface in the metric.
+func TestClassifyForwardError_Matrix(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"nil", nil, "other"},
+		{"deadline exceeded", errCtxDeadlineExceeded, "timeout"},
+		{"net timeout", testNetTimeoutError{}, "timeout"},
+		{"dns failure", &net.DNSError{Err: "no such host", Name: "nope.example"}, "connection"},
+		{"op error refused", &net.OpError{Op: "dial", Net: "tcp", Err: stringError("connection refused")}, "connection"},
+		{"tls substring", stringError("tls: handshake failure"), "tls"},
+		{"x509 substring", stringError("x509: certificate signed by unknown authority"), "tls"},
+		{"plain", stringError("something weird"), "other"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifyForwardError(tt.err)
+			if got != tt.want {
+				t.Errorf("classifyForwardError(%v) = %q, want %q", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestForwardProxy_InvalidTargetURL_ReturnsError(t *testing.T) {
 	_, err := NewForwardProxy("bad", config.ForwardTargetConfig{
 		URL:  "://not-a-url",
@@ -354,3 +559,21 @@ func TestForwardProxy_InvalidTargetURL_ReturnsError(t *testing.T) {
 		t.Fatal("NewForwardProxy with invalid URL: expected error, got nil")
 	}
 }
+
+// -----------------------------------------------------------------------------
+// Test doubles for classifyForwardError matrix.
+// -----------------------------------------------------------------------------
+
+// stringError is a trivial error with a controllable message; used to
+// exercise the substring-based TLS/x509 classification paths.
+type stringError string
+
+func (e stringError) Error() string { return string(e) }
+
+// testNetTimeoutError satisfies net.Error with Timeout()=true so the classifier
+// can identify it without depending on a real network call.
+type testNetTimeoutError struct{}
+
+func (testNetTimeoutError) Error() string   { return "i/o timeout" }
+func (testNetTimeoutError) Timeout() bool   { return true }
+func (testNetTimeoutError) Temporary() bool { return true }

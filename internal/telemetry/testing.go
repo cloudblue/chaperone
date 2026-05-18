@@ -22,6 +22,9 @@ func ResetMetrics(t *testing.T) {
 	RequestDuration.Reset()
 	UpstreamDuration.Reset()
 	ActiveConnections.Set(0)
+	RouteDecisionsTotal.Reset()
+	ForwardTargetDuration.Reset()
+	ForwardTargetErrors.Reset()
 	// PanicsTotal is a Counter (not CounterVec), so it cannot be Reset().
 	// It will accumulate across tests, but tests should assert relative increments.
 
@@ -30,5 +33,8 @@ func ResetMetrics(t *testing.T) {
 		RequestDuration.Reset()
 		UpstreamDuration.Reset()
 		ActiveConnections.Set(0)
+		RouteDecisionsTotal.Reset()
+		ForwardTargetDuration.Reset()
+		ForwardTargetErrors.Reset()
 	})
 }
