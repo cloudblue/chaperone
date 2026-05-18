@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudblue/chaperone/internal/config"
 	"github.com/cloudblue/chaperone/internal/telemetry"
 	"github.com/cloudblue/chaperone/sdk"
 )
@@ -588,5 +589,74 @@ func TestRun_ProxyPortInUse_CleansUpAdminServer(t *testing.T) {
 			adminAddr, listenErr)
 	} else {
 		adminListener.Close()
+	}
+}
+
+func TestNewProxyServer_PropagatesForwardTargetsFromConfig(t *testing.T) {
+	// Verify that ForwardTargets from config.Config are properly wired into
+	// proxy.Config during newProxyServer construction. This test validates that
+	// YAML forward_targets are propagated to the runtime proxy configuration.
+	if testing.Short() {
+		t.Skip("skipping test in short mode")
+	}
+
+	serverAddr := freeAddr(t)
+	adminAddr := freeAddr(t)
+	configPath := t.TempDir() + "/config-with-forward.yaml"
+
+	// Write config with one forward target
+	cfgContent := fmt.Sprintf(`server:
+  addr: "%s"
+  admin_addr: "%s"
+  tls:
+    enabled: false
+upstream:
+  header_prefix: "X-Connect"
+  allow_list:
+    "example.com":
+      - "/api/**"
+forward_targets:
+  my-target:
+    url: "https://my-target.example/api"
+    auth:
+      type: "bearer"
+      token: "secret-token"
+`, serverAddr, adminAddr)
+
+	if err := os.WriteFile(configPath, []byte(cfgContent), 0o600); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	// Load config using the same path as Run() would
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	// Verify the config loaded the forward target
+	if len(cfg.ForwardTargets) != 1 {
+		t.Fatalf("expected 1 forward target in loaded config, got %d", len(cfg.ForwardTargets))
+	}
+
+	// Call newProxyServer which should propagate ForwardTargets
+	runCfg := &runConfig{version: "test"}
+	proxySrv, err := newProxyServer(nil, runCfg, cfg, false)
+	if err != nil {
+		t.Fatalf("newProxyServer failed: %v", err)
+	}
+
+	// Verify the forward target was propagated by checking the server's config
+	srvCfg := proxySrv.Config()
+	if len(srvCfg.ForwardTargets) != 1 {
+		t.Errorf("proxy.Config.ForwardTargets length = %d, want 1", len(srvCfg.ForwardTargets))
+	}
+
+	target, exists := srvCfg.ForwardTargets["my-target"]
+	if !exists {
+		t.Fatal("expected forward target 'my-target' in proxy.Config.ForwardTargets")
+	}
+
+	if target.URL != "https://my-target.example/api" {
+		t.Errorf("forward target URL = %q, want %q", target.URL, "https://my-target.example/api")
 	}
 }

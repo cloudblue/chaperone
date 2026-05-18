@@ -244,6 +244,7 @@ func newProxyServer(plugin sdk.Plugin, rc *runConfig, cfg *config.Config, tracin
 		IdleTimeout:       *cfg.Upstream.Timeouts.Idle,
 		TracingEnabled:    tracingEnabled,
 		LogTargetAddrMode: cfg.Observability.LogTargetAddr,
+		ForwardTargets:    cfg.ForwardTargets,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating proxy server: %w", err)

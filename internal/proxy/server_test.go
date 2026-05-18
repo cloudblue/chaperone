@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cloudblue/chaperone/internal/config"
 	"github.com/cloudblue/chaperone/internal/observability"
 	"github.com/cloudblue/chaperone/internal/proxy"
 )
@@ -783,6 +784,145 @@ func TestProxy_InvalidTargetURL_Returns400(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "invalid target URL") {
 		t.Errorf("body = %q, want to contain 'invalid target URL'", rec.Body.String())
+	}
+}
+
+// =============================================================================
+// Forward proxy registry tests
+// =============================================================================
+
+// TestServer_BuildsForwardProxies_AtStartup is the spec-required test. It
+// verifies that the named target "company-b" is built into the registry when
+// NewServer returns.
+func TestServer_BuildsForwardProxies_AtStartup(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig()
+	cfg.ForwardTargets = map[string]config.ForwardTargetConfig{
+		"company-b": {
+			URL:  "https://company-b.example/ingress",
+			Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+		},
+	}
+
+	srv, err := proxy.NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	if srv.ForwardProxyForTesting("company-b") == nil {
+		t.Errorf("forwardProxies[company-b] not built")
+	}
+}
+
+// TestServer_BuildsForwardProxies_Matrix covers the full behavior matrix:
+//   - zero targets → registry is non-nil and empty
+//   - one target → built and accessible
+//   - multiple targets → all built
+//   - invalid URL → NewServer returns error mentioning the offending name
+//   - bearer auth → built and accessible
+func TestServer_BuildsForwardProxies_Matrix(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		targets        map[string]config.ForwardTargetConfig
+		wantBuilt      []string // names that must be present after NewServer
+		wantErrContain string   // if non-empty, NewServer must fail with this substring
+	}{
+		{
+			name:      "zero targets — registry is non-nil and empty",
+			targets:   nil,
+			wantBuilt: nil,
+		},
+		{
+			name: "one target — built and accessible by name",
+			targets: map[string]config.ForwardTargetConfig{
+				"company-b": {
+					URL:  "https://company-b.example/ingress",
+					Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+				},
+			},
+			wantBuilt: []string{"company-b"},
+		},
+		{
+			name: "multiple targets — all built and accessible",
+			targets: map[string]config.ForwardTargetConfig{
+				"company-b": {
+					URL:  "https://company-b.example/ingress",
+					Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+				},
+				"company-c": {
+					URL:  "https://company-c.example/api",
+					Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthBearer, Token: "tok"},
+				},
+				"company-d": {
+					URL:  "https://company-d.example",
+					Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+				},
+			},
+			wantBuilt: []string{"company-b", "company-c", "company-d"},
+		},
+		{
+			name: "invalid URL — NewServer returns error mentioning the offending name",
+			targets: map[string]config.ForwardTargetConfig{
+				"broken": {
+					URL:  ":::not a url",
+					Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+				},
+			},
+			wantErrContain: "broken",
+		},
+		{
+			name: "bearer auth — built and accessible",
+			targets: map[string]config.ForwardTargetConfig{
+				"company-x": {
+					URL:  "https://company-x.example/ingress",
+					Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthBearer, Token: "secret-token"},
+				},
+			},
+			wantBuilt: []string{"company-x"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := testConfig()
+			cfg.ForwardTargets = tt.targets
+
+			srv, err := proxy.NewServer(cfg)
+
+			if tt.wantErrContain != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tt.wantErrContain)
+				}
+				if !strings.Contains(err.Error(), tt.wantErrContain) {
+					t.Errorf("error = %q, want to contain %q", err.Error(), tt.wantErrContain)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("NewServer: %v", err)
+			}
+
+			// Registry must be non-nil even when no targets are configured.
+			if srv.ForwardProxiesNilForTesting() {
+				t.Error("forwardProxies map must be non-nil")
+			}
+
+			if got, want := srv.ForwardProxyCountForTesting(), len(tt.wantBuilt); got != want {
+				t.Errorf("forward proxy count = %d, want %d", got, want)
+			}
+
+			for _, name := range tt.wantBuilt {
+				if srv.ForwardProxyForTesting(name) == nil {
+					t.Errorf("forwardProxies[%q] not built", name)
+				}
+			}
+		})
 	}
 }
 

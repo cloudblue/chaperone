@@ -93,6 +93,12 @@ type Config struct {
 	// Empty defaults to host-only, the safest behavior.
 	LogTargetAddrMode observability.TargetAddrMode
 
+	// ForwardTargets describes named forward upstreams. One ForwardProxy is
+	// built per entry at startup and cached on the Server, keyed by name.
+	// Routers reference these targets by name via sdk.RouteAction. May be
+	// nil or empty when no router is registered.
+	ForwardTargets map[string]config.ForwardTargetConfig
+
 	// Timeouts
 	ReadTimeout      time.Duration
 	WriteTimeout     time.Duration
@@ -116,6 +122,11 @@ type Server struct {
 
 	// renewalManager manages the pending state between prepare and install.
 	renewalManager *renewal.Manager
+	// forwardProxies holds one ForwardProxy per named entry in
+	// config.ForwardTargets, built once at startup and reused across requests.
+	// The map is always non-nil after NewServer (possibly empty) so callers
+	// can perform direct map lookups without a nil guard.
+	forwardProxies map[string]*ForwardProxy
 
 	// started guards against calling Start() more than once, which would
 	// panic on double-close of the ready channel.
@@ -156,13 +167,35 @@ func NewServer(cfg Config) (*Server, error) {
 	t.ResponseHeaderTimeout = cfg.ReadTimeout
 	t.IdleConnTimeout = cfg.IdleTimeout
 
+	forwardProxies, err := buildForwardProxies(cfg.ForwardTargets)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Server{
 		config:         cfg,
 		reflector:      security.NewReflector(sensitiveHeaders),
 		transport:      t,
 		renewalManager: renewal.NewManager(),
+		forwardProxies: forwardProxies,
 		ready:          make(chan struct{}),
 	}, nil
+}
+
+// buildForwardProxies constructs one *ForwardProxy per configured forward
+// target, keyed by the target's name. The returned map is always non-nil so
+// callers can perform direct lookups without a nil guard. Any failure to
+// build a target is surfaced as an error mentioning the offending name.
+func buildForwardProxies(targets map[string]config.ForwardTargetConfig) (map[string]*ForwardProxy, error) {
+	fps := make(map[string]*ForwardProxy, len(targets))
+	for name, t := range targets {
+		fp, err := NewForwardProxy(name, t)
+		if err != nil {
+			return nil, fmt.Errorf("build forward proxy %q: %w", name, err)
+		}
+		fps[name] = fp
+	}
+	return fps, nil
 }
 
 // validateProxyConfig validates that all required proxy configuration fields
