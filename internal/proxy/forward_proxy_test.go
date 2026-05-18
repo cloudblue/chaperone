@@ -4,10 +4,8 @@
 package proxy
 
 import (
-	"bytes"
 	"context"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -115,10 +113,7 @@ func TestForwardProxy_BearerToken_NotInLogOutput(t *testing.T) {
 	})
 	defer target.Close()
 
-	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	defer slog.SetDefault(prev)
+	getLogs := captureLogs(t)
 
 	h, _ := NewForwardProxy("company-b", config.ForwardTargetConfig{
 		URL:  target.URL,
@@ -126,8 +121,8 @@ func TestForwardProxy_BearerToken_NotInLogOutput(t *testing.T) {
 	})
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/proxy", nil))
 
-	if strings.Contains(buf.String(), "secret-not-in-logs") {
-		t.Errorf("bearer token leaked into log output: %s", buf.String())
+	if out := getLogs(); strings.Contains(out, "secret-not-in-logs") {
+		t.Errorf("bearer token leaked into log output: %s", out)
 	}
 }
 

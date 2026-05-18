@@ -32,11 +32,7 @@ import (
 func targetAddrTestSetup(t *testing.T, mode observability.TargetAddrMode, target, requestURL string) []map[string]any {
 	t.Helper()
 
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	original := slog.Default()
-	slog.SetDefault(logger)
-	t.Cleanup(func() { slog.SetDefault(original) })
+	getLogs := captureLogsAt(t, &slog.HandlerOptions{Level: slog.LevelDebug})
 
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -70,7 +66,7 @@ func targetAddrTestSetup(t *testing.T, mode observability.TargetAddrMode, target
 		t.Fatalf("status = %d, want %d. body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 
-	return parseJSONLogLines(t, buf.Bytes())
+	return parseJSONLogLines(t, []byte(getLogs()))
 }
 
 func parseJSONLogLines(t *testing.T, b []byte) []map[string]any {

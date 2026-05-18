@@ -4,7 +4,6 @@
 package proxy_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -64,11 +63,7 @@ func TestPanicRecovery_LogsStackTrace(t *testing.T) {
 	// NOT parallel: this test mutates slog.SetDefault() (a global).
 
 	// Arrange - capture log output
-	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logBuffer, nil))
-	originalLogger := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(originalLogger)
+	getLogs := captureLogs(t)
 
 	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("stack trace test")
@@ -83,7 +78,7 @@ func TestPanicRecovery_LogsStackTrace(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	// Assert - log should contain panic info with stack trace
-	logOutput := logBuffer.String()
+	logOutput := getLogs()
 	if !strings.Contains(logOutput, "panic recovered") {
 		t.Errorf("log should contain 'panic recovered', got: %s", logOutput)
 	}

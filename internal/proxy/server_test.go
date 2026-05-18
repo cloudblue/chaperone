@@ -4,7 +4,6 @@
 package proxy_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -366,11 +365,7 @@ func TestProxy_MethodPassthrough_ForwardsOriginalMethod(t *testing.T) {
 // 2. RequestLoggerMiddleware's defer logs with the correct status (500, not 200)
 func TestMiddlewareStack_PanicLogsCorrectStatus(t *testing.T) {
 	// Arrange - capture log output
-	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logBuffer, nil))
-	originalLogger := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(originalLogger)
+	getLogs := captureLogs(t)
 
 	// Handler that panics
 	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -395,7 +390,7 @@ func TestMiddlewareStack_PanicLogsCorrectStatus(t *testing.T) {
 	}
 
 	// Assert - log should contain status 500
-	logOutput := logBuffer.String()
+	logOutput := getLogs()
 	if !strings.Contains(logOutput, `"status":500`) {
 		t.Errorf("log should contain status 500, got: %s", logOutput)
 	}
@@ -411,11 +406,7 @@ func TestMiddlewareStack_PanicLogsCorrectStatus(t *testing.T) {
 // (no panic) log the correct status code through the real middleware stack.
 func TestMiddlewareStack_NormalRequestLogsCorrectStatus(t *testing.T) {
 	// Arrange - capture log output
-	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logBuffer, nil))
-	originalLogger := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(originalLogger)
+	getLogs := captureLogs(t)
 
 	// Handler that returns 201 Created
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -439,7 +430,7 @@ func TestMiddlewareStack_NormalRequestLogsCorrectStatus(t *testing.T) {
 	}
 
 	// Assert - log should contain status 201
-	logOutput := logBuffer.String()
+	logOutput := getLogs()
 	if !strings.Contains(logOutput, `"status":201`) {
 		t.Errorf("log should contain status 201, got: %s", logOutput)
 	}
@@ -449,11 +440,7 @@ func TestMiddlewareStack_NormalRequestLogsCorrectStatus(t *testing.T) {
 // TraceIDMiddleware, the panic log includes the trace ID from context.
 func TestPanicRecovery_LogsTraceID(t *testing.T) {
 	// Arrange - capture log output
-	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logBuffer, nil))
-	originalLogger := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(originalLogger)
+	getLogs := captureLogs(t)
 
 	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("trace-id panic test")
@@ -471,7 +458,7 @@ func TestPanicRecovery_LogsTraceID(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	// Assert - panic log should contain trace_id
-	logOutput := logBuffer.String()
+	logOutput := getLogs()
 	if !strings.Contains(logOutput, `"trace_id":"panic-with-trace-789"`) {
 		t.Errorf("panic log should contain trace_id, got: %s", logOutput)
 	}
@@ -1059,17 +1046,6 @@ func newProxyRequest(t *testing.T, targetURL string) *http.Request {
 	return req
 }
 
-// captureLogs swaps slog.Default() for one writing to a buffer and returns
-// both the buffer and a cleanup function.
-func captureLogs(t *testing.T) (*bytes.Buffer, func()) {
-	t.Helper()
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, nil))
-	original := slog.Default()
-	slog.SetDefault(logger)
-	return &buf, func() { slog.SetDefault(original) }
-}
-
 func TestHandleProxy_ForwardAction_DispatchesToForwardProxy_AndSkipsCredentials(t *testing.T) {
 	var hitTarget bool
 	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
@@ -1193,8 +1169,7 @@ func TestHandleProxy_RouteActionEmptyForwardTo_FallsThroughToCredentialFlow(t *t
 }
 
 func TestHandleProxy_PluginWithoutRequestRouter_GoesDirectlyToCredentials(t *testing.T) {
-	logs, restore := captureLogs(t)
-	defer restore()
+	getLogs := captureLogs(t)
 
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -1213,7 +1188,7 @@ func TestHandleProxy_PluginWithoutRequestRouter_GoesDirectlyToCredentials(t *tes
 		t.Errorf("status = %d, want 200", rec.Code)
 	}
 
-	out := logs.String()
+	out := getLogs()
 	if strings.Contains(out, `"action":"forward"`) {
 		t.Errorf("plain plugin must not log action=forward, got: %s", out)
 	}
@@ -1257,8 +1232,7 @@ func TestHandleProxy_ForwardedResponse_PropagatedToClient(t *testing.T) {
 }
 
 func TestHandleProxy_ForwardPath_LogsActionForward(t *testing.T) {
-	logs, restore := captureLogs(t)
-	defer restore()
+	getLogs := captureLogs(t)
 
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -1280,7 +1254,7 @@ func TestHandleProxy_ForwardPath_LogsActionForward(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, newProxyRequest(t, target.URL+"/v1/foo"))
 
-	out := logs.String()
+	out := getLogs()
 	if !strings.Contains(out, `"action":"forward"`) {
 		t.Errorf("expected action=forward log line, got: %s", out)
 	}
@@ -1574,8 +1548,7 @@ func TestRun_UnusedForwardTarget_WarnsAtStartup(t *testing.T) {
 	t.Parallel()
 
 	// Arrange - capture log output
-	logBuf, restore := captureLogs(t)
-	defer restore()
+	getLogs := captureLogs(t)
 
 	// Mux with one forward reference
 	mux := newTestMux()
@@ -1607,7 +1580,7 @@ func TestRun_UnusedForwardTarget_WarnsAtStartup(t *testing.T) {
 	}
 
 	// Warning should be logged for unused target
-	logOut := logBuf.String()
+	logOut := getLogs()
 	if !strings.Contains(logOut, "unused-target") {
 		t.Errorf("expected warning about unused-target, got: %s", logOut)
 	}
@@ -1620,8 +1593,7 @@ func TestRun_AllForwardTargetsReferenced_NoWarning(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
-	logBuf, restore := captureLogs(t)
-	defer restore()
+	getLogs := captureLogs(t)
 
 	mux := newTestMux()
 	mux.HandleForward(newTestRoute("vendor-a"), "target-1")
@@ -1648,7 +1620,7 @@ func TestRun_AllForwardTargetsReferenced_NoWarning(t *testing.T) {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
-	logOut := logBuf.String()
+	logOut := getLogs()
 	if strings.Contains(logOut, "forward_target defined but never referenced") {
 		t.Errorf("should not warn about unreferenced targets when all are referenced: %s", logOut)
 	}
