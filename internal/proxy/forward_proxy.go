@@ -89,7 +89,7 @@ func (fp *ForwardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		telemetry.ForwardTargetDuration.WithLabelValues(fp.name).Observe(time.Since(start).Seconds())
 	}()
-	fp.proxy.ServeHTTP(w, r)
+	fp.proxy.ServeHTTP(w, r) // #nosec G704 -- target URL is fixed at startup from forward_targets config; the inbound request cannot influence the destination
 }
 
 // director rewrites the outbound request: target host/scheme, path joining,
