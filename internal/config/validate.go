@@ -61,6 +61,11 @@ func Validate(cfg *Config) error {
 		errs = append(errs, err)
 	}
 
+	// Validate forward targets (optional section; no error if empty)
+	if err := validateForwardTargets(cfg, AllowInsecureForwardTargets()); err != nil {
+		errs = append(errs, err)
+	}
+
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}

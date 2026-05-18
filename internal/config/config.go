@@ -17,6 +17,37 @@ type Config struct {
 	Upstream UpstreamConfig `yaml:"upstream"`
 	// Observability holds logging and profiling configuration.
 	Observability ObservabilityConfig `yaml:"observability"`
+	// ForwardTargets describes named upstreams that Chaperone can forward
+	// requests to instead of calling the vendor directly. Targets are
+	// referenced by name from a sdk.RouteAction returned by a RequestRouter.
+	// Keys are stable identifiers used by routers; values describe how to
+	// reach and authenticate to the target.
+	ForwardTargets map[string]ForwardTargetConfig `yaml:"forward_targets"`
+}
+
+// ForwardTargetConfig describes a named upstream that Chaperone can forward
+// requests to instead of calling the vendor. Targets are referenced by name
+// from a sdk.RouteAction.
+type ForwardTargetConfig struct {
+	// URL is the absolute base URL of the forward target. Must use https
+	// in production builds. http is permitted only in dev builds.
+	URL string `yaml:"url"`
+	// Timeout is the per-request timeout when calling the forward target.
+	// Zero means "use the default upstream timeouts".
+	Timeout time.Duration `yaml:"timeout"`
+	// Auth describes how Chaperone authenticates to the forward target.
+	Auth ForwardTargetAuthConfig `yaml:"auth"`
+}
+
+// ForwardTargetAuthConfig describes how Chaperone authenticates to a forward
+// target. Only "bearer" and "none" are supported in v1.
+type ForwardTargetAuthConfig struct {
+	// Type selects the auth mechanism: "bearer" or "none".
+	Type string `yaml:"type"`
+	// Token is the bearer token used when Type == "bearer". The value
+	// supports ${VAR} and $VAR environment variable interpolation so that
+	// secrets can live outside of the config file.
+	Token string `yaml:"token"`
 }
 
 // ServerConfig holds the server binding and TLS configuration.
