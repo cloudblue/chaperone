@@ -134,6 +134,7 @@ func TestForwardIntegration_BearerAuth_FullFlow(t *testing.T) {
 			seenVendorID    string
 			seenAuth        string
 			seenContentType string
+			seenTraceID     string
 		)
 
 		target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -143,6 +144,7 @@ func TestForwardIntegration_BearerAuth_FullFlow(t *testing.T) {
 			seenVendorID = r.Header.Get("X-Connect-Vendor-ID")
 			seenAuth = r.Header.Get("Authorization")
 			seenContentType = r.Header.Get("Content-Type")
+			seenTraceID = r.Header.Get("Connect-Request-ID")
 			body, _ := io.ReadAll(r.Body)
 			seenBody = string(body)
 
@@ -158,8 +160,11 @@ func TestForwardIntegration_BearerAuth_FullFlow(t *testing.T) {
 		srv := mustNewServer(t, cfg)
 
 		requestBody := `{"action":"create","name":"test"}`
+		const traceID = "test-trace-1234"
 		rec := httptest.NewRecorder()
-		srv.Handler().ServeHTTP(rec, makeProxyRequest(requestBody))
+		req := makeProxyRequest(requestBody)
+		req.Header.Set("Connect-Request-ID", traceID)
+		srv.Handler().ServeHTTP(rec, req)
 
 		if got := callCount.Load(); got != 1 {
 			t.Fatalf("fake target call count = %d, want 1", got)
@@ -177,6 +182,12 @@ func TestForwardIntegration_BearerAuth_FullFlow(t *testing.T) {
 		}
 		if seenContentType != "application/json" {
 			t.Errorf("forwarded Content-Type = %q, want %q", seenContentType, "application/json")
+		}
+		// Connect-Request-ID propagates to the forward target for trace
+		// continuity (Design Spec §8.3). TraceIDMiddleware preserves valid
+		// inbound IDs verbatim, so the target sees the exact ID we set.
+		if seenTraceID != traceID {
+			t.Errorf("forwarded Connect-Request-ID = %q, want %q", seenTraceID, traceID)
 		}
 
 		// Outbound Authorization is the configured bearer; inbound is stripped.
