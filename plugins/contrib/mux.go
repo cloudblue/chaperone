@@ -16,12 +16,12 @@ import (
 // Compile-time check that Mux implements sdk.Plugin.
 var _ sdk.Plugin = (*Mux)(nil)
 
-// routeEntry binds a route pattern to its credential provider,
+// routeEntry binds a route pattern to its dispatch action,
 // preserving registration order for tie-breaking.
 type routeEntry struct {
-	route    Route
-	provider sdk.CredentialProvider
-	index    int
+	route  Route
+	action Action
+	index  int
 }
 
 // Mux is a request multiplexer that dispatches incoming requests to
@@ -87,6 +87,26 @@ func (m *Mux) log() *slog.Logger {
 // (e.g., VendorID "acme" vs "globex") are recognized as non-overlapping
 // and do not trigger a warning.
 func (m *Mux) Handle(route Route, provider sdk.CredentialProvider) {
+	m.add(route, CredentialAction{Provider: provider})
+}
+
+// HandleForward registers a route that, when matched, forwards the request
+// to the named forward_target via the Core's forwarding path. The target
+// name is opaque to the Mux — validation (non-empty, references an existing
+// forward_target) happens at config-load / cross-validation time.
+//
+// An empty target is accepted here and registered as-is, so the mux remains
+// a passive registry. Overlap warnings work the same way as for Handle:
+// equal-specificity overlaps with any other entry (CredentialAction or
+// ForwardAction) are logged.
+func (m *Mux) HandleForward(route Route, target string) {
+	m.add(route, ForwardAction{Target: target})
+}
+
+// add appends a routeEntry, logging an overlap warning when an equal-
+// specificity overlap with an existing entry is detected. Shared by
+// Handle and HandleForward so the warning fires regardless of action type.
+func (m *Mux) add(route Route, action Action) {
 	newSpec := route.Specificity()
 	for _, e := range m.entries {
 		if e.route.Specificity() == newSpec && routesMayOverlap(e.route, route) {
@@ -99,9 +119,9 @@ func (m *Mux) Handle(route Route, provider sdk.CredentialProvider) {
 	}
 
 	m.entries = append(m.entries, routeEntry{
-		route:    route,
-		provider: provider,
-		index:    len(m.entries),
+		route:  route,
+		action: action,
+		index:  len(m.entries),
 	})
 }
 
@@ -123,14 +143,31 @@ func (m *Mux) SetResponseModifier(modifier sdk.ResponseModifier) {
 }
 
 // GetCredentials dispatches the request to the most specific matching
-// route's provider. If no route matches, it falls back to the default
-// provider. Returns [ErrNoRouteMatch] if nothing matches and no default
-// is configured.
+// route's CredentialAction provider. If no route matches, it falls back
+// to the default provider. Returns [ErrNoRouteMatch] if nothing matches
+// and no default is configured.
+//
+// If the matched entry is a [ForwardAction], the caller should have
+// short-circuited via RouteRequest at the Core boundary; receiving a
+// ForwardAction here indicates an integration bug and returns
+// [ErrUnexpectedForwardAction] defensively rather than silently
+// returning nil credentials.
 func (m *Mux) GetCredentials(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
 	best := m.match(tx)
 
 	if best != nil {
-		return best.provider.GetCredentials(ctx, tx, req)
+		switch a := best.action.(type) {
+		case CredentialAction:
+			if a.Provider == nil {
+				return nil, ErrNilCredentialProvider
+			}
+			return a.Provider.GetCredentials(ctx, tx, req)
+		case ForwardAction:
+			return nil, ErrUnexpectedForwardAction
+		default:
+			// Sealed interface — unreachable in practice.
+			return nil, ErrUnexpectedForwardAction
+		}
 	}
 
 	if m.fallback != nil {

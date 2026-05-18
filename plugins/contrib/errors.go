@@ -51,3 +51,16 @@ var ErrTokenEndpointUnavailable = errors.New("token endpoint unavailable")
 // This is returned by adapters (AsPlugin, Mux) when SignCSR is called
 // without a configured signer.
 var ErrSigningNotConfigured = errors.New("certificate signing not configured")
+
+// ErrUnexpectedForwardAction indicates the mux's GetCredentials reached a
+// route whose action is a ForwardAction. This is a defensive sentinel:
+// when a ForwardAction matches, RouteRequest should have short-circuited
+// at the Core boundary and the request should never reach the credential
+// path. Receiving this error means an integration bug — the caller wired
+// the mux into the credential path without consulting RouteRequest first.
+var ErrUnexpectedForwardAction = errors.New("matched route is a forward action; GetCredentials should not have been called")
+
+// ErrNilCredentialProvider indicates a CredentialAction was registered
+// with a nil Provider. The mux refuses to call a nil provider so we get a
+// clear error instead of a nil-pointer panic.
+var ErrNilCredentialProvider = errors.New("credential action has nil provider")
