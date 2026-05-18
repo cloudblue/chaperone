@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -1043,6 +1044,254 @@ func TestServer_RouterIsAccessible_WhenImplemented(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// handleProxy router-branch tests (Task 7)
+// =============================================================================
+
+// newProxyRequest builds a /proxy request with the minimum X-Connect-* headers
+// needed for handleProxy to reach the router branch.
+func newProxyRequest(t *testing.T, targetURL string) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", targetURL)
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+	req.Header.Set("X-Connect-Marketplace-ID", "test-marketplace")
+	return req
+}
+
+// captureLogs swaps slog.Default() for one writing to a buffer and returns
+// both the buffer and a cleanup function.
+func captureLogs(t *testing.T) (*bytes.Buffer, func()) {
+	t.Helper()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	original := slog.Default()
+	slog.SetDefault(logger)
+	return &buf, func() { slog.SetDefault(original) }
+}
+
+func TestHandleProxy_ForwardAction_DispatchesToForwardProxy_AndSkipsCredentials(t *testing.T) {
+	var hitTarget bool
+	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		hitTarget = true
+	}))
+	defer target.Close()
+
+	var injectedCreds bool
+	plugin := &routerPlugin{
+		action:           &sdk.RouteAction{ForwardTo: "company-b"},
+		actionSet:        true,
+		onGetCredentials: func() { injectedCreds = true },
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	cfg.ForwardTargets = map[string]config.ForwardTargetConfig{
+		"company-b": {URL: target.URL, Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone}},
+	}
+	srv := mustNewServerForTarget(t, cfg, target.URL)
+
+	req := newProxyRequest(t, target.URL+"/v1/foo")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if !hitTarget {
+		t.Error("forward target was not called")
+	}
+	if injectedCreds {
+		t.Error("GetCredentials was called for a forwarded request")
+	}
+}
+
+func TestHandleProxy_NilRouteAction_FallsThroughToCredentialFlow(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	var injectedCreds bool
+	plugin := &routerPlugin{
+		action:           nil, // fall through
+		actionSet:        true,
+		onGetCredentials: func() { injectedCreds = true },
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, newProxyRequest(t, backend.URL))
+
+	if !injectedCreds {
+		t.Error("GetCredentials should have been called for fall-through")
+	}
+}
+
+func TestHandleProxy_UnknownForwardTarget_Returns500(t *testing.T) {
+	plugin := &routerPlugin{
+		action:    &sdk.RouteAction{ForwardTo: "missing"},
+		actionSet: true,
+	}
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, newProxyRequest(t, "https://api.vendor.example/v1/foo"))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", rec.Code)
+	}
+}
+
+func TestHandleProxy_RouterError_Returns500(t *testing.T) {
+	plugin := &routerPlugin{
+		actionErr: errors.New("router blew up"),
+	}
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServer(t, cfg)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, newProxyRequest(t, "https://api.vendor.example/v1/foo"))
+
+	// handlePluginError maps a generic plugin error to 500.
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	// Defense: the wire response must not leak the router's internal
+	// error message verbatim. handlePluginError writes a generic body.
+	if strings.Contains(rec.Body.String(), "router blew up") {
+		t.Errorf("response body leaked router error: %s", rec.Body.String())
+	}
+}
+
+func TestHandleProxy_RouteActionEmptyForwardTo_FallsThroughToCredentialFlow(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	var injectedCreds bool
+	plugin := &routerPlugin{
+		action:           &sdk.RouteAction{ForwardTo: ""}, // empty == fall-through
+		actionSet:        true,
+		onGetCredentials: func() { injectedCreds = true },
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, newProxyRequest(t, backend.URL))
+
+	if !injectedCreds {
+		t.Error("empty ForwardTo should fall through to credential flow")
+	}
+}
+
+func TestHandleProxy_PluginWithoutRequestRouter_GoesDirectlyToCredentials(t *testing.T) {
+	logs, restore := captureLogs(t)
+	defer restore()
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	plugin := &plainPlugin{} // no RequestRouter
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, newProxyRequest(t, backend.URL))
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+
+	out := logs.String()
+	if strings.Contains(out, `"action":"forward"`) {
+		t.Errorf("plain plugin must not log action=forward, got: %s", out)
+	}
+	if !strings.Contains(out, `"action":"credentials"`) {
+		t.Errorf("expected action=credentials log line, got: %s", out)
+	}
+}
+
+func TestHandleProxy_ForwardedResponse_PropagatedToClient(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Forward-Echo", "from-target")
+		w.WriteHeader(http.StatusTeapot)
+		_, _ = io.WriteString(w, `{"forwarded":true}`)
+	}))
+	defer target.Close()
+
+	plugin := &routerPlugin{
+		action:    &sdk.RouteAction{ForwardTo: "company-b"},
+		actionSet: true,
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	cfg.ForwardTargets = map[string]config.ForwardTargetConfig{
+		"company-b": {URL: target.URL, Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone}},
+	}
+	srv := mustNewServerForTarget(t, cfg, target.URL)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, newProxyRequest(t, target.URL+"/v1/foo"))
+
+	if rec.Code != http.StatusTeapot {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusTeapot)
+	}
+	if got := rec.Header().Get("X-Forward-Echo"); got != "from-target" {
+		t.Errorf("X-Forward-Echo = %q, want %q", got, "from-target")
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"forwarded":true`) {
+		t.Errorf("body = %q, want to contain forwarded payload", body)
+	}
+}
+
+func TestHandleProxy_ForwardPath_LogsActionForward(t *testing.T) {
+	logs, restore := captureLogs(t)
+	defer restore()
+
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	plugin := &routerPlugin{
+		action:    &sdk.RouteAction{ForwardTo: "company-b"},
+		actionSet: true,
+	}
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	cfg.ForwardTargets = map[string]config.ForwardTargetConfig{
+		"company-b": {URL: target.URL, Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone}},
+	}
+	srv := mustNewServerForTarget(t, cfg, target.URL)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, newProxyRequest(t, target.URL+"/v1/foo"))
+
+	out := logs.String()
+	if !strings.Contains(out, `"action":"forward"`) {
+		t.Errorf("expected action=forward log line, got: %s", out)
+	}
+	if !strings.Contains(out, `"target":"company-b"`) {
+		t.Errorf("expected target=company-b log line, got: %s", out)
+	}
+	if strings.Contains(out, `"action":"credentials"`) {
+		t.Errorf("forward path must not emit action=credentials, got: %s", out)
+	}
+}
+
 // Test doubles for RequestRouter detection tests
 
 // plainPlugin implements sdk.Plugin but NOT sdk.RequestRouter
@@ -1062,10 +1311,29 @@ func (p *plainPlugin) ModifyResponse(ctx context.Context, tx sdk.TransactionCont
 
 var _ sdk.Plugin = (*plainPlugin)(nil)
 
-// routerPlugin implements both sdk.Plugin and sdk.RequestRouter
-type routerPlugin struct{}
+// routerPlugin implements both sdk.Plugin and sdk.RequestRouter.
+//
+// Zero value (routerPlugin{}) preserves the legacy Task 6 behavior:
+// RouteRequest returns &sdk.RouteAction{ForwardTo: "test-target"}.
+//
+// Tests may override behavior by setting any of:
+//   - action / actionErr  → returned from RouteRequest
+//   - actionSet           → when true, the (action, actionErr) pair is used
+//     verbatim even if action is nil (so callers can express a nil-action
+//     fall-through explicitly)
+//   - onGetCredentials    → invoked when GetCredentials is called (records
+//     whether the credential path ran)
+type routerPlugin struct {
+	action           *sdk.RouteAction
+	actionErr        error
+	actionSet        bool
+	onGetCredentials func()
+}
 
 func (r *routerPlugin) GetCredentials(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+	if r.onGetCredentials != nil {
+		r.onGetCredentials()
+	}
 	return nil, nil
 }
 
@@ -1078,7 +1346,10 @@ func (r *routerPlugin) ModifyResponse(ctx context.Context, tx sdk.TransactionCon
 }
 
 func (r *routerPlugin) RouteRequest(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.RouteAction, error) {
-	// For testing, return a fixed RouteAction
+	if r.actionSet || r.actionErr != nil {
+		return r.action, r.actionErr
+	}
+	// Legacy default for Task 6 tests.
 	return &sdk.RouteAction{ForwardTo: "test-target"}, nil
 }
 

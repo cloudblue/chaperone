@@ -604,11 +604,45 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse the target URL once. If parsing fails, target_addr defaults to ""
-	// (consistent with FormatTargetAddr's behavior for malformed input) so
-	// the DEBUG breadcrumb still fires before the bad-request response.
+	targetURL, targetAddr, ok := s.parseAndValidateTarget(w, traceID, txCtx)
+	if !ok {
+		return
+	}
+
+	// Router branch: consult the plugin's RequestRouter (if any) BEFORE
+	// credential injection. If routeAndMaybeForward dispatches the request
+	// to a forward target (or fails), handled is true and we return.
+	if handled := s.routeAndMaybeForward(w, r, traceID, txCtx, targetAddr); handled {
+		return
+	}
+
+	// Fall-through: credential injection + vendor call. Log BEFORE
+	// injectCredentials so the routed-action breadcrumb is recorded even when
+	// credential injection fails.
+	slog.Info("request routed",
+		"trace_id", traceID,
+		"vendor_id", txCtx.VendorID,
+		"marketplace_id", txCtx.MarketplaceID,
+		"action", "credentials",
+	)
+
+	r, err = s.injectCredentials(r, txCtx, targetAddr)
+	if err != nil {
+		s.handlePluginError(w, traceID, txCtx, targetAddr, err)
+		return
+	}
+
+	//nolint:contextcheck // ModifyResponse uses resp.Request.Context() internally
+	s.forwardRequest(w, r, targetURL, traceID, txCtx, targetAddr)
+}
+
+// parseAndValidateTarget parses the request target URL from the transaction
+// context and validates its scheme. On any failure it writes the appropriate
+// error response and returns ok=false; callers MUST return immediately when
+// ok is false. The DEBUG "transaction context parsed" breadcrumb is emitted
+// unconditionally so the trace is observable even when validation fails.
+func (s *Server) parseAndValidateTarget(w http.ResponseWriter, traceID string, txCtx *sdk.TransactionContext) (target *url.URL, targetAddr string, ok bool) {
 	targetURL, parseErr := url.Parse(txCtx.TargetURL)
-	var targetAddr string
 	if parseErr == nil {
 		targetAddr = observability.FormatTargetAddrFromURL(targetURL, s.config.LogTargetAddrMode)
 	}
@@ -623,19 +657,18 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	if parseErr != nil {
 		s.respondBadRequest(w, traceID, "invalid target URL", parseErr)
-		return
+		return nil, "", false
 	}
 
 	// SECURITY: Validate target URL scheme (HTTPS required in production)
-	err = ValidateTargetScheme(targetURL)
-	if err != nil {
+	if err := ValidateTargetScheme(targetURL); err != nil {
 		slog.Warn("insecure target URL rejected",
 			"trace_id", traceID,
 			"target_scheme", targetURL.Scheme,
 			"target_addr", targetAddr,
 		)
 		http.Error(w, "Bad Request: "+err.Error(), http.StatusBadRequest)
-		return
+		return nil, "", false
 	}
 
 	// Warn if using HTTP in development mode
@@ -646,14 +679,48 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	r, err = s.injectCredentials(r, txCtx, targetAddr)
-	if err != nil {
-		s.handlePluginError(w, traceID, txCtx, targetAddr, err)
-		return
+	return targetURL, targetAddr, true
+}
+
+// routeAndMaybeForward consults the plugin's RequestRouter (when present) and
+// dispatches the request to a configured ForwardProxy when the router returns
+// a non-empty ForwardTo. Returns true when the response has been fully
+// written (success, router error, or unknown-target error), in which case the
+// caller MUST NOT continue with credential injection / vendor forwarding.
+// Returns false when the caller should fall through to the credential flow.
+func (s *Server) routeAndMaybeForward(w http.ResponseWriter, r *http.Request, traceID string, txCtx *sdk.TransactionContext, targetAddr string) bool {
+	if s.router == nil {
+		return false
 	}
 
-	//nolint:contextcheck // ModifyResponse uses resp.Request.Context() internally
-	s.forwardRequest(w, r, targetURL, traceID, txCtx, targetAddr)
+	action, err := s.router.RouteRequest(r.Context(), *txCtx, r)
+	if err != nil {
+		s.handlePluginError(w, traceID, txCtx, targetAddr, err)
+		return true
+	}
+	if action == nil || action.ForwardTo == "" {
+		return false
+	}
+
+	fp, ok := s.forwardProxies[action.ForwardTo]
+	if !ok {
+		slog.Error("forward_target not found",
+			"trace_id", traceID,
+			"target", action.ForwardTo,
+		)
+		respondError(w, http.StatusInternalServerError, "internal configuration error")
+		return true
+	}
+
+	slog.Info("request routed",
+		"trace_id", traceID,
+		"vendor_id", txCtx.VendorID,
+		"marketplace_id", txCtx.MarketplaceID,
+		"action", "forward",
+		"target", action.ForwardTo,
+	)
+	fp.ServeHTTP(w, r)
+	return true
 }
 
 // respondBadRequest logs and responds with a 400 Bad Request.
