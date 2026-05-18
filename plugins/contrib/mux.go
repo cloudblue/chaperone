@@ -7,6 +7,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/cloudblue/chaperone/sdk"
@@ -205,6 +206,14 @@ func routesMayOverlap(a, b Route) bool {
 	if a.EnvironmentID != "" && b.EnvironmentID != "" && !fieldsMayOverlap(a.EnvironmentID, b.EnvironmentID) {
 		return false
 	}
+	// For Data, only shared keys constitute shared dimensions. Keys present
+	// in only one route are wildcards in the other (same model as the
+	// top-level fields above), so they cannot prove disjointness.
+	for key, av := range a.Data {
+		if bv, ok := b.Data[key]; ok && !fieldsMayOverlap(av, bv) {
+			return false
+		}
+	}
 	return true
 }
 
@@ -246,6 +255,16 @@ func routeString(r Route) string {
 	}
 	if r.EnvironmentID != "" {
 		parts = append(parts, "EnvironmentID="+r.EnvironmentID)
+	}
+	if len(r.Data) > 0 {
+		keys := make([]string, 0, len(r.Data))
+		for k := range r.Data {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			parts = append(parts, "Data["+k+"]="+r.Data[k])
+		}
 	}
 	if len(parts) == 0 {
 		return "{}"
