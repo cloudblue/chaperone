@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -703,15 +704,6 @@ func TestMux_RouteRequest_Matrix(t *testing.T) {
 			description: "Two ForwardActions matching at same specificity returns first registered",
 		},
 		{
-			name: "ForwardActionWithEmptyTarget_ReturnsEmptyForwardTo",
-			setup: func(m *Mux) {
-				m.HandleForward(Route{VendorID: "test"}, "")
-			},
-			tx:          sdk.TransactionContext{VendorID: "test"},
-			wantAction:  &sdk.RouteAction{ForwardTo: ""},
-			description: "Empty target name on ForwardAction returns RouteAction with empty ForwardTo",
-		},
-		{
 			name: "NilHTTPRequest_DoesNotPanic",
 			setup: func(m *Mux) {
 				m.HandleForward(Route{VendorID: "acme"}, "target-acme")
@@ -910,23 +902,23 @@ func TestMux_MixedHandleAndHandleForward_AllRegisteredWithCorrectTypes(t *testin
 	}
 }
 
-func TestMux_HandleForward_EmptyTarget_RegistersAsIs(t *testing.T) {
-	// Decision: empty target is accepted by the mux — validation that the
-	// target name is non-empty / references an existing forward_target lives
-	// at config-load / cross-validation time. The mux is a passive registry.
-	m := NewMux()
-	m.HandleForward(Route{VendorID: "x"}, "")
-
-	if len(m.entries) != 1 {
-		t.Fatalf("entries = %d, want 1", len(m.entries))
-	}
-	fa, ok := m.entries[0].action.(ForwardAction)
-	if !ok {
-		t.Fatalf("action = %T, want ForwardAction", m.entries[0].action)
-	}
-	if fa.Target != "" {
-		t.Errorf("Target = %q, want empty string", fa.Target)
-	}
+// TestMux_HandleForward_EmptyTarget_Panics verifies that registering a route
+// with an empty target name is treated as a programmer error. An empty target
+// cannot reference any forward_target, so silently registering a dead route
+// would only delay the failure to dispatch time. Config-driven users hit the
+// loader's own non-empty check before ever reaching HandleForward.
+func TestMux_HandleForward_EmptyTarget_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic on empty target name")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "empty target name") {
+			t.Errorf("panic message = %v, want substring 'empty target name'", r)
+		}
+	}()
+	NewMux().HandleForward(Route{VendorID: "x"}, "")
 }
 
 // --- Overlap warning tests across action types ---

@@ -93,14 +93,23 @@ func (m *Mux) Handle(route Route, provider sdk.CredentialProvider) {
 
 // HandleForward registers a route that, when matched, forwards the request
 // to the named forward_target via the Core's forwarding path. The target
-// name is opaque to the Mux — validation (non-empty, references an existing
-// forward_target) happens at config-load / cross-validation time.
+// name is opaque to the Mux beyond a non-empty check — validation that the
+// name references an existing forward_target happens at config-load /
+// cross-validation time.
 //
-// An empty target is accepted here and registered as-is, so the mux remains
-// a passive registry. Overlap warnings work the same way as for Handle:
-// equal-specificity overlaps with any other entry (CredentialAction or
-// ForwardAction) are logged.
+// An empty target name is a programmer error (it cannot reference any
+// forward_target) and panics immediately so the misconfiguration surfaces
+// at registration rather than producing silent dead routes. Config-driven
+// users get a clean error before reaching here via the loader's own
+// non-empty check on the `forward:` field.
+//
+// Overlap warnings work the same way as for Handle: equal-specificity
+// overlaps with any other entry (CredentialAction or ForwardAction) are
+// logged.
 func (m *Mux) HandleForward(route Route, target string) {
+	if target == "" {
+		panic("contrib.Mux.HandleForward: empty target name")
+	}
 	m.add(route, ForwardAction{Target: target})
 }
 
