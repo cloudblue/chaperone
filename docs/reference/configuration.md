@@ -225,6 +225,46 @@ export OTEL_SDK_DISABLED=true
 | `OTEL_TRACES_SAMPLER_ARG` | Sampler argument (e.g., ratio) |
 | `OTEL_SDK_DISABLED` | Force-disable SDK (`true` always wins) |
 
+### Forward Targets
+
+Named upstreams that Chaperone can forward requests to instead of calling the vendor directly. Targets are referenced by name from a [`sdk.RouteAction`](sdk.md#routeaction) returned by a [`RequestRouter`](sdk.md#requestrouter-optional). The contrib [`Mux`](contrib-plugins.md#handleforward) implements `RequestRouter` and exposes targets through the `forward:` field on route entries.
+
+When a router selects a forward target, the Core sends the request to that target's `url` with the configured authentication and timeout, and skips credential injection and `ModifyResponse`.
+
+```yaml
+forward_targets:
+  customer-router:
+    url: "https://router.customer.example/v1/intake"
+    timeout: 15s
+    auth:
+      type: "bearer"
+      token: "${CUSTOMER_ROUTER_TOKEN}"
+  internal-relay:
+    url: "https://relay.internal.example/"
+    timeout: 10s
+    auth:
+      type: "none"
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `url` | string | — (required) | Absolute base URL of the forward target. Must be `https://` in production builds; `http://` is permitted only in dev builds. |
+| `timeout` | duration | `0` (use upstream defaults) | Per-request timeout when calling the forward target. |
+| `auth.type` | string | — (required) | `bearer` or `none`. Unknown values are rejected at startup. |
+| `auth.token` | string | — | Bearer token used when `auth.type: bearer`. Required and must be non-empty for bearer auth. Supports `${VAR}` and `$VAR` environment variable interpolation. |
+
+#### Validation rules
+
+Forward targets are validated at startup. The proxy fails fast with a descriptive error when any of these rules is violated:
+
+- `url` must be present, parseable, and have a non-empty scheme and host.
+- The scheme must be `https` in production builds. In dev builds, `http` is also accepted.
+- `auth.type` must be set; the empty string is rejected.
+- `auth.type` must be `bearer` or `none`; any other value is rejected.
+- When `auth.type: bearer`, `auth.token` must be non-empty after environment variable interpolation.
+
+Routers that reference a `forward_target` name not defined here are also rejected at startup — see [`MuxConfig`](contrib-plugins.md#muxconfig) for how the contrib mux participates in this check.
+
 ## Allow-List Syntax
 
 The allow-list enforces a **default-deny** policy. Only requests matching

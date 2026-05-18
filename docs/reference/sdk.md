@@ -144,6 +144,54 @@ or passing through ISV validation errors.
 
 ---
 
+### RequestRouter (optional)
+
+```go
+type RequestRouter interface {
+    RouteRequest(ctx context.Context, tx TransactionContext, req *http.Request) (*RouteAction, error)
+}
+```
+
+`RequestRouter` is an **optional** plugin capability. Plugins that do not implement it retain the default behavior: every request flows through `GetCredentials` and the configured allow-list to the vendor.
+
+Implementations are invoked before `GetCredentials`. Returning a non-nil [`*RouteAction`](#routeaction) with a non-empty `ForwardTo` causes the Core to forward the request to the named [`forward_target`](configuration.md#forward-targets) and skip both credential injection and `ModifyResponse`. Returning `(nil, nil)` (or a non-nil action with an empty `ForwardTo`) is the fall-through signal: the Core continues with the normal credential-injection flow.
+
+Use `RequestRouter` when some requests should bypass credential injection entirely — for example, when a customer-side service handles authentication and response filtering on its own, and Chaperone's role is to forward the request as-is to that service.
+
+#### `RouteRequest` Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `ctx` | [`context.Context`][ctx] | Bounded by the Core with a request timeout. |
+| `tx` | [`TransactionContext`](#transactioncontext) | Metadata extracted from inbound request headers. |
+| `req` | [`*http.Request`][req] | The inbound request (not yet mutated by Core). |
+
+#### `RouteRequest` Return Values
+
+| Return | Type | Description |
+|--------|------|-------------|
+| action | [`*RouteAction`](#routeaction) | Non-nil with non-empty `ForwardTo` to forward the request; `nil` or empty `ForwardTo` to fall through to credential injection. |
+| err | `error` | Any error during routing decision. Errors fail the request. |
+
+#### Example
+
+```go
+type MyRouter struct{ /* ... */ }
+
+func (r *MyRouter) RouteRequest(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.RouteAction, error) {
+    // Forward migrated tenants to the new customer-side handler;
+    // everything else falls through to credential injection.
+    if v, ok, _ := tx.DataString("ResellerId"); ok && strings.HasPrefix(v, "migrated-") {
+        return &sdk.RouteAction{ForwardTo: "customer-router"}, nil
+    }
+    return nil, nil
+}
+```
+
+Use [`compliance.VerifyRouter`](#verifyrouter) to test routers against the minimal contract.
+
+---
+
 ## Types
 
 ### TransactionContext
@@ -278,6 +326,24 @@ type ResponseAction struct {
 **Use `SkipErrorNormalization: true` when:**
 - The ISV returns structured validation errors that the upstream platform needs
 - Your plugin has already sanitized the error response
+
+---
+
+### RouteAction
+
+```go
+type RouteAction struct {
+    ForwardTo string
+}
+```
+
+Returned by a [`RequestRouter`](#requestrouter-optional) to tell the Core how to handle a request.
+
+#### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ForwardTo` | `string` | Name of a [`forward_target`](configuration.md#forward-targets) entry in the proxy configuration. When non-empty, the Core forwards the request to that target and skips credential injection and `ModifyResponse`. When empty, the action is equivalent to returning `nil` from `RouteRequest` — the request falls through to credential injection. |
 
 ---
 
@@ -485,6 +551,22 @@ panicking, and that returned credentials have a valid `ExpiresAt`.
 
 See the [Plugin Development Guide](../guides/plugin-development.md) for
 usage in your test suite.
+
+### `VerifyRouter`
+
+```go
+func VerifyRouter(t *testing.T, router sdk.RequestRouter)
+```
+
+Exercises a [`RequestRouter`](#requestrouter-optional) implementation against the minimal contract: it must accept a cancelled context without panicking, and either return `(nil, nil)` (fall-through) or a non-nil [`*RouteAction`](#routeaction).
+
+`VerifyRouter` is opt-in: only plugins that implement `RequestRouter` need to call it. Plugins that do not implement it remain valid under `VerifyContract`.
+
+```go
+func TestRouter(t *testing.T) {
+    compliance.VerifyRouter(t, NewMyRouter())
+}
+```
 
 ---
 
