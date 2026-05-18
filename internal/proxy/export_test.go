@@ -32,3 +32,11 @@ func (s *Server) ForwardProxyCountForTesting() int {
 func (s *Server) ForwardProxiesNilForTesting() bool {
 	return s.forwardProxies == nil
 }
+
+// RouterForTesting returns the RequestRouter detected on the plugin at startup,
+// or nil if the plugin does not implement RequestRouter. Exposed for external
+// tests that verify RequestRouter type assertion and capability detection.
+// This must remain unexported for proxy package but tests access via this method.
+func (s *Server) RouterForTesting() interface{} {
+	return s.router
+}

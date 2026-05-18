@@ -128,6 +128,11 @@ type Server struct {
 	// can perform direct map lookups without a nil guard.
 	forwardProxies map[string]*ForwardProxy
 
+	// router is set if the plugin implements sdk.RequestRouter. When non-nil,
+	// it is consulted before credential injection to decide whether to route
+	// the request to a forward target instead of the main vendor flow.
+	router sdk.RequestRouter
+
 	// started guards against calling Start() more than once, which would
 	// panic on double-close of the ready channel.
 	started atomic.Bool
@@ -172,12 +177,21 @@ func NewServer(cfg Config) (*Server, error) {
 		return nil, err
 	}
 
+	// Detect if the plugin implements RequestRouter capability
+	var requestRouter sdk.RequestRouter
+	if cfg.Plugin != nil {
+		if r, ok := cfg.Plugin.(sdk.RequestRouter); ok {
+			requestRouter = r
+		}
+	}
+
 	return &Server{
 		config:         cfg,
 		reflector:      security.NewReflector(sensitiveHeaders),
 		transport:      t,
 		renewalManager: renewal.NewManager(),
 		forwardProxies: forwardProxies,
+		router:         requestRouter,
 		ready:          make(chan struct{}),
 	}, nil
 }

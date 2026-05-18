@@ -5,6 +5,7 @@ package proxy_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"github.com/cloudblue/chaperone/internal/config"
 	"github.com/cloudblue/chaperone/internal/observability"
 	"github.com/cloudblue/chaperone/internal/proxy"
+	"github.com/cloudblue/chaperone/sdk"
 )
 
 func TestHealth_ReturnsAlive(t *testing.T) {
@@ -923,6 +925,174 @@ func TestServer_BuildsForwardProxies_Matrix(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// =============================================================================
+// RequestRouter Detection Tests
+// =============================================================================
+
+func TestServer_DetectsRequestRouter(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	plugin := &routerPlugin{} // implements sdk.Plugin + sdk.RequestRouter
+	cfg := testConfig()
+	cfg.Plugin = plugin
+
+	// Act
+	srv, err := proxy.NewServer(cfg)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	if srv.RouterForTesting() == nil {
+		t.Fatal("router not detected on plugin implementing sdk.RequestRouter")
+	}
+
+	// Verify the router is the same as the plugin
+	if srv.RouterForTesting() != plugin {
+		t.Error("router should be the same instance as the plugin")
+	}
+}
+
+func TestServer_NoRouter_WhenPluginDoesNotImplement(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	plugin := &plainPlugin{} // implements sdk.Plugin only
+	cfg := testConfig()
+	cfg.Plugin = plugin
+
+	// Act
+	srv, err := proxy.NewServer(cfg)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	if srv.RouterForTesting() != nil {
+		t.Fatal("router should be nil for plugin without RequestRouter")
+	}
+}
+
+func TestServer_NoRouter_WhenNoPluginConfigured(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	cfg := testConfig()
+	cfg.Plugin = nil
+
+	// Act
+	srv, err := proxy.NewServer(cfg)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	if srv.RouterForTesting() != nil {
+		t.Fatal("router should be nil when no plugin is configured")
+	}
+}
+
+func TestServer_RouterIsAccessible_WhenImplemented(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	plugin := &routerPlugin{} // implements both sdk.Plugin and sdk.RequestRouter
+	cfg := testConfig()
+	cfg.Plugin = plugin
+
+	// Act
+	srv, err := proxy.NewServer(cfg)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	routerIface := srv.RouterForTesting()
+	if routerIface == nil {
+		t.Fatal("router should not be nil")
+	}
+
+	// Type assert to sdk.RequestRouter
+	router, ok := routerIface.(sdk.RequestRouter)
+	if !ok {
+		t.Fatal("router should be an sdk.RequestRouter")
+	}
+
+	// Create a test request to verify the router is callable
+	req := httptest.NewRequest(http.MethodPost, "https://vendor.example/api", nil)
+	ctx := req.Context()
+
+	// Act - call RouteRequest on the retrieved router
+	tx := testTransactionContext()
+	action, err := router.RouteRequest(ctx, tx, req)
+
+	// Assert - for the test plugin, should return a RouteAction with ForwardTo="test-target"
+	if err != nil {
+		t.Fatalf("RouteRequest: %v", err)
+	}
+	if action == nil || action.ForwardTo != "test-target" {
+		t.Errorf("action.ForwardTo = %q, want %q", action.ForwardTo, "test-target")
+	}
+}
+
+// Test doubles for RequestRouter detection tests
+
+// plainPlugin implements sdk.Plugin but NOT sdk.RequestRouter
+type plainPlugin struct{}
+
+func (p *plainPlugin) GetCredentials(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+	return nil, nil
+}
+
+func (p *plainPlugin) SignCSR(ctx context.Context, csrPEM []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (p *plainPlugin) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) (*sdk.ResponseAction, error) {
+	return nil, nil
+}
+
+var _ sdk.Plugin = (*plainPlugin)(nil)
+
+// routerPlugin implements both sdk.Plugin and sdk.RequestRouter
+type routerPlugin struct{}
+
+func (r *routerPlugin) GetCredentials(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+	return nil, nil
+}
+
+func (r *routerPlugin) SignCSR(ctx context.Context, csrPEM []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (r *routerPlugin) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) (*sdk.ResponseAction, error) {
+	return nil, nil
+}
+
+func (r *routerPlugin) RouteRequest(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.RouteAction, error) {
+	// For testing, return a fixed RouteAction
+	return &sdk.RouteAction{ForwardTo: "test-target"}, nil
+}
+
+var _ sdk.Plugin = (*routerPlugin)(nil)
+var _ sdk.RequestRouter = (*routerPlugin)(nil)
+
+// testTransactionContext returns a minimal TransactionContext for testing
+func testTransactionContext() sdk.TransactionContext {
+	return sdk.TransactionContext{
+		TraceID:       "test-trace-123",
+		VendorID:      "test-vendor",
+		MarketplaceID: "test-marketplace",
+		ProductID:     "test-product",
+		TargetURL:     "https://vendor.example/api",
 	}
 }
 
