@@ -105,6 +105,10 @@ type Server struct {
 	httpSrv   *http.Server
 	transport *http.Transport
 
+	// certProvider holds the active TLS certificate and enables hot-swap
+	// via Swap() without restarting the server. Nil when TLS is disabled.
+	certProvider *CertProvider
+
 	// started guards against calling Start() more than once, which would
 	// panic on double-close of the ready channel.
 	started atomic.Bool
@@ -287,11 +291,12 @@ func (s *Server) Start() error {
 
 	// Load TLS configuration if mTLS is enabled (Mode A)
 	if s.config.TLS.Enabled {
-		tlsConfig, err := s.loadTLSConfig()
+		tlsConfig, provider, err := s.loadTLSConfig()
 		if err != nil {
 			return err
 		}
 		s.httpSrv.TLSConfig = tlsConfig
+		s.certProvider = provider
 	}
 
 	s.logStartup()
@@ -370,31 +375,38 @@ func (s *Server) WaitForReady(timeout time.Duration) bool {
 	}
 }
 
+// CertProvider returns the active certificate provider, which can be used to
+// hot-swap the server certificate via Swap(). Returns nil when TLS is disabled
+// or before Start() has been called.
+func (s *Server) CertProvider() *CertProvider {
+	return s.certProvider
+}
+
 // loadTLSConfig reads certificate files and creates a TLS configuration for mTLS.
-func (s *Server) loadTLSConfig() (*tls.Config, error) {
+func (s *Server) loadTLSConfig() (*tls.Config, *CertProvider, error) {
 	tlsCfg := s.config.TLS
 
 	caCert, err := os.ReadFile(tlsCfg.CAFile)
 	if err != nil {
-		return nil, fmt.Errorf("reading CA certificate %s: %w", tlsCfg.CAFile, err)
+		return nil, nil, fmt.Errorf("reading CA certificate %s: %w", tlsCfg.CAFile, err)
 	}
 
 	serverCert, err := os.ReadFile(tlsCfg.CertFile)
 	if err != nil {
-		return nil, fmt.Errorf("reading server certificate %s: %w", tlsCfg.CertFile, err)
+		return nil, nil, fmt.Errorf("reading server certificate %s: %w", tlsCfg.CertFile, err)
 	}
 
 	serverKey, err := os.ReadFile(tlsCfg.KeyFile)
 	if err != nil {
-		return nil, fmt.Errorf("reading server key %s: %w", tlsCfg.KeyFile, err)
+		return nil, nil, fmt.Errorf("reading server key %s: %w", tlsCfg.KeyFile, err)
 	}
 
-	tlsConfig, err := NewTLSConfig(caCert, serverCert, serverKey)
+	tlsConfig, provider, err := NewTLSConfig(caCert, serverCert, serverKey)
 	if err != nil {
-		return nil, fmt.Errorf("creating TLS config: %w", err)
+		return nil, nil, fmt.Errorf("creating TLS config: %w", err)
 	}
 
-	return tlsConfig, nil
+	return tlsConfig, provider, nil
 }
 
 // logStartup logs the server startup configuration.

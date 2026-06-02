@@ -253,7 +253,7 @@ func TestTLSConfig_MinVersionTLS13(t *testing.T) {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}
 
-	tlsConfig, err := NewTLSConfig(bundle.CA.CertPEM, bundle.Server.CertPEM, bundle.Server.KeyPEM)
+	tlsConfig, _, err := NewTLSConfig(bundle.CA.CertPEM, bundle.Server.CertPEM, bundle.Server.KeyPEM)
 	if err != nil {
 		t.Fatalf("NewTLSConfig failed: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestTLSConfig_RequiresClientCert(t *testing.T) {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}
 
-	tlsConfig, err := NewTLSConfig(bundle.CA.CertPEM, bundle.Server.CertPEM, bundle.Server.KeyPEM)
+	tlsConfig, _, err := NewTLSConfig(bundle.CA.CertPEM, bundle.Server.CertPEM, bundle.Server.KeyPEM)
 	if err != nil {
 		t.Fatalf("NewTLSConfig failed: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestTLSConfig_InvalidCACert_ReturnsError(t *testing.T) {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}
 
-	_, err = NewTLSConfig([]byte("invalid-ca"), bundle.Server.CertPEM, bundle.Server.KeyPEM)
+	_, _, err = NewTLSConfig([]byte("invalid-ca"), bundle.Server.CertPEM, bundle.Server.KeyPEM)
 	if err == nil {
 		t.Fatal("expected error for invalid CA cert")
 	}
@@ -301,7 +301,7 @@ func TestTLSConfig_InvalidServerCert_ReturnsError(t *testing.T) {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}
 
-	_, err = NewTLSConfig(bundle.CA.CertPEM, []byte("invalid-cert"), bundle.Server.KeyPEM)
+	_, _, err = NewTLSConfig(bundle.CA.CertPEM, []byte("invalid-cert"), bundle.Server.KeyPEM)
 	if err == nil {
 		t.Fatal("expected error for invalid server cert")
 	}
@@ -313,7 +313,7 @@ func TestTLSConfig_InvalidServerCert_ReturnsError(t *testing.T) {
 func createServerTLSConfig(t *testing.T, bundle *crypto.CertBundle) *tls.Config {
 	t.Helper()
 
-	tlsConfig, err := NewTLSConfig(bundle.CA.CertPEM, bundle.Server.CertPEM, bundle.Server.KeyPEM)
+	tlsConfig, _, err := NewTLSConfig(bundle.CA.CertPEM, bundle.Server.CertPEM, bundle.Server.KeyPEM)
 	if err != nil {
 		t.Fatalf("failed to create TLS config: %v", err)
 	}
@@ -377,14 +377,28 @@ func TestNewTLSConfig_ParsesCertificatesCorrectly(t *testing.T) {
 		t.Fatalf("failed to generate cert bundle: %v", err)
 	}
 
-	tlsConfig, err := NewTLSConfig(bundle.CA.CertPEM, bundle.Server.CertPEM, bundle.Server.KeyPEM)
+	tlsConfig, provider, err := NewTLSConfig(bundle.CA.CertPEM, bundle.Server.CertPEM, bundle.Server.KeyPEM)
 	if err != nil {
 		t.Fatalf("NewTLSConfig failed: %v", err)
 	}
 
-	// Verify server cert is loaded
+	// Verify static cert is loaded (for non-SNI listeners like httptest)
 	if len(tlsConfig.Certificates) != 1 {
 		t.Errorf("expected 1 server certificate, got %d", len(tlsConfig.Certificates))
+	}
+
+	// Verify GetCertificate is wired for hot-swap (SNI path)
+	if tlsConfig.GetCertificate == nil {
+		t.Error("expected GetCertificate callback to be set")
+	}
+	cert, err := tlsConfig.GetCertificate(nil)
+	if err != nil || cert == nil {
+		t.Errorf("GetCertificate returned unexpected result: cert=%v err=%v", cert, err)
+	}
+	// Verify provider.Current() and GetCertificate agree
+	current := provider.Current()
+	if len(cert.Certificate) == 0 || len(current.Certificate) == 0 {
+		t.Error("certificate DER bytes are empty")
 	}
 
 	// Verify CA pool is configured
