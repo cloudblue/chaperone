@@ -89,6 +89,28 @@ var (
 			Help:      "Total number of recovered panics",
 		},
 	)
+
+	// CertExpirySeconds tracks seconds until the active TLS certificate expires.
+	// Negative values indicate an already-expired certificate.
+	// Updated on startup and after each certificate hot-swap.
+	CertExpirySeconds = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "chaperone",
+			Name:      "cert_expiry_seconds",
+			Help:      "Seconds until the active TLS certificate expires (negative = already expired)",
+		},
+	)
+
+	// CertRenewalsTotal counts certificate renewal attempts by outcome.
+	// Labels: status (success|failure)
+	CertRenewalsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "chaperone",
+			Name:      "cert_renewals_total",
+			Help:      "Total certificate renewal attempts",
+		},
+		[]string{"status"},
+	)
 )
 
 // DefaultVendorID is the label value used when the X-Connect-Vendor-ID header

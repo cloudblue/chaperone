@@ -85,6 +85,13 @@ func NewTLSConfig(caCertPEM, serverCertPEM, serverKeyPEM []byte) (*tls.Config, *
 		return nil, nil, fmt.Errorf("loading server certificate: %w", err)
 	}
 
+	// Parse and attach Leaf so callers can read NotAfter without a second parse.
+	leaf, err := x509.ParseCertificate(serverCert.Certificate[0])
+	if err != nil {
+		return nil, nil, fmt.Errorf("parsing server certificate leaf: %w", err)
+	}
+	serverCert.Leaf = leaf
+
 	provider := NewCertProvider(serverCert)
 
 	return &tls.Config{

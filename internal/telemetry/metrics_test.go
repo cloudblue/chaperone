@@ -198,3 +198,48 @@ func TestAPILatencyBuckets(t *testing.T) {
 		t.Error("expected APILatencyBuckets to have 0.15 (150ms) bucket for granularity")
 	}
 }
+
+func TestCertExpirySeconds_SetAndRead(t *testing.T) {
+	CertExpirySeconds.Set(3600.0)
+	t.Cleanup(func() { CertExpirySeconds.Set(0) })
+
+	got := testutil.ToFloat64(CertExpirySeconds)
+	if got != 3600.0 {
+		t.Errorf("CertExpirySeconds = %v, want 3600.0", got)
+	}
+}
+
+func TestCertRenewalsTotal_SuccessAndFailure(t *testing.T) {
+	CertRenewalsTotal.Reset()
+	t.Cleanup(func() { CertRenewalsTotal.Reset() })
+
+	CertRenewalsTotal.WithLabelValues("success").Inc()
+	CertRenewalsTotal.WithLabelValues("success").Inc()
+	CertRenewalsTotal.WithLabelValues("failure").Inc()
+
+	successCount := testutil.ToFloat64(CertRenewalsTotal.WithLabelValues("success"))
+	failureCount := testutil.ToFloat64(CertRenewalsTotal.WithLabelValues("failure"))
+
+	if successCount != 2 {
+		t.Errorf("success count = %v, want 2", successCount)
+	}
+	if failureCount != 1 {
+		t.Errorf("failure count = %v, want 1", failureCount)
+	}
+}
+
+func TestCertRenewalsTotal_IncrementsBothLabels(t *testing.T) {
+	CertRenewalsTotal.Reset()
+	t.Cleanup(func() { CertRenewalsTotal.Reset() })
+
+	CertRenewalsTotal.WithLabelValues("success").Inc()
+	CertRenewalsTotal.WithLabelValues("failure").Inc()
+	CertRenewalsTotal.WithLabelValues("failure").Inc()
+
+	if got := testutil.ToFloat64(CertRenewalsTotal.WithLabelValues("success")); got != 1 {
+		t.Errorf("success = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(CertRenewalsTotal.WithLabelValues("failure")); got != 2 {
+		t.Errorf("failure = %v, want 2", got)
+	}
+}

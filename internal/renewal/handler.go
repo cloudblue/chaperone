@@ -10,6 +10,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
+
+	"github.com/cloudblue/chaperone/internal/telemetry"
 )
 
 // CertSwapper is satisfied by proxy.CertProvider. Defined here to avoid an
@@ -115,6 +118,7 @@ func (h *Handler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 	newCert, keyPEM, err := h.manager.Install(body.RenewalID, certPEM)
 	if err != nil {
 		slog.Warn("renewal install rejected", "renewal_id", body.RenewalID, "error", err)
+		telemetry.CertRenewalsTotal.WithLabelValues("failure").Inc()
 		switch {
 		case errors.Is(err, ErrNoPending), errors.Is(err, ErrRenewalIDMismatch), errors.Is(err, ErrExpired):
 			writeJSONError(w, http.StatusConflict, err.Error())
@@ -128,6 +132,8 @@ func (h *Handler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 
 	// Hot-swap the TLS listener — in-flight connections are unaffected.
 	h.provider.Swap(newCert)
+	telemetry.CertExpirySeconds.Set(time.Until(newCert.Leaf.NotAfter).Seconds())
+	telemetry.CertRenewalsTotal.WithLabelValues("success").Inc()
 
 	// Atomically persist the new cert and key to disk.
 	if err := writePEMAtomically(h.certFile, certPEM, 0o600); err != nil {
