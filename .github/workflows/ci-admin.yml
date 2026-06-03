@@ -47,7 +47,7 @@ jobs:
       - name: Run golangci-lint (admin module)
         # The admin module embeds ui/dist in !dev builds; use dev tags for
         # backend lint/test so checks do not depend on prebuilt UI artifacts.
-        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9.2.1
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           install-mode: goinstall
