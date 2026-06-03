@@ -316,19 +316,7 @@ func TestPluginIntegration_AllMethodsCallable(t *testing.T) {
 		}
 	})
 
-	// Test 2: CertificateSigner.SignCSR
-	t.Run("SignCSR", func(t *testing.T) {
-		// Reference plugin returns ErrNotImplemented, but the method must be callable
-		_, err := plugin.SignCSR(ctx, []byte("mock-csr"))
-		// We expect an error (not implemented), but NOT a panic or nil pointer
-		if err == nil {
-			t.Log("SignCSR returned no error (unexpected but acceptable)")
-		} else {
-			t.Logf("SignCSR correctly returned error: %v", err)
-		}
-	})
-
-	// Test 3: ResponseModifier.ModifyResponse
+	// Test 2: ResponseModifier.ModifyResponse
 	t.Run("ModifyResponse", func(t *testing.T) {
 		// Create a mock response
 		resp := &http.Response{
@@ -361,7 +349,6 @@ func TestPluginInterface_CompileTimeCompliance(t *testing.T) {
 	// These assignments only compile if the types match
 	var _ sdk.Plugin = plugin
 	var _ sdk.CredentialProvider = plugin
-	var _ sdk.CertificateSigner = plugin
 	var _ sdk.ResponseModifier = plugin
 
 	t.Log("Plugin implements all required interfaces (verified at compile time)")

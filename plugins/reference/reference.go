@@ -111,12 +111,6 @@ func (p *Plugin) GetCredentials(ctx context.Context, tx sdk.TransactionContext, 
 	}, nil
 }
 
-// SignCSR is not implemented in the reference plugin.
-// Production deployments should implement this to integrate with their CA.
-func (p *Plugin) SignCSR(ctx context.Context, csrPEM []byte) ([]byte, error) {
-	return nil, fmt.Errorf("certificate signing not implemented in reference plugin; configure your CA integration")
-}
-
 // ModifyResponse is a no-op in the reference plugin.
 // Override in custom plugins to modify vendor responses or control error handling.
 func (p *Plugin) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) (*sdk.ResponseAction, error) {

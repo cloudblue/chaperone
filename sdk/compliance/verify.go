@@ -42,10 +42,6 @@ func VerifyContract(t *testing.T, p sdk.Plugin) {
 		testCredentialProvider(t, p)
 	})
 
-	t.Run("CertificateSigner", func(t *testing.T) {
-		testCertificateSigner(t, p)
-	})
-
 	t.Run("ResponseModifier", func(t *testing.T) {
 		testResponseModifier(t, p)
 	})
@@ -104,42 +100,6 @@ func testCredentialProvider(t *testing.T, p sdk.CredentialProvider) {
 			if cred.ExpiresAt.Before(time.Now()) {
 				t.Error("Credential.ExpiresAt should be in the future")
 			}
-		}
-	})
-}
-
-func testCertificateSigner(t *testing.T, p sdk.CertificateSigner) {
-	t.Helper()
-
-	t.Run("handles empty CSR", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Errorf("SignCSR panicked with empty CSR: %v", r)
-			}
-		}()
-
-		ctx := context.Background()
-
-		// Should return error, not panic
-		_, err := p.SignCSR(ctx, []byte{})
-		if err == nil {
-			t.Log("SignCSR accepted empty CSR (may be intentional for mock implementations)")
-		}
-	})
-
-	t.Run("handles nil CSR", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Errorf("SignCSR panicked with nil CSR: %v", r)
-			}
-		}()
-
-		ctx := context.Background()
-
-		// Should return error, not panic
-		_, err := p.SignCSR(ctx, nil)
-		if err == nil {
-			t.Log("SignCSR accepted nil CSR (may be intentional for mock implementations)")
 		}
 	})
 }

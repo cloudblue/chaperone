@@ -198,23 +198,6 @@ func TestGetCredentials_CredentialHasValidExpiry(t *testing.T) {
 	}
 }
 
-func TestSignCSR_ReturnsError(t *testing.T) {
-	// Arrange
-	plugin := reference.New("testdata/credentials.json")
-	ctx := context.Background()
-	csrPEM := []byte("-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----")
-
-	// Act
-	cert, err := plugin.SignCSR(ctx, csrPEM)
-
-	// Assert
-	if err == nil {
-		t.Fatal("expected error from SignCSR in reference plugin")
-	}
-	if cert != nil {
-		t.Errorf("expected nil certificate, got %v", cert)
-	}
-}
 
 func TestModifyResponse_NoOp_ReturnsNilAction(t *testing.T) {
 	// Arrange

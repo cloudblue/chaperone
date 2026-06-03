@@ -17,13 +17,14 @@ import (
 // Plugin is the main interface that Distributors implement to inject
 // custom logic into the Chaperone proxy.
 //
-// A Plugin must implement all three sub-interfaces:
+// A Plugin must implement:
 //   - CredentialProvider: Injects authentication credentials into requests
-//   - CertificateSigner: Signs CSRs for automatic certificate rotation
 //   - ResponseModifier: Optionally modifies responses before returning to upstream
+//
+// Certificate rotation is now Connect-driven (via /_ops/renew/prepare and
+// /_ops/renew/install); plugins no longer need to sign CSRs.
 type Plugin interface {
 	CredentialProvider
-	CertificateSigner
 	ResponseModifier
 }
 
@@ -92,24 +93,12 @@ type CredentialProvider interface {
 	GetCredentials(ctx context.Context, tx TransactionContext, req *http.Request) (*Credential, error)
 }
 
-// CertificateSigner handles certificate signing for automatic rotation.
-//
-// When the proxy's TLS certificate approaches expiration, the core generates
-// a new key pair and CSR, then calls SignCSR to obtain a signed certificate.
+// Deprecated: CertificateSigner is no longer part of the Plugin interface.
+// Certificate rotation is now Connect-driven via POST /_ops/renew/prepare and
+// POST /_ops/renew/install. Plugins that implement SignCSR can safely remove
+// the method without any other changes.
 type CertificateSigner interface {
-	// SignCSR signs a Certificate Signing Request using the configured CA.
-	//
-	// The implementation should forward the CSR to the appropriate CA
-	// (Connect API, HashiCorp Vault, internal PKI, etc.) and return
-	// the signed certificate.
-	//
-	// Parameters:
-	//   - ctx: Context for cancellation and timeouts
-	//   - csrPEM: PEM-encoded Certificate Signing Request
-	//
-	// Returns:
-	//   - []byte: PEM-encoded signed certificate
-	//   - error: Any error during signing
+	// Deprecated: See CertificateSigner.
 	SignCSR(ctx context.Context, csrPEM []byte) (crtPEM []byte, err error)
 }
 
