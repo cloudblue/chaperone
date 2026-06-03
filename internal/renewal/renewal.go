@@ -118,32 +118,45 @@ func (m *Manager) Prepare(currentCert tls.Certificate) (csrPEM []byte, renewalID
 }
 
 // Install validates the incoming signed certificate against the pending
-// renewal and returns a tls.Certificate ready for hot-swap.
+// renewal and returns the new tls.Certificate and its private key PEM ready
+// for hot-swap and atomic disk write.
 //
 // Errors: ErrNoPending, ErrRenewalIDMismatch, ErrExpired, ErrKeyMismatch.
-func (m *Manager) Install(renewalID string, certPEM []byte) (tls.Certificate, error) {
+func (m *Manager) Install(renewalID string, certPEM []byte) (tls.Certificate, []byte, error) {
 	m.mu.Lock()
 	pending := m.pending
 	m.mu.Unlock()
 
 	if pending == nil {
-		return tls.Certificate{}, ErrNoPending
+		return tls.Certificate{}, nil, ErrNoPending
 	}
 	if pending.RenewalID != renewalID {
-		return tls.Certificate{}, ErrRenewalIDMismatch
+		return tls.Certificate{}, nil, ErrRenewalIDMismatch
 	}
 	if m.now().After(pending.ExpiresAt) {
-		return tls.Certificate{}, ErrExpired
+		return tls.Certificate{}, nil, ErrExpired
 	}
 
 	if err := verifyKeyMatch(certPEM, pending.KeyPEM); err != nil {
-		return tls.Certificate{}, err
+		return tls.Certificate{}, nil, err
 	}
 
 	newCert, err := tls.X509KeyPair(certPEM, pending.KeyPEM)
 	if err != nil {
-		return tls.Certificate{}, err
+		return tls.Certificate{}, nil, err
 	}
+
+	// Parse and set Leaf so callers can read certificate fields (e.g. NotAfter)
+	// without a second round-trip through x509.ParseCertificate.
+	leaf, err := x509.ParseCertificate(newCert.Certificate[0])
+	if err != nil {
+		return tls.Certificate{}, nil, err
+	}
+	newCert.Leaf = leaf
+
+	// Copy key material before zeroing pending so it can be written to disk.
+	keyPEM := make([]byte, len(pending.KeyPEM))
+	copy(keyPEM, pending.KeyPEM)
 
 	// Zero and clear pending so the renewal_id cannot be replayed.
 	m.mu.Lock()
@@ -153,7 +166,7 @@ func (m *Manager) Install(renewalID string, certPEM []byte) (tls.Certificate, er
 	}
 	m.mu.Unlock()
 
-	return newCert, nil
+	return newCert, keyPEM, nil
 }
 
 // Pending returns a key-less snapshot of the current pending renewal, or nil
