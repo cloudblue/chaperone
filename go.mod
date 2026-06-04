@@ -1,6 +1,6 @@
 module github.com/cloudblue/chaperone
 
-go 1.26.3
+go 1.26.4
 
 require github.com/cloudblue/chaperone/sdk v0.1.0
 
