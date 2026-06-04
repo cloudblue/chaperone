@@ -8,7 +8,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"sync"
+	"sync/atomic"
 )
 
 // TLS-related errors.
@@ -21,41 +21,35 @@ var (
 // hot-swap without restarting the server or dropping in-flight connections.
 //
 // The GetCertificate method is wired into tls.Config so every new TLS
-// handshake reads the current certificate under a read lock. Swap replaces
-// the certificate under a write lock; connections already past the handshake
-// are unaffected.
+// handshake reads the current certificate. Swap replaces the certificate
+// atomically; connections already past the handshake are unaffected.
 type CertProvider struct {
-	mu   sync.RWMutex
-	cert *tls.Certificate
+	cert atomic.Pointer[tls.Certificate]
 }
 
 // NewCertProvider creates a CertProvider holding the given certificate.
 func NewCertProvider(cert tls.Certificate) *CertProvider {
-	return &CertProvider{cert: &cert}
+	p := &CertProvider{}
+	p.cert.Store(&cert)
+	return p
 }
 
 // GetCertificate implements the tls.Config.GetCertificate callback.
 // It is called for every new TLS handshake.
 func (p *CertProvider) GetCertificate(_ *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.cert, nil
+	return p.cert.Load(), nil
 }
 
 // Swap atomically replaces the active certificate. In-flight TLS connections
 // that have already completed the handshake continue using their negotiated
 // certificate; only new handshakes will use the replacement.
 func (p *CertProvider) Swap(newCert tls.Certificate) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.cert = &newCert
+	p.cert.Store(&newCert)
 }
 
 // Current returns a copy of the active certificate.
 func (p *CertProvider) Current() tls.Certificate {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return *p.cert
+	return *p.cert.Load()
 }
 
 // NewTLSConfig creates a TLS configuration for the proxy server with mTLS.
@@ -88,12 +82,10 @@ func NewTLSConfig(caCertPEM, serverCertPEM, serverKeyPEM []byte) (*tls.Config, *
 	provider := NewCertProvider(serverCert)
 
 	return &tls.Config{
-		// GetCertificate enables hot-swap: called for SNI connections or when
-		// Certificates is empty. Certificates is also populated so that
-		// non-SNI listeners (e.g. httptest) serve the correct cert without
-		// falling through to the listener's own self-signed certificate.
+		// GetCertificate is the sole certificate source. Omitting Certificates
+		// ensures this callback is invoked for every handshake — including
+		// clients that connect by IP and send no SNI — so hot-swap always works.
 		GetCertificate: provider.GetCertificate,
-		Certificates:   []tls.Certificate{serverCert},
 
 		// Client authentication: mTLS mandatory per Design Spec Section 5.3
 		ClientAuth: tls.RequireAndVerifyClientCert,

@@ -21,8 +21,6 @@ the [Configuration Reference](configuration.md).
 | [`/proxy`](#-proxy) | Any | ✓ | — | Forward request with credential injection |
 | [`/_ops/health`](#get-_opshealth) | GET | ✓ | ✓ | Health check |
 | [`/_ops/version`](#get-_opsversion) | GET | ✓ | ✓ | Version info |
-| [`/_ops/renew/prepare`](#post-_opsrenewprepare) | POST | ✓ | — | Initiate certificate renewal (Connect-managed only) |
-| [`/_ops/renew/install`](#post-_opsrenewinstall) | POST | ✓ | — | Complete certificate renewal (Connect-managed only) |
 | [`/metrics`](#get-metrics) | GET | — | ✓ | Prometheus metrics |
 | [`/debug/pprof/*`](#profiling-endpoints-admin-port-only) | GET | — | ✓ | Profiling (dev builds only) |
 
@@ -152,72 +150,6 @@ The version string is set via `chaperone.WithVersion()` at startup.
 | Code | Meaning |
 |------|---------|
 | `200` | Version returned successfully |
-
----
-
-## Certificate Renewal Endpoints (Traffic Port Only)
-
-These endpoints implement the Connect-driven certificate rotation protocol.
-They are protected by the same mTLS listener as the proxy endpoint — a valid
-Connect client certificate is required. Both endpoints return `501 Not
-Implemented` when `server.tls.cert_management` is set to `external`.
-
-### `POST /_ops/renew/prepare`
-
-Initiates a certificate renewal. The proxy generates a fresh ECDSA P-256
-key pair and CSR using the current certificate's Subject Alternative Names,
-stores the pending state with a 10-minute TTL, and returns the CSR and a
-pairing token (`renewal_id`).
-
-**Request:** empty body.
-
-**Response — success:**
-
-```
-HTTP/1.1 200 OK
-Content-Type: application/json
-
-{
-  "csr": "-----BEGIN CERTIFICATE REQUEST-----\n...\n-----END CERTIFICATE REQUEST-----\n",
-  "renewal_id": "a3f8e1c2d4b5..."
-}
-```
-
-**Status codes:**
-
-| Code | Meaning |
-|------|---------|
-| `200` | CSR and renewal_id returned; proceed to sign the CSR and call install |
-| `501` | `cert_management: external` — renewal endpoints are disabled |
-
----
-
-### `POST /_ops/renew/install`
-
-Completes a certificate renewal. Connect submits the signed certificate
-together with the `renewal_id` returned by prepare. The proxy validates the
-certificate's public key against the pending private key, hot-swaps the TLS
-listener, and atomically writes the new key and certificate to disk.
-
-**Request body:**
-
-```json
-{
-  "renewal_id": "a3f8e1c2d4b5...",
-  "certificate": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"
-}
-```
-
-**Response — success:** empty body, status `202 Accepted`.
-
-**Status codes:**
-
-| Code | Meaning |
-|------|---------|
-| `202` | Certificate installed and TLS listener hot-swapped |
-| `409` | `renewal_id` mismatch or pending renewal has expired (TTL 10 min) |
-| `422` | Certificate public key does not match the pending private key |
-| `501` | `cert_management: external` — renewal endpoints are disabled |
 
 ---
 

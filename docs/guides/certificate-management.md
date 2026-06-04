@@ -152,22 +152,10 @@ submit it to your CA:
 # Submit the new server.csr to your CA, install the new server.crt
 ```
 
-**Automatic rotation** is supported for Connect-managed proxies. Connect
-detects approaching certificate expiry and drives a two-step protocol over
-the existing mTLS connection — no manual intervention required:
-
-1. Connect calls `POST /_ops/renew/prepare`. The proxy generates a new key
-   pair and CSR (preserving the current SANs) and returns the CSR plus a
-   pairing token.
-2. Connect signs the CSR and calls `POST /_ops/renew/install`. The proxy
-   validates the certificate, hot-swaps the TLS listener, and atomically
-   writes the new files to disk.
-
-The private key never leaves the proxy.
-
-If you manage your own certificate lifecycle (external PKI, load-balancer
-termination), set `server.tls.cert_management: external` in `config.yaml`
-to disable the renewal endpoints and opt out of Connect-driven rotation.
+> **Automatic rotation** via `CertificateSigner.SignCSR()` is planned for
+> a future release. See the
+> [Design Specification](../explanation/DESIGN-SPECIFICATION.md) for
+> details.
 
 ## Troubleshooting
 

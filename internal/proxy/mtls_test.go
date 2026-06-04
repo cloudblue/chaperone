@@ -310,6 +310,8 @@ func TestTLSConfig_InvalidServerCert_ReturnsError(t *testing.T) {
 // Helper functions
 
 // createServerTLSConfig creates a TLS config for the test server.
+// httptest.StartTLS requires at least one entry in Certificates to serve;
+// GetCertificate alone is insufficient for the test listener setup.
 func createServerTLSConfig(t *testing.T, bundle *crypto.CertBundle) *tls.Config {
 	t.Helper()
 
@@ -317,6 +319,12 @@ func createServerTLSConfig(t *testing.T, bundle *crypto.CertBundle) *tls.Config 
 	if err != nil {
 		t.Fatalf("failed to create TLS config: %v", err)
 	}
+
+	serverCert, err := tls.X509KeyPair(bundle.Server.CertPEM, bundle.Server.KeyPEM)
+	if err != nil {
+		t.Fatalf("failed to load server cert for httptest: %v", err)
+	}
+	tlsConfig.Certificates = []tls.Certificate{serverCert}
 
 	return tlsConfig
 }
@@ -382,12 +390,13 @@ func TestNewTLSConfig_ParsesCertificatesCorrectly(t *testing.T) {
 		t.Fatalf("NewTLSConfig failed: %v", err)
 	}
 
-	// Verify static cert is loaded (for non-SNI listeners like httptest)
-	if len(tlsConfig.Certificates) != 1 {
-		t.Errorf("expected 1 server certificate, got %d", len(tlsConfig.Certificates))
+	// Certificates must be empty: GetCertificate is the sole source so that
+	// hot-swap works for all clients, including those connecting by IP (no SNI).
+	if len(tlsConfig.Certificates) != 0 {
+		t.Errorf("expected Certificates to be empty (GetCertificate is sole source), got %d", len(tlsConfig.Certificates))
 	}
 
-	// Verify GetCertificate is wired for hot-swap (SNI path)
+	// Verify GetCertificate is wired for hot-swap
 	if tlsConfig.GetCertificate == nil {
 		t.Error("expected GetCertificate callback to be set")
 	}
