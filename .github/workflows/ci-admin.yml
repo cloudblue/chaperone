@@ -168,7 +168,7 @@ jobs:
       - name: Post test summary to PR
         # Skipped on forked PRs (read-only token) and on push events.
         if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-        uses: daun/playwright-report-summary@1229105480a2a4bdd91598d8a146fbab41343fce # v3.11.0
+        uses: daun/playwright-report-summary@8bb85779022480a59ed8d33d9a4b8bda1c67666b # v4.0.0
         with:
           report-file: admin/ui/e2e/results.json
 
