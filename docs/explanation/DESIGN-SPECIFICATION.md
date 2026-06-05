@@ -61,7 +61,6 @@ graph TB
             subgraph Plugin ["Distributor Plugin (SDK)"]
                 style Plugin fill:#f3e5f5,stroke:#4A148C,stroke-width:1px,stroke-dasharray: 2 2
                 Logic["GetCredentials()<br>Custom Logic"]:::plugin
-                Signer["CertificateSigner"]:::plugin
                 Modifier["ModifyResponse()"]:::plugin
             end
 
@@ -77,7 +76,6 @@ graph TB
 
         MetricStore[("Prometheus / Datadog")]:::store
         SecretStore[("Vault / SQL DB")]:::store
-        InternalCA["Internal PKI / CA"]:::store
     end
 
     subgraph External ["External Internet"]
@@ -86,10 +84,10 @@ graph TB
     end
 
     Connector ===|"mTLS + TraceID"| Listener
+    Connector -.->|"POST /_ops/renew/prepare<br>POST /_ops/renew/install"| Listener
     ReverseProxy ===|"HTTPS + Injected Creds"| ISV
 
     Logic -.->|Read Secret| SecretStore
-    Signer -.->|Sign CSR| InternalCA
 
     Sanitizer -->|"Redacted Logs"| MetricStore
     ReverseProxy -.->|"Metrics (:9090)"| MetricStore
@@ -99,9 +97,9 @@ graph TB
 
 | Component | Responsibility |
 | :--- | :--- |
-| **Connect (Cloud)** | Orchestrates provision requests. Manages subscription lifecycles. Acts as the CA. Determines the Target URL. |
-| **Proxy Core** | Owns the network socket to the ISV. Terminates mTLS. Validates target destinations against the allow-list. Caches credentials. Enforces timeouts and logging privacy. Manages certificate lifecycle. Runs the response sanitizer. |
-| **Distributor Plugin** | A Go-native interface compiled directly into the Proxy Core. Communicates via in-memory function calls (not RPC). Retrieves credentials and signs certificates via the Distributor's chosen authority. |
+| **Connect (Cloud)** | Orchestrates provision requests. Manages subscription lifecycles. Acts as the CA. Determines the Target URL. Drives automatic certificate rotation for Connect-managed proxies. |
+| **Proxy Core** | Owns the network socket to the ISV. Terminates mTLS. Validates target destinations against the allow-list. Caches credentials. Enforces timeouts and logging privacy. Exposes renewal endpoints for Connect-driven certificate rotation. Runs the response sanitizer. |
+| **Distributor Plugin** | A Go-native interface compiled directly into the Proxy Core. Communicates via in-memory function calls (not RPC). Retrieves credentials via the Distributor's chosen authority. |
 
 ### 3.3 Technology choices
 
@@ -300,11 +298,18 @@ Telemetry data is owned by the Distributor but structured for end-to-end correla
 
 ### Certificate lifecycle
 
-In Mode A (standalone mTLS termination), the Proxy manages its own certificates:
+In Mode A (standalone mTLS termination), certificates go through three phases:
 
 1. **Bootstrap:** `chaperone enroll --domains proxy.example.com` generates an ECDSA P-256 key pair and CSR.
-2. **Registration:** The Distributor submits the CSR to their CA (Connect Portal, Vault, etc.).
-3. **Rotation:** The Core tracks certificate expiry. Before expiration, it generates a new CSR and calls `CertificateSigner.SignCSR()`. The plugin forwards the CSR to the CA and returns the signed certificate. The Core hot-swaps the TLS listener without dropping connections.
+2. **Registration:** The Distributor submits the CSR to Connect Portal (or another CA). The signed certificate is installed on the proxy.
+3. **Rotation:** Connect detects an approaching expiry and drives a two-step protocol over the existing mTLS connection:
+   - `POST /_ops/renew/prepare` — the proxy generates a fresh ECDSA key pair and CSR (preserving the current SANs), stores the pending state with a 10-minute TTL, and returns `{"csr": "<PEM>", "renewal_id": "<hex>"}`.
+   - Connect signs the CSR through its CA pipeline and calls `POST /_ops/renew/install` with the signed certificate.
+   - The proxy validates the certificate against the pending key, hot-swaps the TLS listener without dropping in-flight connections, and atomically writes the new key and certificate to disk.
+
+The private key never leaves the proxy. Authentication for the renewal endpoints is implicit — they are protected by the same mTLS listener that requires a valid Connect client certificate.
+
+**Opt-out.** Proxies that manage their own certificates (e.g., terminated at a load balancer, or using an external PKI) can set `server.tls.cert_management: external` in `config.yaml`. Both renewal endpoints return HTTP 501, and Connect's scheduler permanently excludes the proxy from automatic rotation.
 
 In Mode B (behind a load balancer), certificate management is offloaded to the Distributor's infrastructure. See the [certificate management guide](../guides/certificate-management.md) for step-by-step instructions.
 
