@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net"
 	"sync"
@@ -53,8 +54,8 @@ func signCSRPEM(t *testing.T, ca *crypto.CertPair, csrPEM []byte) []byte {
 	if err != nil {
 		t.Fatalf("ParseCertificateRequest: %v", err)
 	}
-	if err := csr.CheckSignature(); err != nil {
-		t.Fatalf("CSR signature invalid: %v", err)
+	if sigErr := csr.CheckSignature(); sigErr != nil {
+		t.Fatalf("CSR signature invalid: %v", sigErr)
 	}
 
 	caCert, caKey, err := crypto.ParseCA(ca)
@@ -173,7 +174,7 @@ func TestManager_Install_ClearsPendingOnSuccess(t *testing.T) {
 func TestManager_Install_ErrNoPending(t *testing.T) {
 	m := NewManager()
 	_, err := m.Install("someid", []byte("certpem"))
-	if err != ErrNoPending {
+	if !errors.Is(err, ErrNoPending) {
 		t.Errorf("Install without Prepare: got %v, want ErrNoPending", err)
 	}
 }
@@ -190,7 +191,7 @@ func TestManager_Install_ErrRenewalIDMismatch(t *testing.T) {
 
 	newCertPEM := signCSRPEM(t, ca, csrPEM)
 	_, err = m.Install("wrong-id", newCertPEM)
-	if err != ErrRenewalIDMismatch {
+	if !errors.Is(err, ErrRenewalIDMismatch) {
 		t.Errorf("Install with wrong id: got %v, want ErrRenewalIDMismatch", err)
 	}
 }
@@ -214,7 +215,7 @@ func TestManager_Install_ErrExpired(t *testing.T) {
 
 	newCertPEM := signCSRPEM(t, ca, csrPEM)
 	_, err = m.Install(id, newCertPEM)
-	if err != ErrExpired {
+	if !errors.Is(err, ErrExpired) {
 		t.Errorf("Install after TTL: got %v, want ErrExpired", err)
 	}
 }
@@ -237,7 +238,7 @@ func TestManager_Install_ErrKeyMismatch(t *testing.T) {
 	mismatchedCertPEM := signCSRPEM(t, ca, otherBundle.CSRPEM)
 
 	_, err = m.Install(id, mismatchedCertPEM)
-	if err != ErrKeyMismatch {
+	if !errors.Is(err, ErrKeyMismatch) {
 		t.Errorf("Install with wrong key: got %v, want ErrKeyMismatch", err)
 	}
 }
@@ -270,7 +271,7 @@ func TestManager_Prepare_SupersedesPreviousPending(t *testing.T) {
 	csrPEM := pending.CSRPEM
 	newCertPEM := signCSRPEM(t, ca, csrPEM)
 	_, err = m.Install(firstID, newCertPEM)
-	if err != ErrRenewalIDMismatch {
+	if !errors.Is(err, ErrRenewalIDMismatch) {
 		t.Errorf("Install with first id after second Prepare: got %v, want ErrRenewalIDMismatch", err)
 	}
 }

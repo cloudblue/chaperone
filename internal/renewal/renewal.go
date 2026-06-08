@@ -182,7 +182,7 @@ func generateRenewalID() (string, error) {
 // verifyKeyMatch checks that the public key in certPEM matches the private key
 // in keyPEM. Called before tls.X509KeyPair so ErrKeyMismatch is returned
 // rather than the opaque TLS error.
-func verifyKeyMatch(certPEM []byte, keyPEM []byte) error {
+func verifyKeyMatch(certPEM, keyPEM []byte) error {
 	certBlock, _ := pem.Decode(certPEM)
 	if certBlock == nil {
 		return errors.New("failed to decode certificate PEM")
