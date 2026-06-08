@@ -243,36 +243,42 @@ func TestManager_Install_ErrKeyMismatch(t *testing.T) {
 	}
 }
 
-func TestManager_Prepare_SupersedesPreviousPending(t *testing.T) {
+func TestManager_Prepare_ErrRenewalInProgress_WhenPendingExists(t *testing.T) {
 	ca := mustGenerateCA(t)
 	currentCert := mustGenerateServerCert(t, ca, []string{"proxy.example.com"}, nil)
 
 	m := NewManager()
-	_, firstID, err := m.Prepare(currentCert)
+	_, _, err := m.Prepare(currentCert)
 	if err != nil {
 		t.Fatalf("first Prepare: %v", err)
 	}
 
-	_, secondID, err := m.Prepare(currentCert)
+	_, _, err = m.Prepare(currentCert)
+	if !errors.Is(err, ErrRenewalInProgress) {
+		t.Errorf("second Prepare: got %v, want ErrRenewalInProgress", err)
+	}
+}
+
+func TestManager_Prepare_SucceedsAfterExpiry(t *testing.T) {
+	ca := mustGenerateCA(t)
+	currentCert := mustGenerateServerCert(t, ca, []string{"proxy.example.com"}, nil)
+
+	m := NewManager()
+	// Freeze time so the first pending expires immediately.
+	frozenPast := time.Now().Add(-PendingTTL - time.Second)
+	m.now = func() time.Time { return frozenPast }
+
+	_, _, err := m.Prepare(currentCert)
 	if err != nil {
-		t.Fatalf("second Prepare: %v", err)
+		t.Fatalf("first Prepare: %v", err)
 	}
 
-	if firstID == secondID {
-		t.Error("second Prepare returned the same renewal_id as the first")
-	}
+	// Restore real time so the pending is seen as expired.
+	m.now = time.Now
 
-	pending := m.Pending()
-	if pending == nil || pending.RenewalID != secondID {
-		t.Error("pending state should reflect the second Prepare")
-	}
-
-	// Installing with the first id must now fail.
-	csrPEM := pending.CSRPEM
-	newCertPEM := signCSRPEM(t, ca, csrPEM)
-	_, err = m.Install(firstID, newCertPEM)
-	if !errors.Is(err, ErrRenewalIDMismatch) {
-		t.Errorf("Install with first id after second Prepare: got %v, want ErrRenewalIDMismatch", err)
+	_, _, err = m.Prepare(currentCert)
+	if err != nil {
+		t.Errorf("second Prepare after expiry: got %v, want nil", err)
 	}
 }
 
@@ -313,6 +319,8 @@ func TestManager_ConcurrentPrepare_NoDataRace(t *testing.T) {
 	ca := mustGenerateCA(t)
 	currentCert := mustGenerateServerCert(t, ca, []string{"proxy.example.com"}, nil)
 
+	// All goroutines except the first will get ErrRenewalInProgress; errors
+	// are intentionally ignored here — the test only checks for data races.
 	m := NewManager()
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {

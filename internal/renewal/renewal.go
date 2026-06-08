@@ -38,24 +38,33 @@ const (
 	PendingTTL = 10 * time.Minute
 )
 
-// Sentinel errors returned by Install.
+// Sentinel errors returned by Prepare and Install.
 var (
 	ErrNoPending         = errors.New("no pending renewal; call prepare first")
+	ErrRenewalInProgress = errors.New("renewal already in progress; install or wait for expiry")
 	ErrRenewalIDMismatch = errors.New("renewal_id does not match pending renewal")
 	ErrExpired           = errors.New("pending renewal has expired")
 	ErrKeyMismatch       = errors.New("certificate public key does not match pending private key")
 )
 
 // PendingRenewal holds the in-progress state between Prepare and Install.
+// KeyPEM is zeroed when the pending is cleared to limit key material lifetime.
 type PendingRenewal struct {
 	RenewalID string
-	KeyPEM    []byte // PEM-encoded private key — used to form tls.Certificate on Install
+	KeyPEM    []byte // PEM-encoded private key — zeroed on discard
 	CSRPEM    []byte
 	ExpiresAt time.Time
 }
 
-// Manager serialises the prepare→install handshake. A new Prepare call
-// supersedes any in-flight pending renewal (the old key material is discarded).
+// PendingInfo is a key-less snapshot of PendingRenewal, safe for logging.
+type PendingInfo struct {
+	RenewalID string
+	ExpiresAt time.Time
+}
+
+// Manager serialises the prepare→install handshake. A second Prepare while a
+// non-expired pending exists returns ErrRenewalInProgress; callers must install
+// or wait for the TTL to expire before retrying.
 type Manager struct {
 	mu      sync.Mutex
 	pending *PendingRenewal
@@ -69,16 +78,19 @@ func NewManager() *Manager {
 
 // Prepare generates a fresh ECDSA P-256 key pair and CSR preserving the SANs
 // of currentCert. It stores the pending state and returns the CSR PEM and a
-// 64-character hex renewal_id. A second call to Prepare supersedes any
-// previous pending renewal.
+// 64-character hex renewal_id.
+//
+// Returns ErrRenewalInProgress if a non-expired pending renewal already exists.
 func (m *Manager) Prepare(currentCert tls.Certificate) (csrPEM []byte, renewalID string, err error) {
-	dnsNames, ips, err := extractSANs(currentCert)
+	x509Cert, err := parseCertDER(currentCert)
 	if err != nil {
 		return nil, "", err
 	}
 
-	cn := extractCN(currentCert)
+	dnsNames, ips := extractSANs(x509Cert)
+	cn := extractCN(x509Cert)
 
+	// Generate key material outside the lock — crypto ops are slow.
 	bundle, err := crypto.GenerateServerCSR(cn, dnsNames, ips)
 	if err != nil {
 		return nil, "", err
@@ -90,6 +102,10 @@ func (m *Manager) Prepare(currentCert tls.Certificate) (csrPEM []byte, renewalID
 	}
 
 	m.mu.Lock()
+	if m.pending != nil && !m.now().After(m.pending.ExpiresAt) {
+		m.mu.Unlock()
+		return nil, "", ErrRenewalInProgress
+	}
 	m.pending = &PendingRenewal{
 		RenewalID: id,
 		KeyPEM:    bundle.KeyPEM,
@@ -129,9 +145,10 @@ func (m *Manager) Install(renewalID string, certPEM []byte) (tls.Certificate, er
 		return tls.Certificate{}, err
 	}
 
-	// Clear pending state on success so the renewal_id cannot be replayed.
+	// Zero and clear pending so the renewal_id cannot be replayed.
 	m.mu.Lock()
 	if m.pending == pending {
+		zeroBytes(m.pending.KeyPEM)
 		m.pending = nil
 	}
 	m.mu.Unlock()
@@ -139,36 +156,39 @@ func (m *Manager) Install(renewalID string, certPEM []byte) (tls.Certificate, er
 	return newCert, nil
 }
 
-// Pending returns the current pending renewal, or nil if none exists.
-// Intended for handler logging; callers must not mutate the returned value.
-func (m *Manager) Pending() *PendingRenewal {
+// Pending returns a key-less snapshot of the current pending renewal, or nil
+// if none exists. Safe to log.
+func (m *Manager) Pending() *PendingInfo {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.pending
+	if m.pending == nil {
+		return nil
+	}
+	return &PendingInfo{
+		RenewalID: m.pending.RenewalID,
+		ExpiresAt: m.pending.ExpiresAt,
+	}
 }
 
 // --- helpers ---
 
-func extractSANs(cert tls.Certificate) (dnsNames []string, ips []net.IP, err error) {
+// parseCertDER parses the first DER-encoded certificate in cert.
+func parseCertDER(cert tls.Certificate) (*x509.Certificate, error) {
 	if len(cert.Certificate) == 0 {
-		return nil, nil, errors.New("tls.Certificate has no DER bytes")
+		return nil, errors.New("tls.Certificate has no DER bytes")
 	}
-	x509Cert, err := x509.ParseCertificate(cert.Certificate[0])
-	if err != nil {
-		return nil, nil, err
-	}
-	return x509Cert.DNSNames, x509Cert.IPAddresses, nil
+	return x509.ParseCertificate(cert.Certificate[0])
 }
 
-func extractCN(cert tls.Certificate) string {
-	if len(cert.Certificate) == 0 {
+func extractSANs(cert *x509.Certificate) (dnsNames []string, ips []net.IP) {
+	return cert.DNSNames, cert.IPAddresses
+}
+
+func extractCN(cert *x509.Certificate) string {
+	if cert.Subject.CommonName == "" {
 		return "chaperone"
 	}
-	x509Cert, err := x509.ParseCertificate(cert.Certificate[0])
-	if err != nil || x509Cert.Subject.CommonName == "" {
-		return "chaperone"
-	}
-	return x509Cert.Subject.CommonName
+	return cert.Subject.CommonName
 }
 
 func generateRenewalID() (string, error) {
@@ -209,4 +229,11 @@ func verifyKeyMatch(certPEM, keyPEM []byte) error {
 		return ErrKeyMismatch
 	}
 	return nil
+}
+
+// zeroBytes overwrites b with zeros to limit key material lifetime in memory.
+func zeroBytes(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
 }
