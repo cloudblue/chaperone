@@ -3,7 +3,7 @@ module github.com/cloudblue/chaperone/plugins/contrib/microsoft/keyvault
 go 1.26.4
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.1
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.4.0
 	github.com/cloudblue/chaperone/plugins/contrib v0.1.1
 )
