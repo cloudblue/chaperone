@@ -12,6 +12,8 @@ import (
 	"os"
 )
 
+const keyRenewalID = "renewal_id"
+
 // CertSwapper is satisfied by proxy.CertProvider. Defined here to avoid an
 // import cycle between the renewal and proxy packages.
 type CertSwapper interface {
@@ -70,13 +72,13 @@ func (h *Handler) HandlePrepare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pending := h.manager.Pending()
-	slog.Info("renewal prepare completed", "renewal_id", renewalID, "expires_at", pending.ExpiresAt)
+	slog.Info("renewal prepare completed", keyRenewalID, renewalID, "expires_at", pending.ExpiresAt)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"csr":        string(csrPEM),
-		"renewal_id": renewalID,
+		keyRenewalID: renewalID,
 	})
 }
 
@@ -114,7 +116,7 @@ func (h *Handler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 	certPEM := []byte(body.Certificate)
 	newCert, keyPEM, err := h.manager.Install(body.RenewalID, certPEM)
 	if err != nil {
-		slog.Warn("renewal install rejected", "renewal_id", body.RenewalID, "error", err)
+		slog.Warn("renewal install rejected", keyRenewalID, body.RenewalID, "error", err)
 		switch {
 		case errors.Is(err, ErrNoPending), errors.Is(err, ErrRenewalIDMismatch), errors.Is(err, ErrExpired):
 			writeJSONError(w, http.StatusConflict, err.Error())
@@ -137,7 +139,7 @@ func (h *Handler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 		slog.Error("renewal: failed to write key file", "path", h.keyFile, "error", err)
 	}
 
-	slog.Info("renewal install completed", "renewal_id", body.RenewalID, "cert_not_after", newCert.Leaf.NotAfter)
+	slog.Info("renewal install completed", keyRenewalID, body.RenewalID, "cert_not_after", newCert.Leaf.NotAfter)
 	w.WriteHeader(http.StatusAccepted)
 }
 

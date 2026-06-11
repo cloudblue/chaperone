@@ -29,9 +29,9 @@ type fakeCertSwapper struct {
 	swapped []tls.Certificate
 }
 
-func (f *fakeCertSwapper) Current() tls.Certificate    { return f.cert }
-func (f *fakeCertSwapper) Swap(c tls.Certificate)      { f.swapped = append(f.swapped, c) }
-func (f *fakeCertSwapper) SwapCount() int              { return len(f.swapped) }
+func (f *fakeCertSwapper) Current() tls.Certificate { return f.cert }
+func (f *fakeCertSwapper) Swap(c tls.Certificate)   { f.swapped = append(f.swapped, c) }
+func (f *fakeCertSwapper) SwapCount() int           { return len(f.swapped) }
 
 func mustMakeSwapper(t *testing.T) (*fakeCertSwapper, *crypto.CertPair) {
 	t.Helper()
@@ -91,8 +91,7 @@ func postJSON(t *testing.T, h http.Handler, path string, body any) *httptest.Res
 			t.Fatalf("encode body: %v", err)
 		}
 	}
-	req := httptest.NewRequest(http.MethodPost, path, &buf)
-	req = req.WithContext(context.Background())
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, path, &buf)
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
