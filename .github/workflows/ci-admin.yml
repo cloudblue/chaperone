@@ -161,6 +161,12 @@ jobs:
         working-directory: admin/ui
         run: pnpm install --frozen-lockfile
 
+      # The Playwright image is minimal and ships without `make`, which the
+      # E2E flow needs: global-setup.js shells out to `make build-admin`.
+      # (CGO is disabled in build-admin, so no C toolchain is required.)
+      - name: Install make (absent from the Playwright image)
+        run: apt-get update && apt-get install -y --no-install-recommends make
+
       # No browser-install step: the Playwright container image (see the job's
       # `container:` above) already provides chromium, firefox and webkit with
       # their OS deps at the matching version, so nothing is downloaded here.
