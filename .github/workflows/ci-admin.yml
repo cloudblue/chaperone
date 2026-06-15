@@ -124,10 +124,31 @@ jobs:
   e2e:
     name: E2E
     runs-on: ubuntu-latest
+    # Run inside the official Playwright image: it ships the browser binaries
+    # AND their OS dependencies pre-installed, so CI never downloads browsers
+    # from cdn.playwright.dev. That download stalled and hung the job to the
+    # 6h ceiling (see PR #121). The image tag MUST match the @playwright/test
+    # version in admin/ui/pnpm-lock.yaml — bump both together, or Playwright
+    # will fall back to downloading the matching browsers at runtime.
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
+    # Safety net: if any step ever hangs again, fail fast instead of running
+    # until GitHub's 360-minute default and burning a full runner-day.
+    timeout-minutes: 25
     needs: [lint-go, lint-ui, test-go, test-ui]
     permissions:
       contents: read
       pull-requests: write
+    env:
+      # The job runs as root inside the container while the checked-out
+      # workspace is owned by another uid, so `go build`'s default VCS stamping
+      # fails with "error obtaining VCS status: exit status 128". These are
+      # throwaway test builds, so disable stamping (Go suggests exactly this).
+      GOFLAGS: -buildvcs=false
+      # Firefox refuses to launch as root when $HOME (/github/home) is owned by
+      # another user (the image's pwuser). Point HOME at root's own home — the
+      # workaround Playwright prints for running its container on CI as root.
+      HOME: /root
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -150,9 +171,15 @@ jobs:
         working-directory: admin/ui
         run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright browsers
-        working-directory: admin/ui
-        run: pnpm exec playwright install chromium firefox webkit --with-deps
+      # The Playwright image is minimal and ships without `make`, which the
+      # E2E flow needs: global-setup.js shells out to `make build-admin`.
+      # (CGO is disabled in build-admin, so no C toolchain is required.)
+      - name: Install make (absent from the Playwright image)
+        run: apt-get update && apt-get install -y --no-install-recommends make
+
+      # No browser-install step: the Playwright container image (see the job's
+      # `container:` above) already provides chromium, firefox and webkit with
+      # their OS deps at the matching version, so nothing is downloaded here.
 
       - name: Run E2E tests
         run: make e2e-admin
@@ -166,8 +193,10 @@ jobs:
           retention-days: 14
 
       - name: Post test summary to PR
-        # Skipped on forked PRs (read-only token) and on push events.
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        # Skipped on forked PRs (read-only token), on push events, and when the
+        # E2E step produced no results.json (e.g. an earlier step failed) — the
+        # summary action errors on a missing report file.
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('admin/ui/e2e/results.json') != '' }}
         uses: daun/playwright-report-summary@8bb85779022480a59ed8d33d9a4b8bda1c67666b # v4.0.0
         with:
           report-file: admin/ui/e2e/results.json
