@@ -124,6 +124,10 @@ jobs:
   e2e:
     name: E2E
     runs-on: ubuntu-latest
+    # Safety net: a hung step (historically the Playwright browser download)
+    # otherwise runs until GitHub's 360-minute default, burning a full
+    # runner-day per stuck run. Cap it so failures are fast and actionable.
+    timeout-minutes: 25
     needs: [lint-go, lint-ui, test-go, test-ui]
     permissions:
       contents: read
@@ -150,9 +154,32 @@ jobs:
         working-directory: admin/ui
         run: pnpm install --frozen-lockfile
 
+      # Cache the downloaded browser binaries keyed on the lockfile (which
+      # pins the Playwright version). On a cache hit the binaries are restored
+      # and the install step does not hit cdn.playwright.dev at all, which is
+      # the stall-prone path.
+      - name: Cache Playwright browsers
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('admin/ui/pnpm-lock.yaml') }}
+
       - name: Install Playwright browsers
         working-directory: admin/ui
-        run: pnpm exec playwright install chromium firefox webkit --with-deps
+        # The browser binaries download from cdn.playwright.dev, which
+        # occasionally stalls with no progress. `playwright install` has no
+        # stall timeout, so without bounds it hangs until the 6h job ceiling.
+        # Bound each attempt and retry: a stalled download is killed at 5min
+        # and re-attempted (install is idempotent — already-present browsers
+        # are skipped). `--with-deps` re-runs fast on a cache hit (apt only).
+        timeout-minutes: 18
+        run: |
+          for attempt in 1 2 3; do
+            timeout 300 pnpm exec playwright install chromium firefox webkit --with-deps && exit 0
+            echo "::warning::playwright install attempt ${attempt} stalled or failed; retrying"
+          done
+          echo "::error::playwright install failed after 3 attempts"
+          exit 1
 
       - name: Run E2E tests
         run: make e2e-admin
