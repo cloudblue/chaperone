@@ -139,6 +139,12 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    env:
+      # The job runs as root inside the container while the checked-out
+      # workspace is owned by another uid, so `go build`'s default VCS stamping
+      # fails with "error obtaining VCS status: exit status 128". These are
+      # throwaway test builds, so disable stamping (Go suggests exactly this).
+      GOFLAGS: -buildvcs=false
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
