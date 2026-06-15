@@ -145,6 +145,10 @@ jobs:
       # fails with "error obtaining VCS status: exit status 128". These are
       # throwaway test builds, so disable stamping (Go suggests exactly this).
       GOFLAGS: -buildvcs=false
+      # Firefox refuses to launch as root when $HOME (/github/home) is owned by
+      # another user (the image's pwuser). Point HOME at root's own home — the
+      # workaround Playwright prints for running its container on CI as root.
+      HOME: /root
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
