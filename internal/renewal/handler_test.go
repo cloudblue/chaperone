@@ -495,9 +495,9 @@ func TestHandler_GetCertificate_ReturnsNewCertAfterInstall(t *testing.T) {
 // test: it runs the full prepare→install handshake against a real mTLS listener
 // and verifies that GetCertificate returns the new certificate after the swap.
 //
-// The atomic-write invariant (old files intact on mid-write failure) is enforced
-// by the persistPair implementation (temp-file + os.Rename) and tested by
-// TestHandler_Install_DiskWriteFailure_Returns500.
+// The no-inconsistency invariant (cert and key are never left mismatched on disk)
+// is enforced by persistPair: a failed second rename triggers rollback of the first.
+// Disk-write failure paths are covered by TestHandler_Install_DiskWriteFailure_Returns500.
 func TestHandler_MtLS_PrepareInstallCycle(t *testing.T) {
 	// Generate CA, initial server cert, and client cert.
 	ca, err := crypto.GenerateCA(time.Hour)

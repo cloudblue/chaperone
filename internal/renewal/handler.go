@@ -122,6 +122,9 @@ func (h *Handler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 
 	certPEM := []byte(body.Certificate)
 	newCert, keyPEM, err := h.manager.Install(body.RenewalID, certPEM)
+	if err == nil {
+		defer zeroBytes(keyPEM)
+	}
 	if err != nil {
 		slog.Warn("renewal install rejected", keyRenewalID, body.RenewalID, "error", err)
 		switch {
@@ -159,8 +162,9 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 }
 
 // persistPair writes certPEM and keyPEM to temp files in their respective
-// directories, then renames both only after both writes succeed. A failure
-// leaves the originals intact and returns an error.
+// directories, then renames both. If the key rename fails after the cert rename
+// succeeds, the new cert file is removed so the pair is never left mismatched on
+// disk. The caller receives an error and should treat the cert as in-memory only.
 func persistPair(certPath string, certPEM []byte, keyPath string, keyPEM []byte) error {
 	certTmp, err := writePEMToTemp(certPath, certPEM)
 	if err != nil {
@@ -178,6 +182,7 @@ func persistPair(certPath string, certPEM []byte, keyPath string, keyPEM []byte)
 	}
 	if err := os.Rename(keyTmp, keyPath); err != nil {
 		_ = os.Remove(keyTmp)
+		_ = os.Remove(certPath) // roll back cert rename to avoid a mismatched pair on disk
 		return err
 	}
 	return nil
