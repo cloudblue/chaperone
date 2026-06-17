@@ -178,6 +178,8 @@ GET /metrics HTTP/1.1
 | `chaperone_route_decisions_total` | Counter | `action`, `target` | Per-request routing decisions made by the [`RequestRouter`](sdk.md#requestrouter-optional) (or the default credential flow) |
 | `chaperone_forward_target_duration_seconds` | Histogram | `target` | End-to-end duration of requests forwarded to a named [forward target](configuration.md#forward-targets) |
 | `chaperone_forward_target_errors_total` | Counter | `target`, `kind` | Infrastructure errors while forwarding to a named target (excludes 5xx responses from the target itself) |
+| `chaperone_cert_expiry_seconds` | Gauge | — | Seconds until the active TLS certificate expires (negative = already expired); updated on startup and after each hot-swap |
+| `chaperone_cert_renewals_total` | Counter | `status` (`success`\|`failure`) | Total certificate renewal attempts via `/_ops/renew/install` |
 
 `status_class` is bucketed (`2xx`, `3xx`, `4xx`, `5xx`). `vendor_id` is
 normalized to `[a-zA-Z0-9._-]` and truncated to 64 characters; invalid
