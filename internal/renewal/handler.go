@@ -11,6 +11,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/cloudblue/chaperone/internal/telemetry"
 )
 
 const keyRenewalID = "renewal_id"
@@ -127,6 +130,7 @@ func (h *Handler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Warn("renewal install rejected", keyRenewalID, body.RenewalID, "error", err)
+		telemetry.CertRenewalsTotal.WithLabelValues("failure").Inc()
 		switch {
 		case errors.Is(err, ErrNoPending), errors.Is(err, ErrRenewalIDMismatch), errors.Is(err, ErrExpired):
 			writeJSONError(w, http.StatusConflict, err.Error())
@@ -140,6 +144,8 @@ func (h *Handler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 
 	// Hot-swap the TLS listener — in-flight connections are unaffected.
 	h.provider.Swap(newCert)
+	telemetry.CertExpirySeconds.Set(time.Until(newCert.Leaf.NotAfter).Seconds())
+	telemetry.CertRenewalsTotal.WithLabelValues("success").Inc()
 
 	// Persist cert and key to disk. Both are written to temp files first;
 	// renames are committed only after both writes succeed. A failure here

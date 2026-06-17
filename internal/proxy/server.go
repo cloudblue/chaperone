@@ -317,6 +317,10 @@ func (s *Server) Start() error {
 			return err
 		}
 		s.certProvider = provider
+		// Seed the cert expiry gauge from the freshly loaded certificate.
+		if current := provider.Current(); current.Leaf != nil {
+			telemetry.CertExpirySeconds.Set(time.Until(current.Leaf.NotAfter).Seconds())
+		}
 	}
 
 	s.httpSrv = &http.Server{

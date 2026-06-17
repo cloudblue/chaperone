@@ -175,6 +175,8 @@ GET /metrics HTTP/1.1
 | `chaperone_upstream_duration_seconds` | Histogram | `vendor_id` | Upstream (vendor API) latency |
 | `chaperone_active_connections` | Gauge | — | Number of in-flight requests |
 | `chaperone_panics_total` | Counter | — | Total recovered panics |
+| `chaperone_cert_expiry_seconds` | Gauge | — | Seconds until the active TLS certificate expires (negative = already expired); updated on startup and after each hot-swap |
+| `chaperone_cert_renewals_total` | Counter | `status` (`success`\|`failure`) | Total certificate renewal attempts via `/_ops/renew/install` |
 
 `status_class` is bucketed (`2xx`, `3xx`, `4xx`, `5xx`). `vendor_id` is
 normalized to `[a-zA-Z0-9._-]` and truncated to 64 characters; invalid

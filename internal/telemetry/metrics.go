@@ -35,12 +35,14 @@ var APILatencyBuckets = []float64{
 //	This simplifies the code and matches the expected operational pattern
 //	where a single process serves metrics. For test isolation, use Reset()
 //	on metric vectors with t.Cleanup().
+const namespace = "chaperone"
+
 var (
 	// RequestsTotal counts total requests processed.
 	// Labels: vendor_id, status_class, method
 	RequestsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "chaperone",
+			Namespace: namespace,
 			Name:      "requests_total",
 			Help:      "Total number of requests processed",
 		},
@@ -51,7 +53,7 @@ var (
 	// Labels: vendor_id
 	RequestDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "chaperone",
+			Namespace: namespace,
 			Name:      "request_duration_seconds",
 			Help:      "Total request duration including plugin and upstream",
 			Buckets:   APILatencyBuckets,
@@ -63,7 +65,7 @@ var (
 	// Labels: vendor_id
 	UpstreamDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "chaperone",
+			Namespace: namespace,
 			Name:      "upstream_duration_seconds",
 			Help:      "Time spent waiting for upstream response",
 			Buckets:   APILatencyBuckets,
@@ -74,7 +76,7 @@ var (
 	// ActiveConnections tracks number of active connections (in-flight requests).
 	ActiveConnections = promauto.NewGauge(
 		prometheus.GaugeOpts{
-			Namespace: "chaperone",
+			Namespace: namespace,
 			Name:      "active_connections",
 			Help:      "Number of active connections",
 		},
@@ -84,10 +86,32 @@ var (
 	// Exposes the panic count from WithPanicRecovery middleware as a Prometheus metric.
 	PanicsTotal = promauto.NewCounter(
 		prometheus.CounterOpts{
-			Namespace: "chaperone",
+			Namespace: namespace,
 			Name:      "panics_total",
 			Help:      "Total number of recovered panics",
 		},
+	)
+
+	// CertExpirySeconds tracks seconds until the active TLS certificate expires.
+	// Negative values indicate an already-expired certificate.
+	// Updated on startup and after each certificate hot-swap.
+	CertExpirySeconds = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "cert_expiry_seconds",
+			Help:      "Seconds until the active TLS certificate expires (negative = already expired)",
+		},
+	)
+
+	// CertRenewalsTotal counts certificate renewal attempts by outcome.
+	// Labels: status (success|failure)
+	CertRenewalsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "cert_renewals_total",
+			Help:      "Total certificate renewal attempts",
+		},
+		[]string{"status"},
 	)
 )
 
