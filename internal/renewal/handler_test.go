@@ -566,8 +566,14 @@ func TestHandler_MtLS_PrepareInstallCycle(t *testing.T) {
 	httpClient := &http.Client{Transport: &http.Transport{TLSClientConfig: clientTLS}}
 	base := "https://" + ln.Addr().String()
 
+	ctx := context.Background()
+
 	// Step 1: prepare — server generates a fresh keypair and returns CSR + renewal_id.
-	resp, err := httpClient.Post(base+"/_ops/renew/prepare", "application/json", nil)
+	prepReq, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/_ops/renew/prepare", nil)
+	if err != nil {
+		t.Fatalf("new prepare request: %v", err)
+	}
+	resp, err := httpClient.Do(prepReq)
 	if err != nil {
 		t.Fatalf("POST prepare: %v", err)
 	}
@@ -576,11 +582,11 @@ func TestHandler_MtLS_PrepareInstallCycle(t *testing.T) {
 		t.Fatalf("prepare: got %d, want 200", resp.StatusCode)
 	}
 	var prepResp map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&prepResp); err != nil {
-		resp.Body.Close()
-		t.Fatalf("decode prepare response: %v", err)
-	}
+	decodeErr := json.NewDecoder(resp.Body).Decode(&prepResp)
 	resp.Body.Close()
+	if decodeErr != nil {
+		t.Fatalf("decode prepare response: %v", decodeErr)
+	}
 
 	// Step 2: sign the CSR with the test CA.
 	newCertPEM := signCSR(t, ca, []byte(prepResp["csr"]))
@@ -593,26 +599,33 @@ func TestHandler_MtLS_PrepareInstallCycle(t *testing.T) {
 	}
 
 	// Step 3: install — server validates, hot-swaps TLS cert, and writes to disk.
-	body, _ := json.Marshal(map[string]string{
+	installBody, _ := json.Marshal(map[string]string{
 		"renewal_id":  prepResp["renewal_id"],
 		"certificate": string(newCertPEM),
 	})
-	resp, err = httpClient.Post(base+"/_ops/renew/install", "application/json", bytes.NewReader(body))
+	installReq, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/_ops/renew/install", bytes.NewReader(installBody))
+	if err != nil {
+		t.Fatalf("new install request: %v", err)
+	}
+	installReq.Header.Set("Content-Type", "application/json")
+	installResp, err := httpClient.Do(installReq)
 	if err != nil {
 		t.Fatalf("POST install: %v", err)
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("install: got %d, want 202", resp.StatusCode)
+	installResp.Body.Close()
+	if installResp.StatusCode != http.StatusAccepted {
+		t.Fatalf("install: got %d, want 202", installResp.StatusCode)
 	}
 
 	// Step 4: open a fresh TLS connection and assert GetCertificate returns
 	// the new certificate (matching serial number).
-	conn, err := tls.Dial("tcp", ln.Addr().String(), clientTLS)
+	dialer := &tls.Dialer{Config: clientTLS}
+	conn, err := dialer.DialContext(ctx, "tcp", ln.Addr().String())
 	if err != nil {
 		t.Fatalf("tls.Dial after install: %v", err)
 	}
-	peerCerts := conn.ConnectionState().PeerCertificates
+	tlsConn := conn.(*tls.Conn)
+	peerCerts := tlsConn.ConnectionState().PeerCertificates
 	conn.Close()
 
 	if len(peerCerts) == 0 {

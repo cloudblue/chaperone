@@ -193,16 +193,16 @@ func writePEMToTemp(targetPath string, data []byte) (string, error) {
 	tmp := f.Name()
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
-		_ = os.Remove(tmp)
+		_ = os.Remove(tmp) // #nosec G703 -- tmp is the OS-generated temp path, not user-controlled
 		return "", err
 	}
 	if err := f.Chmod(0o600); err != nil {
 		_ = f.Close()
-		_ = os.Remove(tmp)
+		_ = os.Remove(tmp) // #nosec G703
 		return "", err
 	}
 	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
+		_ = os.Remove(tmp) // #nosec G703
 		return "", err
 	}
 	return tmp, nil
