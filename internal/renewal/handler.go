@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 )
 
 const keyRenewalID = "renewal_id"
@@ -66,6 +67,10 @@ func (h *Handler) HandlePrepare(w http.ResponseWriter, r *http.Request) {
 	currentCert := h.provider.Current()
 	csrPEM, renewalID, err := h.manager.Prepare(currentCert)
 	if err != nil {
+		if errors.Is(err, ErrRenewalInProgress) {
+			writeJSONError(w, http.StatusConflict, err.Error())
+			return
+		}
 		slog.Error("renewal prepare failed", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "prepare failed")
 		return
@@ -100,6 +105,8 @@ func (h *Handler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+
 	var body struct {
 		RenewalID   string `json:"renewal_id"`
 		Certificate string `json:"certificate"`
@@ -120,7 +127,7 @@ func (h *Handler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, ErrNoPending), errors.Is(err, ErrRenewalIDMismatch), errors.Is(err, ErrExpired):
 			writeJSONError(w, http.StatusConflict, err.Error())
-		case errors.Is(err, ErrKeyMismatch):
+		case errors.Is(err, ErrKeyMismatch), errors.Is(err, ErrInvalidCertificate):
 			writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 		default:
 			writeJSONError(w, http.StatusInternalServerError, "install failed")
@@ -131,12 +138,13 @@ func (h *Handler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 	// Hot-swap the TLS listener — in-flight connections are unaffected.
 	h.provider.Swap(newCert)
 
-	// Atomically persist the new cert and key to disk.
-	if err := writePEMAtomically(h.certFile, certPEM, 0o600); err != nil {
-		slog.Error("renewal: failed to write cert file", "path", h.certFile, "error", err)
-	}
-	if err := writePEMAtomically(h.keyFile, keyPEM, 0o600); err != nil {
-		slog.Error("renewal: failed to write key file", "path", h.keyFile, "error", err)
+	// Persist cert and key to disk. Both are written to temp files first;
+	// renames are committed only after both writes succeed. A failure here
+	// returns 500 so the caller knows persistence did not complete.
+	if err := persistPair(h.certFile, certPEM, h.keyFile, keyPEM); err != nil {
+		slog.Error("renewal: failed to persist cert/key", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "certificate installed but failed to persist to disk")
+		return
 	}
 
 	slog.Info("renewal install completed", keyRenewalID, body.RenewalID, "cert_not_after", newCert.Leaf.NotAfter)
@@ -150,11 +158,52 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
-// writePEMAtomically writes data to path via a temp file + rename (POSIX atomic).
-func writePEMAtomically(path string, data []byte, mode os.FileMode) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, mode); err != nil {
+// persistPair writes certPEM and keyPEM to temp files in their respective
+// directories, then renames both only after both writes succeed. A failure
+// leaves the originals intact and returns an error.
+func persistPair(certPath string, certPEM []byte, keyPath string, keyPEM []byte) error {
+	certTmp, err := writePEMToTemp(certPath, certPEM)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	keyTmp, err := writePEMToTemp(keyPath, keyPEM)
+	if err != nil {
+		_ = os.Remove(certTmp)
+		return err
+	}
+	if err := os.Rename(certTmp, certPath); err != nil {
+		_ = os.Remove(certTmp)
+		_ = os.Remove(keyTmp)
+		return err
+	}
+	if err := os.Rename(keyTmp, keyPath); err != nil {
+		_ = os.Remove(keyTmp)
+		return err
+	}
+	return nil
+}
+
+// writePEMToTemp writes data to a new temp file in the same directory as
+// targetPath and returns the temp file name. The caller must rename or remove it.
+func writePEMToTemp(targetPath string, data []byte) (string, error) {
+	f, err := os.CreateTemp(filepath.Dir(targetPath), ".pem-*.tmp")
+	if err != nil {
+		return "", err
+	}
+	tmp := f.Name()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	return tmp, nil
 }

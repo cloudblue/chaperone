@@ -308,6 +308,121 @@ func TestHandler_NilProvider_AutoRotateForcedFalse(t *testing.T) {
 	}
 }
 
+func TestHandler_Prepare_RenewalInProgress_Returns409(t *testing.T) {
+	swapper, _ := mustMakeSwapper(t)
+	h := NewHandler(NewManager(), swapper, "/tmp/cert.pem", "/tmp/key.pem", true)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /_ops/renew/prepare", h.HandlePrepare)
+
+	// First prepare succeeds.
+	rr := postJSON(t, mux, "/_ops/renew/prepare", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("first prepare: got %d, want 200", rr.Code)
+	}
+
+	// Second prepare while first is still pending returns 409.
+	rr = postJSON(t, mux, "/_ops/renew/prepare", nil)
+	if rr.Code != http.StatusConflict {
+		t.Errorf("second prepare: got %d, want 409", rr.Code)
+	}
+}
+
+func TestHandler_Install_InvalidCertPEM_Returns422(t *testing.T) {
+	swapper, _ := mustMakeSwapper(t)
+	manager := NewManager()
+	h := NewHandler(manager, swapper, "/tmp/cert.pem", "/tmp/key.pem", true)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /_ops/renew/prepare", h.HandlePrepare)
+	mux.HandleFunc("POST /_ops/renew/install", h.HandleInstall)
+
+	rr := postJSON(t, mux, "/_ops/renew/prepare", nil)
+	var prepResp map[string]string
+	_ = json.Unmarshal(rr.Body.Bytes(), &prepResp)
+
+	// Send a garbage certificate PEM — not valid DER.
+	rr = postJSON(t, mux, "/_ops/renew/install", map[string]string{
+		"renewal_id":  prepResp["renewal_id"],
+		"certificate": "-----BEGIN CERTIFICATE-----\nbm90dmFsaWQ=\n-----END CERTIFICATE-----\n",
+	})
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("invalid cert PEM: got %d, want 422", rr.Code)
+	}
+}
+
+func TestHandler_Install_DiskWriteFailure_Returns500(t *testing.T) {
+	swapper, ca := mustMakeSwapper(t)
+	manager := NewManager()
+	// Use a non-writable path to force a disk write failure.
+	h := NewHandler(manager, swapper, "/no-such-dir/cert.pem", "/no-such-dir/key.pem", true)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /_ops/renew/prepare", h.HandlePrepare)
+	mux.HandleFunc("POST /_ops/renew/install", h.HandleInstall)
+
+	rr := postJSON(t, mux, "/_ops/renew/prepare", nil)
+	var prepResp map[string]string
+	_ = json.Unmarshal(rr.Body.Bytes(), &prepResp)
+
+	newCertPEM := signCSR(t, ca, []byte(prepResp["csr"]))
+	rr = postJSON(t, mux, "/_ops/renew/install", map[string]string{
+		"renewal_id":  prepResp["renewal_id"],
+		"certificate": string(newCertPEM),
+	})
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("disk write failure: got %d, want 500", rr.Code)
+	}
+	// In-memory swap still happened — swap count should be 1.
+	if swapper.SwapCount() != 1 {
+		t.Errorf("swap count = %d, want 1", swapper.SwapCount())
+	}
+}
+
+func TestHandler_ConcurrentInstall_OnlyOneSucceeds(t *testing.T) {
+	swapper, ca := mustMakeSwapper(t)
+	dir := t.TempDir()
+	manager := NewManager()
+	h := NewHandler(manager, swapper, filepath.Join(dir, "server.crt"), filepath.Join(dir, "server.key"), true)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /_ops/renew/prepare", h.HandlePrepare)
+	mux.HandleFunc("POST /_ops/renew/install", h.HandleInstall)
+
+	rr := postJSON(t, mux, "/_ops/renew/prepare", nil)
+	var prepResp map[string]string
+	_ = json.Unmarshal(rr.Body.Bytes(), &prepResp)
+	newCertPEM := signCSR(t, ca, []byte(prepResp["csr"]))
+
+	results := make([]int, 2)
+	done := make(chan struct{})
+	for i := range results {
+		go func(idx int) {
+			defer func() { done <- struct{}{} }()
+			rr := postJSON(t, mux, "/_ops/renew/install", map[string]string{
+				"renewal_id":  prepResp["renewal_id"],
+				"certificate": string(newCertPEM),
+			})
+			results[idx] = rr.Code
+		}(i)
+	}
+	<-done
+	<-done
+
+	successes := 0
+	for _, code := range results {
+		if code == http.StatusAccepted {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Errorf("concurrent install: %d succeeded, want exactly 1; codes: %v", successes, results)
+	}
+	if swapper.SwapCount() != 1 {
+		t.Errorf("Swap called %d times, want 1", swapper.SwapCount())
+	}
+}
+
 func TestHandler_GetCertificate_ReturnsNewCertAfterInstall(t *testing.T) {
 	swapper, ca := mustMakeSwapper(t)
 	dir := t.TempDir()
