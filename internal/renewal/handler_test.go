@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -423,6 +424,37 @@ func TestHandler_ConcurrentInstall_OnlyOneSucceeds(t *testing.T) {
 	}
 }
 
+// testCertProvider is a thread-safe CertSwapper that also exposes
+// GetCertificate for wiring into a real tls.Config in integration tests.
+// It mirrors proxy.CertProvider without importing internal/proxy.
+type testCertProvider struct {
+	mu   sync.RWMutex
+	cert tls.Certificate
+}
+
+func newTestCertProvider(cert tls.Certificate) *testCertProvider {
+	return &testCertProvider{cert: cert}
+}
+
+func (p *testCertProvider) Current() tls.Certificate {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.cert
+}
+
+func (p *testCertProvider) Swap(c tls.Certificate) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cert = c
+}
+
+func (p *testCertProvider) GetCertificate(_ *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	c := p.cert
+	return &c, nil
+}
+
 func TestHandler_GetCertificate_ReturnsNewCertAfterInstall(t *testing.T) {
 	swapper, ca := mustMakeSwapper(t)
 	dir := t.TempDir()
@@ -456,5 +488,138 @@ func TestHandler_GetCertificate_ReturnsNewCertAfterInstall(t *testing.T) {
 	}
 	if newCert.Leaf == nil {
 		t.Error("swapped certificate has nil Leaf")
+	}
+}
+
+// TestHandler_MtLS_PrepareInstallCycle is the acceptance-criteria integration
+// test: it runs the full prepare→install handshake against a real mTLS listener
+// and verifies that GetCertificate returns the new certificate after the swap.
+//
+// The atomic-write invariant (old files intact on mid-write failure) is enforced
+// by the persistPair implementation (temp-file + os.Rename) and tested by
+// TestHandler_Install_DiskWriteFailure_Returns500.
+func TestHandler_MtLS_PrepareInstallCycle(t *testing.T) {
+	// Generate CA, initial server cert, and client cert.
+	ca, err := crypto.GenerateCA(time.Hour)
+	if err != nil {
+		t.Fatalf("GenerateCA: %v", err)
+	}
+	serverPair, err := crypto.GenerateServerCert(ca, time.Hour)
+	if err != nil {
+		t.Fatalf("GenerateServerCert: %v", err)
+	}
+	clientPair, err := crypto.GenerateClientCert(ca, time.Hour)
+	if err != nil {
+		t.Fatalf("GenerateClientCert: %v", err)
+	}
+
+	// Parse the initial server cert and populate Leaf (required by Prepare).
+	initialCert, err := tls.X509KeyPair(serverPair.CertPEM, serverPair.KeyPEM)
+	if err != nil {
+		t.Fatalf("X509KeyPair server: %v", err)
+	}
+	initialCert.Leaf, err = x509.ParseCertificate(initialCert.Certificate[0])
+	if err != nil {
+		t.Fatalf("ParseCertificate initial: %v", err)
+	}
+
+	// Build CA pool for TLS verification on both ends.
+	caPool := x509.NewCertPool()
+	caBlock, _ := pem.Decode(ca.CertPEM)
+	caCertParsed, _ := x509.ParseCertificate(caBlock.Bytes)
+	caPool.AddCert(caCertParsed)
+
+	// Set up a real mTLS listener using the provider's GetCertificate callback.
+	provider := newTestCertProvider(initialCert)
+	tlsCfg := &tls.Config{
+		GetCertificate: provider.GetCertificate,
+		ClientAuth:     tls.RequireAndVerifyClientCert,
+		ClientCAs:      caPool,
+		MinVersion:     tls.VersionTLS13,
+	}
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", tlsCfg)
+	if err != nil {
+		t.Fatalf("tls.Listen: %v", err)
+	}
+
+	// Wire up renewal handler and start serving.
+	dir := t.TempDir()
+	manager := NewManager()
+	h := NewHandler(manager, provider, filepath.Join(dir, "server.crt"), filepath.Join(dir, "server.key"), true)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /_ops/renew/prepare", h.HandlePrepare)
+	mux.HandleFunc("POST /_ops/renew/install", h.HandleInstall)
+
+	srv := &http.Server{Handler: mux}
+	go srv.Serve(ln) //nolint:errcheck
+	t.Cleanup(func() { _ = srv.Close() })
+
+	// Build an mTLS HTTP client presenting the client cert and trusting the CA.
+	clientCert, err := tls.X509KeyPair(clientPair.CertPEM, clientPair.KeyPEM)
+	if err != nil {
+		t.Fatalf("X509KeyPair client: %v", err)
+	}
+	clientTLS := &tls.Config{
+		Certificates: []tls.Certificate{clientCert},
+		RootCAs:      caPool,
+	}
+	httpClient := &http.Client{Transport: &http.Transport{TLSClientConfig: clientTLS}}
+	base := "https://" + ln.Addr().String()
+
+	// Step 1: prepare — server generates a fresh keypair and returns CSR + renewal_id.
+	resp, err := httpClient.Post(base+"/_ops/renew/prepare", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST prepare: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		t.Fatalf("prepare: got %d, want 200", resp.StatusCode)
+	}
+	var prepResp map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&prepResp); err != nil {
+		resp.Body.Close()
+		t.Fatalf("decode prepare response: %v", err)
+	}
+	resp.Body.Close()
+
+	// Step 2: sign the CSR with the test CA.
+	newCertPEM := signCSR(t, ca, []byte(prepResp["csr"]))
+
+	// Parse the new cert now so we can compare serials after the swap.
+	newCertBlock, _ := pem.Decode(newCertPEM)
+	newCertParsed, err := x509.ParseCertificate(newCertBlock.Bytes)
+	if err != nil {
+		t.Fatalf("ParseCertificate new: %v", err)
+	}
+
+	// Step 3: install — server validates, hot-swaps TLS cert, and writes to disk.
+	body, _ := json.Marshal(map[string]string{
+		"renewal_id":  prepResp["renewal_id"],
+		"certificate": string(newCertPEM),
+	})
+	resp, err = httpClient.Post(base+"/_ops/renew/install", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST install: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("install: got %d, want 202", resp.StatusCode)
+	}
+
+	// Step 4: open a fresh TLS connection and assert GetCertificate returns
+	// the new certificate (matching serial number).
+	conn, err := tls.Dial("tcp", ln.Addr().String(), clientTLS)
+	if err != nil {
+		t.Fatalf("tls.Dial after install: %v", err)
+	}
+	peerCerts := conn.ConnectionState().PeerCertificates
+	conn.Close()
+
+	if len(peerCerts) == 0 {
+		t.Fatal("no server cert returned in new connection after install")
+	}
+	if peerCerts[0].SerialNumber.Cmp(newCertParsed.SerialNumber) != 0 {
+		t.Errorf("server returned cert serial %s; want new cert serial %s — hot-swap did not take effect",
+			peerCerts[0].SerialNumber, newCertParsed.SerialNumber)
 	}
 }
