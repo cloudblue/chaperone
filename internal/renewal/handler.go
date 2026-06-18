@@ -169,8 +169,9 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 
 // persistPair writes certPEM and keyPEM to temp files in their respective
 // directories, then renames both. If the key rename fails after the cert rename
-// succeeds, the new cert file is removed so the pair is never left mismatched on
-// disk. The caller receives an error and should treat the cert as in-memory only.
+// has committed, the new cert file is removed (best-effort rollback) to avoid a
+// new-cert + old-key mismatch; the cert file may be absent until re-provisioned.
+// The caller receives an error and should treat the cert as in-memory only.
 func persistPair(certPath string, certPEM []byte, keyPath string, keyPEM []byte) error {
 	certTmp, err := writePEMToTemp(certPath, certPEM)
 	if err != nil {
