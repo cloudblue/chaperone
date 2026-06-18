@@ -380,6 +380,30 @@ func TestHandler_Install_DiskWriteFailure_Returns500(t *testing.T) {
 	}
 }
 
+// TestHandler_Install_PersistPair_KeyRenameFails exercises the rollback branch
+// inside persistPair: certPath receives the new cert (first rename commits), then
+// the key rename fails because keyPath is an existing non-empty directory. The
+// best-effort rollback removes certPath so the disk is left without a cert file
+// rather than with a new-cert + old-key mismatch.
+func TestHandler_Install_PersistPair_KeyRenameFails(t *testing.T) {
+	tmpDir := t.TempDir()
+	certPath := filepath.Join(tmpDir, "cert.pem")
+	// keyPath is an existing directory — os.Rename(file, dir) fails with EISDIR.
+	keyDir := filepath.Join(tmpDir, "key_dir")
+	if err := os.Mkdir(keyDir, 0o700); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+
+	err := persistPair(certPath, []byte("CERT"), keyDir, []byte("KEY"))
+	if err == nil {
+		t.Fatal("expected error from persistPair, got nil")
+	}
+	// Best-effort rollback: cert file must not exist (avoids new-cert + old-key pair).
+	if _, statErr := os.Stat(certPath); !os.IsNotExist(statErr) {
+		t.Error("cert file should have been removed after key rename failure")
+	}
+}
+
 func TestHandler_ConcurrentInstall_OnlyOneSucceeds(t *testing.T) {
 	swapper, ca := mustMakeSwapper(t)
 	dir := t.TempDir()
@@ -495,9 +519,9 @@ func TestHandler_GetCertificate_ReturnsNewCertAfterInstall(t *testing.T) {
 // test: it runs the full prepare→install handshake against a real mTLS listener
 // and verifies that GetCertificate returns the new certificate after the swap.
 //
-// The no-inconsistency invariant (cert and key are never left mismatched on disk)
-// is enforced by persistPair: a failed second rename triggers rollback of the first.
-// Disk-write failure paths are covered by TestHandler_Install_DiskWriteFailure_Returns500.
+// persistPair's best-effort rollback (removing the new cert when the key rename fails)
+// is covered by TestHandler_Install_PersistPair_KeyRenameFails; other disk-write failure
+// paths are covered by TestHandler_Install_DiskWriteFailure_Returns500.
 func TestHandler_MtLS_PrepareInstallCycle(t *testing.T) {
 	// Generate CA, initial server cert, and client cert.
 	ca, err := crypto.GenerateCA(time.Hour)
