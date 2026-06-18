@@ -142,7 +142,7 @@ func TestManager_Install_HappyPath(t *testing.T) {
 
 	newCertPEM := signCSRPEM(t, ca, csrPEM)
 
-	cert, err := m.Install(id, newCertPEM)
+	cert, _, err := m.Install(id, newCertPEM)
 	if err != nil {
 		t.Fatalf("Install error: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestManager_Install_ClearsPendingOnSuccess(t *testing.T) {
 	}
 
 	newCertPEM := signCSRPEM(t, ca, csrPEM)
-	if _, err := m.Install(id, newCertPEM); err != nil {
+	if _, _, err := m.Install(id, newCertPEM); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -173,7 +173,7 @@ func TestManager_Install_ClearsPendingOnSuccess(t *testing.T) {
 
 func TestManager_Install_ErrNoPending(t *testing.T) {
 	m := NewManager()
-	_, err := m.Install("someid", []byte("certpem"))
+	_, _, err := m.Install("someid", []byte("certpem"))
 	if !errors.Is(err, ErrNoPending) {
 		t.Errorf("Install without Prepare: got %v, want ErrNoPending", err)
 	}
@@ -190,7 +190,7 @@ func TestManager_Install_ErrRenewalIDMismatch(t *testing.T) {
 	}
 
 	newCertPEM := signCSRPEM(t, ca, csrPEM)
-	_, err = m.Install("wrong-id", newCertPEM)
+	_, _, err = m.Install("wrong-id", newCertPEM)
 	if !errors.Is(err, ErrRenewalIDMismatch) {
 		t.Errorf("Install with wrong id: got %v, want ErrRenewalIDMismatch", err)
 	}
@@ -214,7 +214,7 @@ func TestManager_Install_ErrExpired(t *testing.T) {
 	m.now = time.Now
 
 	newCertPEM := signCSRPEM(t, ca, csrPEM)
-	_, err = m.Install(id, newCertPEM)
+	_, _, err = m.Install(id, newCertPEM)
 	if !errors.Is(err, ErrExpired) {
 		t.Errorf("Install after TTL: got %v, want ErrExpired", err)
 	}
@@ -237,7 +237,7 @@ func TestManager_Install_ErrKeyMismatch(t *testing.T) {
 	}
 	mismatchedCertPEM := signCSRPEM(t, ca, otherBundle.CSRPEM)
 
-	_, err = m.Install(id, mismatchedCertPEM)
+	_, _, err = m.Install(id, mismatchedCertPEM)
 	if !errors.Is(err, ErrKeyMismatch) {
 		t.Errorf("Install with wrong key: got %v, want ErrKeyMismatch", err)
 	}
@@ -310,7 +310,7 @@ func TestManager_Install_PreservesNewCertSANs(t *testing.T) {
 	}
 
 	newCertPEM := signCSRPEM(t, ca, csrPEM)
-	if _, err := m.Install(id, newCertPEM); err != nil {
+	if _, _, err := m.Install(id, newCertPEM); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 }

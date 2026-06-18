@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -40,11 +41,12 @@ const (
 
 // Sentinel errors returned by Prepare and Install.
 var (
-	ErrNoPending         = errors.New("no pending renewal; call prepare first")
-	ErrRenewalInProgress = errors.New("renewal already in progress; install or wait for expiry")
-	ErrRenewalIDMismatch = errors.New("renewal_id does not match pending renewal")
-	ErrExpired           = errors.New("pending renewal has expired")
-	ErrKeyMismatch       = errors.New("certificate public key does not match pending private key")
+	ErrNoPending          = errors.New("no pending renewal; call prepare first")
+	ErrRenewalInProgress  = errors.New("renewal already in progress; install or wait for expiry")
+	ErrRenewalIDMismatch  = errors.New("renewal_id does not match pending renewal")
+	ErrExpired            = errors.New("pending renewal has expired")
+	ErrKeyMismatch        = errors.New("certificate public key does not match pending private key")
+	ErrInvalidCertificate = errors.New("invalid certificate")
 )
 
 // PendingRenewal holds the in-progress state between Prepare and Install.
@@ -118,42 +120,55 @@ func (m *Manager) Prepare(currentCert tls.Certificate) (csrPEM []byte, renewalID
 }
 
 // Install validates the incoming signed certificate against the pending
-// renewal and returns a tls.Certificate ready for hot-swap.
+// renewal and returns the new tls.Certificate and its private key PEM ready
+// for hot-swap and atomic disk write.
 //
-// Errors: ErrNoPending, ErrRenewalIDMismatch, ErrExpired, ErrKeyMismatch.
-func (m *Manager) Install(renewalID string, certPEM []byte) (tls.Certificate, error) {
+// Errors: ErrNoPending, ErrRenewalIDMismatch, ErrExpired, ErrKeyMismatch,
+// ErrInvalidCertificate.
+func (m *Manager) Install(renewalID string, certPEM []byte) (tls.Certificate, []byte, error) {
+	// Validate and atomically claim the pending state in one lock hold.
+	// This prevents concurrent Install calls from both passing validation
+	// and racing on the key buffer.
 	m.mu.Lock()
 	pending := m.pending
-	m.mu.Unlock()
-
 	if pending == nil {
-		return tls.Certificate{}, ErrNoPending
+		m.mu.Unlock()
+		return tls.Certificate{}, nil, ErrNoPending
 	}
 	if pending.RenewalID != renewalID {
-		return tls.Certificate{}, ErrRenewalIDMismatch
+		m.mu.Unlock()
+		return tls.Certificate{}, nil, ErrRenewalIDMismatch
 	}
 	if m.now().After(pending.ExpiresAt) {
-		return tls.Certificate{}, ErrExpired
+		m.mu.Unlock()
+		return tls.Certificate{}, nil, ErrExpired
 	}
+	m.pending = nil // claimed: only this goroutine proceeds
+	m.mu.Unlock()
+	defer zeroBytes(pending.KeyPEM)
 
 	if err := verifyKeyMatch(certPEM, pending.KeyPEM); err != nil {
-		return tls.Certificate{}, err
+		return tls.Certificate{}, nil, err
 	}
 
 	newCert, err := tls.X509KeyPair(certPEM, pending.KeyPEM)
 	if err != nil {
-		return tls.Certificate{}, err
+		return tls.Certificate{}, nil, fmt.Errorf("%w: %w", ErrInvalidCertificate, err)
 	}
 
-	// Zero and clear pending so the renewal_id cannot be replayed.
-	m.mu.Lock()
-	if m.pending == pending {
-		zeroBytes(m.pending.KeyPEM)
-		m.pending = nil
+	// Parse and set Leaf so callers can read certificate fields (e.g. NotAfter)
+	// without a second round-trip through x509.ParseCertificate.
+	leaf, err := x509.ParseCertificate(newCert.Certificate[0])
+	if err != nil {
+		return tls.Certificate{}, nil, fmt.Errorf("%w: %w", ErrInvalidCertificate, err)
 	}
-	m.mu.Unlock()
+	newCert.Leaf = leaf
 
-	return newCert, nil
+	// Copy key PEM before defer zeros the pending buffer.
+	keyPEM := make([]byte, len(pending.KeyPEM))
+	copy(keyPEM, pending.KeyPEM)
+
+	return newCert, keyPEM, nil
 }
 
 // Pending returns a key-less snapshot of the current pending renewal, or nil
@@ -205,24 +220,24 @@ func generateRenewalID() (string, error) {
 func verifyKeyMatch(certPEM, keyPEM []byte) error {
 	certBlock, _ := pem.Decode(certPEM)
 	if certBlock == nil {
-		return errors.New("failed to decode certificate PEM")
+		return fmt.Errorf("%w: failed to decode certificate PEM", ErrInvalidCertificate)
 	}
 	x509Cert, err := x509.ParseCertificate(certBlock.Bytes)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrInvalidCertificate, err)
 	}
 	certPub, ok := x509Cert.PublicKey.(*ecdsa.PublicKey)
 	if !ok {
-		return errors.New("certificate public key is not ECDSA")
+		return fmt.Errorf("%w: certificate public key is not ECDSA", ErrInvalidCertificate)
 	}
 
 	keyBlock, _ := pem.Decode(keyPEM)
 	if keyBlock == nil {
-		return errors.New("failed to decode private key PEM")
+		return fmt.Errorf("%w: failed to decode private key PEM", ErrInvalidCertificate)
 	}
 	privKey, err := x509.ParseECPrivateKey(keyBlock.Bytes)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrInvalidCertificate, err)
 	}
 
 	if !certPub.Equal(&privKey.PublicKey) {

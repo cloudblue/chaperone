@@ -25,6 +25,7 @@ import (
 	"github.com/cloudblue/chaperone/internal/config"
 	chaperoneCtx "github.com/cloudblue/chaperone/internal/context"
 	"github.com/cloudblue/chaperone/internal/observability"
+	"github.com/cloudblue/chaperone/internal/renewal"
 	"github.com/cloudblue/chaperone/internal/router"
 	"github.com/cloudblue/chaperone/internal/security"
 	"github.com/cloudblue/chaperone/internal/telemetry"
@@ -47,6 +48,10 @@ type TLSConfig struct {
 
 	// CAFile is the path to the CA certificate PEM file for client verification.
 	CAFile string
+
+	// AutoRotate controls whether Connect-driven certificate renewal is active.
+	// When false the /_ops/renew/* endpoints return 501. Default: true.
+	AutoRotate bool
 }
 
 // Config holds the configuration for the proxy server.
@@ -109,6 +114,9 @@ type Server struct {
 	// via Swap() without restarting the server. Nil when TLS is disabled.
 	certProvider *CertProvider
 
+	// renewalManager manages the pending state between prepare and install.
+	renewalManager *renewal.Manager
+
 	// started guards against calling Start() more than once, which would
 	// panic on double-close of the ready channel.
 	started atomic.Bool
@@ -149,10 +157,11 @@ func NewServer(cfg Config) (*Server, error) {
 	t.IdleConnTimeout = cfg.IdleTimeout
 
 	return &Server{
-		config:    cfg,
-		reflector: security.NewReflector(sensitiveHeaders),
-		transport: t,
-		ready:     make(chan struct{}),
+		config:         cfg,
+		reflector:      security.NewReflector(sensitiveHeaders),
+		transport:      t,
+		renewalManager: renewal.NewManager(),
+		ready:          make(chan struct{}),
 	}, nil
 }
 
@@ -246,6 +255,22 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /_ops/health", s.handleHealth)
 	mux.HandleFunc("GET /_ops/version", s.handleVersion)
 
+	// Register certificate renewal endpoints (mTLS-protected; 501 when auto_rotate=false).
+	// Use a nil interface (not a nil *CertProvider) so NewHandler's nil check works.
+	var certSwapper renewal.CertSwapper
+	if s.certProvider != nil {
+		certSwapper = s.certProvider
+	}
+	renewalHandler := renewal.NewHandler(
+		s.renewalManager,
+		certSwapper,
+		s.config.TLS.CertFile,
+		s.config.TLS.KeyFile,
+		s.config.TLS.AutoRotate,
+	)
+	mux.HandleFunc("POST /_ops/renew/prepare", renewalHandler.HandlePrepare)
+	mux.HandleFunc("POST /_ops/renew/install", renewalHandler.HandleInstall)
+
 	// Register proxy endpoint: TimingMiddleware -> PanicRecovery -> AllowList -> handler
 	// TimingMiddleware wraps PanicRecovery so panic 500s still get Server-Timing headers.
 	// Security: AllowList is REQUIRED per Design Spec Section 5.3
@@ -281,22 +306,26 @@ func (s *Server) Start() error {
 	if !s.started.CompareAndSwap(false, true) {
 		return errors.New("server already started")
 	}
-	s.httpSrv = &http.Server{
-		Addr:         s.config.Addr,
-		Handler:      s.Handler(),
-		ReadTimeout:  s.config.ReadTimeout,
-		WriteTimeout: s.config.WriteTimeout,
-		IdleTimeout:  s.config.IdleTimeout,
-	}
-
-	// Load TLS configuration if mTLS is enabled (Mode A)
+	// Load TLS configuration before building the handler so certProvider is
+	// available when renewal.NewHandler captures it.
+	var tlsCfg *tls.Config
 	if s.config.TLS.Enabled {
-		tlsConfig, provider, err := s.loadTLSConfig()
+		var provider *CertProvider
+		var err error
+		tlsCfg, provider, err = s.loadTLSConfig()
 		if err != nil {
 			return err
 		}
-		s.httpSrv.TLSConfig = tlsConfig
 		s.certProvider = provider
+	}
+
+	s.httpSrv = &http.Server{
+		Addr:         s.config.Addr,
+		Handler:      s.Handler(),
+		TLSConfig:    tlsCfg,
+		ReadTimeout:  s.config.ReadTimeout,
+		WriteTimeout: s.config.WriteTimeout,
+		IdleTimeout:  s.config.IdleTimeout,
 	}
 
 	s.logStartup()
