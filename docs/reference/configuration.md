@@ -229,7 +229,9 @@ export OTEL_SDK_DISABLED=true
 
 Named upstreams that Chaperone can forward requests to instead of calling the vendor directly. Targets are referenced by name from a [`sdk.RouteAction`](sdk.md#routeaction) returned by a [`RequestRouter`](sdk.md#requestrouter-optional). The contrib [`Mux`](contrib-plugins.md#handleforward) implements `RequestRouter` and exposes targets through the `forward:` field on route entries.
 
-When a router selects a forward target, the Core sends the request to that target's `url` with the configured authentication and timeout, and skips credential injection and `ModifyResponse`.
+When a router selects a forward target, the Core sends the request to that target's `url` (path and query included) with the configured authentication and timeout, and skips credential injection, `ModifyResponse`, and Core error normalization — the target's status code and body pass through to Connect verbatim. The request reaches the target at exactly the configured `url`; Chaperone's own ingress path is not appended, since the target routes on the `X-Connect-*` headers rather than the request path.
+
+Inbound sensitive headers (`Authorization`, `Cookie`, etc.) are stripped before forwarding so Connect's auth posture cannot leak to the target. On the response side, only the built-in static sensitive-header list is stripped (as defense-in-depth against credential reflection); the operator-extended [`sensitive_headers`](#sensitive-headers) list is **not** applied on the forward path, because no credential injection happens there and so there is nothing dynamic to reflect.
 
 ```yaml
 forward_targets:

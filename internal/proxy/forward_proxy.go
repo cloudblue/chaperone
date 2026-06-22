@@ -32,8 +32,8 @@ const defaultForwardTimeout = 30 * time.Second
 // Compared with the vendor proxy path (server.createReverseProxy), the
 // forward path is intentionally stripped down:
 //
-//   - Inbound Authorization is dropped so Connect's auth posture cannot
-//     leak to the forward target.
+//   - Inbound sensitive headers (Authorization, Cookie, ...) are dropped so
+//     Connect's auth posture cannot leak to the forward target.
 //   - A static bearer token is injected when auth.type == "bearer".
 //   - X-Connect-* context headers are forwarded verbatim (the forward
 //     target — typically the customer's own system — needs them).
@@ -92,8 +92,8 @@ func (fp *ForwardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fp.proxy.ServeHTTP(w, r) // #nosec G704 -- target URL is fixed at startup from forward_targets config; the inbound request cannot influence the destination
 }
 
-// director rewrites the outbound request: target host/scheme, path joining,
-// inbound-Authorization stripping, and (optional) bearer-token injection.
+// director rewrites the outbound request: target host/scheme/path/query,
+// inbound sensitive-header stripping, and (optional) bearer-token injection.
 //
 // SECURITY: The bearer token must not be logged anywhere in this function.
 // The static sensitive_headers redaction in the request logger already
@@ -101,18 +101,23 @@ func (fp *ForwardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (fp *ForwardProxy) director(req *http.Request) {
 	req.URL.Scheme = fp.target.Scheme
 	req.URL.Host = fp.target.Host
-	req.URL.Path = singleJoiningSlash(fp.target.Path, req.URL.Path)
-	if fp.target.RawQuery != "" && req.URL.RawQuery != "" {
-		req.URL.RawQuery = fp.target.RawQuery + "&" + req.URL.RawQuery
-	} else {
-		req.URL.RawQuery = fp.target.RawQuery + req.URL.RawQuery
-	}
+	// The inbound request line is always "/proxy" (the only handler the Core
+	// registers) and carries no routing meaning — Connect routes via the
+	// X-Connect-* headers. We therefore hit the forward target at exactly its
+	// configured path and query, dropping the inbound "/proxy".
+	req.URL.Path = fp.target.Path
+	req.URL.RawPath = fp.target.RawPath
+	req.URL.RawQuery = fp.target.RawQuery
 	req.Host = fp.target.Host
 
-	// Strip inbound Authorization to avoid leaking Connect's auth posture
-	// to the forward target. This happens regardless of fp.auth.Type — the
-	// forward target should only ever see credentials we choose to inject.
-	req.Header.Del("Authorization")
+	// Strip the static set of inbound sensitive headers (Authorization,
+	// Cookie, Proxy-Authorization, ...) to avoid leaking Connect's auth
+	// posture to the forward target. This happens regardless of fp.auth.Type
+	// — the forward target should only ever see credentials we choose to
+	// inject. Mirrors the response-side sanitization in modifyResponse.
+	for _, h := range security.DefaultSensitiveHeaders() {
+		req.Header.Del(h)
+	}
 
 	if fp.auth.Type == config.ForwardAuthBearer {
 		req.Header.Set("Authorization", "Bearer "+fp.auth.Token)
@@ -229,21 +234,4 @@ func newForwardTransport(timeout time.Duration) *http.Transport {
 		InsecureSkipVerify: false, //nolint:gosec // explicit: always verify
 	}
 	return t
-}
-
-// singleJoiningSlash mirrors httputil.singleJoiningSlash (unexported in
-// net/http/httputil). Given a target-URL path and a request path, it joins
-// them with exactly one separator slash. Used by director to rewrite
-// req.URL.Path so that target paths with or without trailing slashes — and
-// request paths with or without leading slashes — concatenate cleanly.
-func singleJoiningSlash(a, b string) string {
-	aSlash := a != "" && a[len(a)-1] == '/'
-	bSlash := b != "" && b[0] == '/'
-	switch {
-	case aSlash && bSlash:
-		return a + b[1:]
-	case !aSlash && !bSlash:
-		return a + "/" + b
-	}
-	return a + b
 }

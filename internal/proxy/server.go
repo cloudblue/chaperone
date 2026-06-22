@@ -626,10 +626,12 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fall-through: credential injection + vendor call. Log BEFORE
-	// injectCredentials so the routed-action breadcrumb is recorded even when
-	// credential injection fails.
-	slog.Info("request routed",
+	// Fall-through: credential injection + vendor call. Logged at DEBUG (not
+	// INFO) because this is the hot path of a high-RPS proxy and the existing
+	// "request completed" / "upstream response" lines plus the
+	// route_decisions_total{action=credentials} metric already cover it. The
+	// forward branch logs at INFO since forwarding is the rarer, notable case.
+	slog.Debug("request routed",
 		"trace_id", traceID,
 		"vendor_id", txCtx.VendorID,
 		"marketplace_id", txCtx.MarketplaceID,
@@ -1131,28 +1133,34 @@ func (s *Server) applyErrorNormalization(traceID string, txCtx *sdk.TransactionC
 	}
 }
 
-// validateForwardReferences checks that all forward target references in the
-// plugin (if it implements the ForwardReferences() method) are defined in
-// the forward targets configuration.
-//
-// If the plugin implements the interface { ForwardReferences() []string },
-// each name returned is verified to exist in cfg.ForwardTargets. If any
-// reference is missing, an error is returned. If the plugin does not
-// implement the interface, validation is skipped (we can't know what targets
-// it uses).
-func validateForwardReferences(plugin sdk.Plugin, targets map[string]config.ForwardTargetConfig) error {
+// forwardReferences returns the forward-target names a plugin references via
+// the duck-typed { ForwardReferences() []string } contract. The bool is false
+// when the plugin is nil or does not implement the method, in which case
+// callers skip forward-reference validation (we can't know what targets it
+// uses). The contrib Mux is the only producer today; a named
+// sdk.ForwardReferencer interface is a planned follow-up.
+func forwardReferences(plugin sdk.Plugin) ([]string, bool) {
 	if plugin == nil {
-		return nil
+		return nil, false
 	}
-
-	// Anonymous interface type assertion: check if plugin has ForwardReferences()
 	lister, ok := plugin.(interface{ ForwardReferences() []string })
 	if !ok {
-		// Plugin doesn't expose forward references — nothing to validate
+		return nil, false
+	}
+	return lister.ForwardReferences(), true
+}
+
+// validateForwardReferences checks that all forward target references in the
+// plugin (if it exposes them) are defined in the forward targets
+// configuration. Each referenced name is verified to exist in targets; a
+// missing reference returns an error. Plugins that don't expose references
+// are skipped.
+func validateForwardReferences(plugin sdk.Plugin, targets map[string]config.ForwardTargetConfig) error {
+	refs, ok := forwardReferences(plugin)
+	if !ok {
 		return nil
 	}
 
-	refs := lister.ForwardReferences()
 	for _, ref := range refs {
 		if _, ok := targets[ref]; !ok {
 			return fmt.Errorf("plugin references forward_target %q which is not defined in config", ref)
@@ -1163,24 +1171,19 @@ func validateForwardReferences(plugin sdk.Plugin, targets map[string]config.Forw
 }
 
 // warnUnusedForwardTargets logs a warning for any forward_target entry that
-// is not referenced by the plugin. Only runs if the plugin implements the
-// ForwardReferences() method.
+// is not referenced by the plugin. Only runs if the plugin exposes its forward
+// references.
 //
 // This helps catch configuration errors where targets are defined but never
 // actually used by any route.
 func warnUnusedForwardTargets(plugin sdk.Plugin, targets map[string]config.ForwardTargetConfig) {
-	if plugin == nil {
-		return
-	}
-
-	lister, ok := plugin.(interface{ ForwardReferences() []string })
+	refs, ok := forwardReferences(plugin)
 	if !ok {
 		// Plugin doesn't expose forward references — can't determine which
 		// targets are unused, so skip the warning.
 		return
 	}
 
-	refs := lister.ForwardReferences()
 	// Build a set of referenced targets (deduplicated)
 	referenced := make(map[string]bool)
 	for _, ref := range refs {

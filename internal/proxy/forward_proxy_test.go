@@ -83,6 +83,37 @@ func TestForwardProxy_StripsInboundAuthorization_AddsBearer(t *testing.T) {
 	}
 }
 
+func TestForwardProxy_StripsInboundSensitiveHeaders(t *testing.T) {
+	var seen http.Header
+	target := newTestTarget(t, func(_ http.ResponseWriter, r *http.Request) { seen = r.Header.Clone() })
+	defer target.Close()
+
+	h, err := NewForwardProxy("company-b", config.ForwardTargetConfig{
+		URL:  target.URL,
+		Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
+	})
+	if err != nil {
+		t.Fatalf("NewForwardProxy: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req.Header.Set("Cookie", "session=connect-secret")
+	req.Header.Set("Proxy-Authorization", "Basic connect-creds")
+	req.Header.Set("X-Api-Key", "connect-key")
+	req.Header.Set("X-Auth-Token", "connect-token")
+	req.Header.Set("X-Connect-Vendor-ID", "vendor-1") // non-sensitive: must survive
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	for _, hdr := range []string{"Cookie", "Proxy-Authorization", "X-Api-Key", "X-Auth-Token"} {
+		if got := seen.Get(hdr); got != "" {
+			t.Errorf("inbound %s leaked to forward target: %q", hdr, got)
+		}
+	}
+	if got := seen.Get("X-Connect-Vendor-ID"); got != "vendor-1" {
+		t.Errorf("X-Connect-Vendor-ID = %q, want it preserved", got)
+	}
+}
+
 func TestForwardProxy_SanitizesReflectedSensitiveResponseHeaders(t *testing.T) {
 	target := newTestTarget(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Authorization", "Bearer reflected-secret")
@@ -258,27 +289,30 @@ func TestForwardProxy_BearerTokenWithWhitespace(t *testing.T) {
 	}
 }
 
-// TestForwardProxy_PathJoining covers singleJoiningSlash correctness across
-// the four corner cases of trailing/leading slashes between the target URL
-// path and the inbound request path.
-func TestForwardProxy_PathJoining(t *testing.T) {
+// TestForwardProxy_UsesTargetPathDroppingInbound asserts the forwarded request
+// hits the target at its configured path (and query), and that the inbound
+// "/proxy" request line is dropped — routing is by X-Connect-* headers, not the
+// inbound path.
+func TestForwardProxy_UsesTargetPathDroppingInbound(t *testing.T) {
 	tests := []struct {
-		name        string
-		targetPath  string
-		requestPath string
-		wantPath    string
+		name         string
+		targetPath   string // appended to the test target's base URL
+		inboundPath  string
+		wantPath     string
+		wantRawQuery string
 	}{
-		{"both empty", "", "", "/"},
-		{"target trailing, req leading", "/api/", "/v1/foo", "/api/v1/foo"},
-		{"target no trailing, req no leading", "/api", "v1/foo", "/api/v1/foo"},
-		{"target trailing, req no leading", "/api/", "v1/foo", "/api/v1/foo"},
-		{"target no trailing, req leading", "/api", "/v1/foo", "/api/v1/foo"},
+		{"target with path, inbound /proxy", "/v1/intake", "/proxy", "/v1/intake", ""},
+		{"target root, inbound /proxy", "/", "/proxy", "/", ""},
+		{"target no path, inbound /proxy", "", "/proxy", "/", ""},
+		{"target with query preserved", "/intake?api-version=2020", "/proxy", "/intake", "api-version=2020"},
+		{"inbound path and query dropped", "/intake", "/proxy/extra?leak=1", "/intake", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var seenPath string
+			var seenPath, seenQuery string
 			target := newTestTarget(t, func(_ http.ResponseWriter, r *http.Request) {
 				seenPath = r.URL.Path
+				seenQuery = r.URL.RawQuery
 			})
 			defer target.Close()
 
@@ -290,12 +324,13 @@ func TestForwardProxy_PathJoining(t *testing.T) {
 				t.Fatalf("NewForwardProxy: %v", err)
 			}
 
-			req := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
-			req.URL.Path = tt.requestPath
-			h.ServeHTTP(httptest.NewRecorder(), req)
+			h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, tt.inboundPath, nil))
 
 			if seenPath != tt.wantPath {
 				t.Errorf("forwarded path = %q, want %q", seenPath, tt.wantPath)
+			}
+			if seenQuery != tt.wantRawQuery {
+				t.Errorf("forwarded query = %q, want %q", seenQuery, tt.wantRawQuery)
 			}
 		})
 	}

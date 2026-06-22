@@ -47,6 +47,12 @@ type ForwardTargetAuthConfig struct {
 	// Token is the bearer token used when Type == "bearer". The value
 	// supports ${VAR} and $VAR environment variable interpolation so that
 	// secrets can live outside of the config file.
+	//
+	// SECURITY NOTE: unlike cached credentials (which use memguard), this
+	// static token is held as a plaintext Go string for the process
+	// lifetime. This matches how other static config secrets are handled and
+	// is an accepted trade-off — the token already lives in plaintext in the
+	// environment/config it is sourced from.
 	Token string `yaml:"token"`
 }
 

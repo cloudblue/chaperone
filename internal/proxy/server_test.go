@@ -1169,7 +1169,9 @@ func TestHandleProxy_RouteActionEmptyForwardTo_FallsThroughToCredentialFlow(t *t
 }
 
 func TestHandleProxy_PluginWithoutRequestRouter_GoesDirectlyToCredentials(t *testing.T) {
-	getLogs := captureLogs(t)
+	// The credentials-path "request routed" breadcrumb is logged at DEBUG, so
+	// capture at debug level to assert it.
+	getLogs := captureLogsAt(t, &slog.HandlerOptions{Level: slog.LevelDebug})
 
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

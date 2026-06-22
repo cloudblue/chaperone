@@ -224,6 +224,27 @@ func TestForwardIntegration_BearerAuth_FullFlow(t *testing.T) {
 		}
 	})
 
+	t.Run("forwarded path is the target path, inbound /proxy dropped", func(t *testing.T) {
+		var seenPath string
+		target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			seenPath = r.URL.Path
+			w.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(target.Close)
+
+		plugin := &forwardRouter{matchVendorID: "vendor-a", forwardTo: "company-b"}
+		// Configure the target with a base path; the inbound request line is
+		// "/proxy", which must NOT appear in what the target receives.
+		cfg := forwardIntegrationConfig(t, plugin, target.URL+"/ingress")
+		srv := mustNewServer(t, cfg)
+
+		srv.Handler().ServeHTTP(httptest.NewRecorder(), makeProxyRequest(""))
+
+		if seenPath != "/ingress" {
+			t.Errorf("forwarded path = %q, want %q (inbound /proxy must be dropped)", seenPath, "/ingress")
+		}
+	})
+
 	t.Run("target status 418 propagates to client", func(t *testing.T) {
 		target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusTeapot)

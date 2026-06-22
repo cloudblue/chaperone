@@ -154,7 +154,7 @@ type RequestRouter interface {
 
 `RequestRouter` is an **optional** plugin capability. Plugins that do not implement it retain the default behavior: every request flows through `GetCredentials` and the configured allow-list to the vendor.
 
-Implementations are invoked before `GetCredentials`. Returning a non-nil [`*RouteAction`](#routeaction) with a non-empty `ForwardTo` causes the Core to forward the request to the named [`forward_target`](configuration.md#forward-targets) and skip both credential injection and `ModifyResponse`. Returning `(nil, nil)` (or a non-nil action with an empty `ForwardTo`) is the fall-through signal: the Core continues with the normal credential-injection flow.
+Implementations are invoked before `GetCredentials`. Returning a non-nil [`*RouteAction`](#routeaction) with a non-empty `ForwardTo` causes the Core to forward the request to the named [`forward_target`](configuration.md#forward-targets) and skip credential injection, `ModifyResponse`, and Core error normalization — the forward target's status code and body pass through to Connect verbatim (sensitive response headers are still stripped). Returning `(nil, nil)` (or a non-nil action with an empty `ForwardTo`) is the fall-through signal: the Core continues with the normal credential-injection flow.
 
 Use `RequestRouter` when some requests should bypass credential injection entirely — for example, when a customer-side service handles authentication and response filtering on its own, and Chaperone's role is to forward the request as-is to that service.
 
