@@ -35,7 +35,7 @@ type TracingConfig struct {
 // IsTracingEnabled checks if tracing should be enabled based on env vars.
 // Per OTel specification, OTEL_SDK_DISABLED is compared case-insensitively.
 func IsTracingEnabled() bool {
-	return !strings.EqualFold(os.Getenv(EnvOTelSDKDisabled), "true")
+	return !strings.EqualFold(os.Getenv(EnvOTelSDKDisabled), ldflagTrue)
 }
 
 // InitTracing initializes the OpenTelemetry TracerProvider with OTLP exporter.

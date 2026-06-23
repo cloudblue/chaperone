@@ -5,6 +5,7 @@ package router
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -27,7 +28,7 @@ func TestAllowListMiddleware_ValidRequest(t *testing.T) {
 
 	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://api.example.com/v1/customers")
 
 	rr := httptest.NewRecorder()
@@ -54,7 +55,7 @@ func TestAllowListMiddleware_BlockedHost(t *testing.T) {
 
 	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://evil.com/data")
 
 	rr := httptest.NewRecorder()
@@ -81,7 +82,7 @@ func TestAllowListMiddleware_BlockedPath(t *testing.T) {
 
 	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://api.example.com/admin/users")
 
 	rr := httptest.NewRecorder()
@@ -108,7 +109,7 @@ func TestAllowListMiddleware_MissingTargetURL(t *testing.T) {
 
 	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	// Not setting X-Connect-Target-URL header
 
 	rr := httptest.NewRecorder()
@@ -130,7 +131,7 @@ func TestAllowListMiddleware_CustomHeaderPrefix(t *testing.T) {
 
 	middleware := NewAllowListMiddleware(allowList, "X-Custom", observability.TargetAddrModeHost, nextHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Custom-Target-URL", "https://api.example.com/test")
 
 	rr := httptest.NewRecorder()
@@ -148,7 +149,7 @@ func TestAllowListMiddleware_EmptyAllowList(t *testing.T) {
 
 	middleware := NewAllowListMiddleware(nil, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://api.example.com/test")
 
 	rr := httptest.NewRecorder()
@@ -170,7 +171,7 @@ func TestAllowListMiddleware_ResponseBody(t *testing.T) {
 
 	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://evil.com/data")
 
 	rr := httptest.NewRecorder()
@@ -230,7 +231,7 @@ func TestAllowListMiddleware_InvalidTargetURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 			req.Header.Set("X-Connect-Target-URL", tt.targetURL)
 
 			rr := httptest.NewRecorder()
@@ -255,7 +256,7 @@ func TestAllowListMiddleware_DoesNotLeakURLDetails(t *testing.T) {
 	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
 	// Test with sensitive-looking URL
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://secret-internal.corp.com/api/key=supersecret123")
 
 	rr := httptest.NewRecorder()
@@ -300,7 +301,7 @@ func TestAllowListMiddleware_AllMethods(t *testing.T) {
 
 			middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
-			req := httptest.NewRequest(method, "/proxy", nil)
+			req := httptest.NewRequestWithContext(context.Background(), method, "/proxy", nil)
 			req.Header.Set("X-Connect-Target-URL", "https://api.example.com/test")
 
 			rr := httptest.NewRecorder()
@@ -329,7 +330,7 @@ func TestAllowListMiddleware_ValidationPassed_DebugLog(t *testing.T) {
 	})
 	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req = req.WithContext(observability.WithTraceID(req.Context(), "trace-debug-123"))
 	req.Header.Set("X-Connect-Target-URL", "https://api.example.com/v1/users")
 	rr := httptest.NewRecorder()
@@ -365,7 +366,7 @@ func TestAllowListMiddleware_ValidationFailed_HasTraceID(t *testing.T) {
 	})
 	middleware := NewAllowListMiddleware(allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req = req.WithContext(observability.WithTraceID(req.Context(), "trace-fail-456"))
 	req.Header.Set("X-Connect-Target-URL", "https://evil.com/data")
 	rr := httptest.NewRecorder()
@@ -403,7 +404,7 @@ func TestAllowListMiddleware_EmptyAllowListDeniesAll(t *testing.T) {
 
 			middleware := NewAllowListMiddleware(tc.allowList, "X-Connect", observability.TargetAddrModeHost, nextHandler)
 
-			req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 			req.Header.Set("X-Connect-Target-URL", "https://api.example.com/test")
 
 			rr := httptest.NewRecorder()

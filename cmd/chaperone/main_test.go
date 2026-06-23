@@ -303,7 +303,7 @@ func TestPluginIntegration_AllMethodsCallable(t *testing.T) {
 
 	// Test 1: CredentialProvider.GetCredentials
 	t.Run("GetCredentials", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "https://api.example.com/data", nil)
+		req := httptest.NewRequestWithContext(ctx, "GET", "https://api.example.com/data", nil)
 		cred, err := plugin.GetCredentials(ctx, tx, req)
 		if err != nil {
 			t.Fatalf("GetCredentials failed: %v", err)

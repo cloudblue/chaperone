@@ -231,15 +231,24 @@ func (h *RedactingHandler) redactMessage(msg string, secrets []string) string {
 	return msg
 }
 
+// Body-related slog attribute key constants — used in bodyKeys and matched
+// case-insensitively at log time.
+const (
+	bodyKeyOriginalBody = "original_body"
+	bodyKeyRequestBody  = "request_body"
+	bodyKeyResponseBody = "response_body"
+	bodyKeyBody         = "body"
+)
+
 // bodyKeys is the set of slog attribute keys that contain request/response
 // body content. When body logging is disabled, these keys are redacted.
 // This is a safety net: code like NormalizeError can always log bodies at
 // DEBUG level, and the handler decides whether the content passes through.
 var bodyKeys = map[string]struct{}{
-	"original_body": {},
-	"request_body":  {},
-	"response_body": {},
-	"body":          {},
+	bodyKeyOriginalBody: {},
+	bodyKeyRequestBody:  {},
+	bodyKeyResponseBody: {},
+	bodyKeyBody:         {},
 }
 
 // isBodyKey returns true if the attribute key is a known body content key.

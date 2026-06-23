@@ -37,6 +37,23 @@ var APILatencyBuckets = []float64{
 //	on metric vectors with t.Cleanup().
 const namespace = "chaperone"
 
+// Label name constants used across multiple metric registrations.
+const (
+	labelVendorID    = "vendor_id"
+	labelStatusClass = "status_class"
+	labelMethod      = "method"
+)
+
+// StatusClass return values — kept as constants to satisfy goconst and as a
+// single source of truth for downstream PromQL / alerting rules.
+const (
+	statusClass2xx   = "2xx"
+	statusClass3xx   = "3xx"
+	statusClass4xx   = "4xx"
+	statusClass5xx   = "5xx"
+	statusClassOther = "other"
+)
+
 var (
 	// RequestsTotal counts total requests processed.
 	// Labels: vendor_id, status_class, method
@@ -46,7 +63,7 @@ var (
 			Name:      "requests_total",
 			Help:      "Total number of requests processed",
 		},
-		[]string{"vendor_id", "status_class", "method"},
+		[]string{labelVendorID, labelStatusClass, labelMethod},
 	)
 
 	// RequestDuration measures total request duration (including plugin and upstream).
@@ -58,7 +75,7 @@ var (
 			Help:      "Total request duration including plugin and upstream",
 			Buckets:   APILatencyBuckets,
 		},
-		[]string{"vendor_id"},
+		[]string{labelVendorID},
 	)
 
 	// UpstreamDuration measures time spent waiting for upstream response.
@@ -70,7 +87,7 @@ var (
 			Help:      "Time spent waiting for upstream response",
 			Buckets:   APILatencyBuckets,
 		},
-		[]string{"vendor_id"},
+		[]string{labelVendorID},
 	)
 
 	// ActiveConnections tracks number of active connections (in-flight requests).
@@ -195,15 +212,15 @@ var statusStrings = map[int]string{
 func StatusClass(code int) string {
 	switch {
 	case code >= 200 && code < 300:
-		return "2xx"
+		return statusClass2xx
 	case code >= 300 && code < 400:
-		return "3xx"
+		return statusClass3xx
 	case code >= 400 && code < 500:
-		return "4xx"
+		return statusClass4xx
 	case code >= 500 && code < 600:
-		return "5xx"
+		return statusClass5xx
 	default:
-		return "other"
+		return statusClassOther
 	}
 }
 

@@ -4,6 +4,7 @@
 package context
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"net/http"
@@ -108,7 +109,7 @@ func TestParseContext_ValidHeaders_ReturnsContext(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 			for k, v := range tt.headers {
 				req.Header.Set(k, v)
 			}
@@ -153,7 +154,7 @@ func TestParseContext_MissingTargetURL_ReturnsError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 			for k, v := range tt.headers {
 				req.Header.Set(k, v)
 			}
@@ -222,7 +223,7 @@ func TestParseContext_InvalidContextData_ReturnsError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 			for k, v := range tt.headers {
 				req.Header.Set(k, v)
 			}
@@ -244,7 +245,7 @@ func TestParseContext_InvalidContextData_ReturnsError(t *testing.T) {
 }
 
 func TestParseContext_DefaultPrefix(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://api.vendor.com/v1")
 	req.Header.Set("X-Connect-Vendor-ID", "vendor-123")
 
@@ -272,7 +273,7 @@ func TestParseContext_ComplexContextData(t *testing.T) {
 	}`
 	encoded := base64.StdEncoding.EncodeToString([]byte(complexData))
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://api.vendor.com/v1")
 	req.Header.Set("X-Connect-Context-Data", encoded)
 
@@ -362,7 +363,7 @@ func TestParseContext_TraceIDExtraction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 			for k, v := range tt.headers {
 				req.Header.Set(k, v)
 			}

@@ -21,9 +21,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	"github.com/cloudblue/chaperone/internal/telemetry"
 	"github.com/cloudblue/chaperone/pkg/crypto"
-	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // fakeCertSwapper implements CertSwapper for tests.

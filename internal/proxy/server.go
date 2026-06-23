@@ -985,30 +985,32 @@ func (s *Server) createReverseProxy(target *url.URL, traceID string, txCtx *sdk.
 	// Apply upstream transport with configurable timeouts.
 	proxy.Transport = s.upstreamTransport()
 
-	// Customize the Director to set the correct host/path and strip context headers.
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
+	// Rewrite supersedes Director. NewSingleHostReverseProxy sets Director, so
+	// we nil it out before assigning Rewrite — both cannot be set simultaneously.
+	proxy.Director = nil //nolint:staticcheck // intentional: clearing deprecated field required by ReverseProxy invariant
+	proxy.Rewrite = func(proxyReq *httputil.ProxyRequest) {
 		// Store upstream start time in context to avoid race condition
-		// between Director and ModifyResponse (which may run on different goroutines)
-		*req = *req.WithContext(telemetry.WithUpstreamStart(req.Context(), time.Now()))
+		// between Rewrite and ModifyResponse (which may run on different goroutines).
+		*proxyReq.Out = *proxyReq.Out.WithContext(telemetry.WithUpstreamStart(proxyReq.Out.Context(), time.Now()))
 
 		// Start upstream span and inject W3C traceparent into outgoing request.
 		// The span is stored in context and ended in ModifyResponse or ErrorHandler.
-		ctx, upstreamSpan := telemetry.StartUpstreamSpan(req.Context(), req, target.Host)
+		ctx, upstreamSpan := telemetry.StartUpstreamSpan(proxyReq.Out.Context(), proxyReq.Out, target.Host)
 		ctx = telemetry.WithUpstreamSpan(ctx, upstreamSpan)
-		*req = *req.WithContext(ctx)
+		*proxyReq.Out = *proxyReq.Out.WithContext(ctx)
 
-		originalDirector(req)
-		req.Host = target.Host
-		req.URL.Scheme = target.Scheme
-		req.URL.Host = target.Host
+		// SetURL routes to target (equivalent to the NewSingleHostReverseProxy default Director).
+		proxyReq.SetURL(target)
+		proxyReq.Out.Host = target.Host
+		// SetURL joins the incoming request path onto the target path; override it
+		// so that a target with an explicit path (e.g. /api/v1) is used verbatim.
 		if target.Path != "" && target.Path != "/" {
-			req.URL.Path = target.Path
+			proxyReq.Out.URL.Path = target.Path
 		}
 
 		// SECURITY: Strip context headers before forwarding (Design Spec §5.3).
 		// Trace header is preserved (§8.3) — it uses a different naming convention.
-		s.stripContextHeaders(req)
+		s.stripContextHeaders(proxyReq.Out)
 	}
 
 	// Response modification chain: Timing → Plugin → Strip Headers → Error Normalization

@@ -185,7 +185,7 @@ func TestTracingMiddleware_CreatesSpan(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	w := httptest.NewRecorder()
 
@@ -235,7 +235,7 @@ func TestTracingMiddleware_W3CTraceparentTakesPriorityOverConnectRequestID(t *te
 	// Also set a Connect-Request-ID that would produce a different trace ID.
 	connectRequestID := "550e8400-e29b-41d4-a716-446655440000"
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("traceparent", traceparent)
 	req.Header.Set("Connect-Request-ID", connectRequestID)
 	w := httptest.NewRecorder()
@@ -266,7 +266,7 @@ func TestTracingMiddleware_DoesNotLeakQueryParams(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy?api_key=SECRET_TOKEN", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy?api_key=SECRET_TOKEN", nil)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -299,7 +299,7 @@ func TestTracingMiddleware_5xxSetsErrorStatus(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -327,7 +327,7 @@ func TestTracingMiddleware_4xxLeavesStatusUnset(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -374,7 +374,7 @@ func TestStartUpstreamSpan_InjectsHeaders(t *testing.T) {
 	ctx, parentSpan := otel.Tracer(TracerName).Start(context.Background(), "parent")
 	defer parentSpan.End()
 
-	req := httptest.NewRequest(http.MethodGet, "https://api.vendor.com/v1/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.vendor.com/v1/test", nil)
 	_, upstreamSpan := StartUpstreamSpan(ctx, req, "api.vendor.com")
 	upstreamSpan.End()
 
@@ -406,7 +406,7 @@ func TestStartUpstreamSpan_DoesNotLeakQueryParams(t *testing.T) {
 	ctx, parentSpan := otel.Tracer(TracerName).Start(context.Background(), "parent")
 	defer parentSpan.End()
 
-	req := httptest.NewRequest(http.MethodGet, "https://api.vendor.com/v1/test?token=SECRET", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.vendor.com/v1/test?token=SECRET", nil)
 	_, upstreamSpan := StartUpstreamSpan(ctx, req, "api.vendor.com")
 	upstreamSpan.End()
 
@@ -506,7 +506,7 @@ func TestUpstreamSpan_EndWithError(t *testing.T) {
 	ctx, parentSpan := otel.Tracer(TracerName).Start(context.Background(), "parent")
 	defer parentSpan.End()
 
-	req := httptest.NewRequest(http.MethodGet, "https://api.vendor.com/v1/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.vendor.com/v1/test", nil)
 	ctx, upstreamSpan := StartUpstreamSpan(ctx, req, "api.vendor.com")
 	ctx = WithUpstreamSpan(ctx, upstreamSpan)
 
@@ -534,7 +534,7 @@ func TestUpstreamSpan_EndWithSuccessStatus(t *testing.T) {
 	ctx, parentSpan := otel.Tracer(TracerName).Start(context.Background(), "parent")
 	defer parentSpan.End()
 
-	req := httptest.NewRequest(http.MethodGet, "https://api.vendor.com/v1/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.vendor.com/v1/test", nil)
 	ctx, upstreamSpan := StartUpstreamSpan(ctx, req, "api.vendor.com")
 	ctx = WithUpstreamSpan(ctx, upstreamSpan)
 
@@ -559,7 +559,7 @@ func TestUpstreamSpan_EndWith5xxSetsError(t *testing.T) {
 	ctx, parentSpan := otel.Tracer(TracerName).Start(context.Background(), "parent")
 	defer parentSpan.End()
 
-	req := httptest.NewRequest(http.MethodGet, "https://api.vendor.com/v1/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.vendor.com/v1/test", nil)
 	ctx, upstreamSpan := StartUpstreamSpan(ctx, req, "api.vendor.com")
 	ctx = WithUpstreamSpan(ctx, upstreamSpan)
 

@@ -18,6 +18,15 @@ import (
 	"time"
 )
 
+// PEM block type constants.
+const (
+	pemTypeCertificate  = "CERTIFICATE"
+	pemTypeECPrivateKey = "EC PRIVATE KEY"
+)
+
+// localhostCN is the default CN and DNS SAN for locally-generated certificates.
+const localhostCN = "localhost"
+
 // Curve is the elliptic curve used for all generated keys.
 // ECDSA P-256 provides strong security with better performance than RSA.
 var Curve = elliptic.P256()
@@ -104,8 +113,8 @@ func GenerateCA(validFor time.Duration) (*CertPair, error) {
 		return nil, fmt.Errorf("marshaling CA key: %w", err)
 	}
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: pemTypeCertificate, Bytes: certDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: pemTypeECPrivateKey, Bytes: keyDER})
 
 	return &CertPair{CertPEM: certPEM, KeyPEM: keyPEM}, nil
 }
@@ -137,7 +146,7 @@ func GenerateServerCertWithSANs(caCert *CertPair, validFor time.Duration, extraD
 
 	// Default DNS names with preallocated capacity
 	dnsNames := make([]string, 0, 2+len(extraDNSNames))
-	dnsNames = append(dnsNames, "localhost", "127.0.0.1")
+	dnsNames = append(dnsNames, localhostCN, "127.0.0.1")
 	dnsNames = append(dnsNames, extraDNSNames...)
 
 	// Default IPs with preallocated capacity
@@ -148,7 +157,7 @@ func GenerateServerCertWithSANs(caCert *CertPair, validFor time.Duration, extraD
 	template := &x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			CommonName: "localhost",
+			CommonName: localhostCN,
 		},
 		NotBefore:   time.Now(),
 		NotAfter:    time.Now().Add(validFor),
@@ -168,8 +177,8 @@ func GenerateServerCertWithSANs(caCert *CertPair, validFor time.Duration, extraD
 		return nil, fmt.Errorf("marshaling key: %w", err)
 	}
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: pemTypeCertificate, Bytes: certDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: pemTypeECPrivateKey, Bytes: keyDER})
 
 	return &CertPair{CertPEM: certPEM, KeyPEM: keyPEM}, nil
 }
@@ -212,8 +221,8 @@ func GenerateClientCert(caCert *CertPair, validFor time.Duration) (*CertPair, er
 		return nil, fmt.Errorf("marshaling key: %w", err)
 	}
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: pemTypeCertificate, Bytes: certDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: pemTypeECPrivateKey, Bytes: keyDER})
 
 	return &CertPair{CertPEM: certPEM, KeyPEM: keyPEM}, nil
 }
@@ -260,8 +269,8 @@ func GenerateExpiredClientCert(caCert *CertPair) (*CertPair, error) {
 		return nil, fmt.Errorf("marshaling key: %w", err)
 	}
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: pemTypeCertificate, Bytes: certDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: pemTypeECPrivateKey, Bytes: keyDER})
 
 	return &CertPair{CertPEM: certPEM, KeyPEM: keyPEM}, nil
 }
@@ -306,7 +315,7 @@ func GenerateServerCSR(commonName string, dnsNames []string, ips []net.IP) (*CSR
 	}
 
 	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: pemTypeECPrivateKey, Bytes: keyDER})
 
 	return &CSRBundle{CSRPEM: csrPEM, KeyPEM: keyPEM}, nil
 }

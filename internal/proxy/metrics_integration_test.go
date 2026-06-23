@@ -4,6 +4,7 @@
 package proxy
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -34,7 +35,7 @@ func TestHandler_HealthEndpoint_RecordsMetrics(t *testing.T) {
 	handler := srv.Handler()
 
 	// Make a request to health endpoint (should be metered)
-	req := httptest.NewRequest(http.MethodGet, "/_ops/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_ops/health", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -59,7 +60,7 @@ func TestHandler_VendorHeader_ExtractsVendorID(t *testing.T) {
 	handler := srv.Handler()
 
 	// Request with vendor ID
-	req := httptest.NewRequest(http.MethodGet, "/_ops/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_ops/health", nil)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -80,7 +81,7 @@ func TestAdminServer_MetricsEndpoint_ExposesCustomMetrics(t *testing.T) {
 	// Create admin server and verify /metrics is exposed
 	adminSrv := telemetry.NewAdminServer("127.0.0.1:0", "test")
 
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 	adminSrv.Mux().ServeHTTP(w, req)
 
@@ -108,7 +109,7 @@ func TestAdminServer_MetricsEndpoint_ExposesPanicsTotal(t *testing.T) {
 
 	adminSrv := telemetry.NewAdminServer("127.0.0.1:0", "test")
 
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 	adminSrv.Mux().ServeHTTP(w, req)
 
@@ -132,7 +133,7 @@ func TestPanicRecovery_IncrementsPanicsTotal(t *testing.T) {
 
 	handler := PanicRecoveryMiddleware(panicHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -157,7 +158,7 @@ func TestHandler_ConcurrentRequests_ThreadSafe(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			req := httptest.NewRequest(http.MethodGet, "/_ops/health", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_ops/health", nil)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)
 		}()
@@ -193,7 +194,7 @@ func TestHandler_UpstreamDuration_RecordsOnSuccess(t *testing.T) {
 	handler := srv.Handler()
 
 	// Make a proxy request
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", upstream.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "upstream-test")
 	w := httptest.NewRecorder()
@@ -221,7 +222,7 @@ func TestHandler_UpstreamDuration_RecordsOnError(t *testing.T) {
 
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "http://127.0.0.1:59999/test")
 	req.Header.Set("X-Connect-Vendor-ID", "error-test")
 	w := httptest.NewRecorder()

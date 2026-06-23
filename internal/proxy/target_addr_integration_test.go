@@ -54,7 +54,7 @@ func targetAddrTestSetup(t *testing.T, mode observability.TargetAddrMode, target
 	srv := mustNewServerForTarget(t, cfg, target)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", requestURL)
 	req.Header.Set("X-Connect-Vendor-ID", "VA-test")
 	req.Header.Set("X-Connect-Marketplace-ID", "MP-US")

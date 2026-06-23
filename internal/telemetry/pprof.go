@@ -18,9 +18,12 @@ import (
 // Set via: -ldflags "-X 'github.com/cloudblue/chaperone/internal/telemetry.allowProfiling=true'"
 var allowProfiling = "false"
 
+// ldflagTrue is the string value that ldflags injects to enable optional features at build time.
+const ldflagTrue = "true"
+
 // AllowProfiling returns true if pprof can be enabled (dev builds only).
 func AllowProfiling() bool {
-	return allowProfiling == "true"
+	return allowProfiling == ldflagTrue
 }
 
 // RegisterPprofHandlers registers pprof endpoints on the given mux.

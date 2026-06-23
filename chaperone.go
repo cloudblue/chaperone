@@ -171,7 +171,7 @@ func startProxy(ctx context.Context, plugin sdk.Plugin, rc *runConfig, cfg *conf
 	// Tracing is enabled only when config allows it and OTEL_SDK_DISABLED is not true.
 	tracingEnabled := cfg.Observability.EnableTracing && telemetry.IsTracingEnabled()
 	shutdownTracing, tracingErr := telemetry.InitTracing(context.Background(), telemetry.TracingConfig{ //nolint:contextcheck // tracing init is process-scoped, not request-scoped
-		ServiceName:    "chaperone",
+		ServiceName:    DefaultCommonName,
 		ServiceVersion: rc.version,
 		Enabled:        tracingEnabled,
 	})
@@ -205,7 +205,7 @@ func startProxy(ctx context.Context, plugin sdk.Plugin, rc *runConfig, cfg *conf
 	// Start shutdown listener: when ctx is cancelled, drain servers gracefully.
 	// A fresh Background context is used intentionally — the parent ctx is
 	// already cancelled at this point, so we need a new deadline for draining.
-	go awaitShutdown(ctx, srv, adminSrv, shutdownTracing, *cfg.Server.ShutdownTimeout)
+	go awaitShutdown(ctx, srv, adminSrv, shutdownTracing, *cfg.Server.ShutdownTimeout) //nolint:gosec // G118: ctx is the signal context (already done at shutdown); awaitShutdown needs it only to receive the Done signal, not as a request context
 
 	// Start blocks until the server stops.
 	if startErr := srv.Start(); startErr != nil { //nolint:contextcheck // proxy.Server.Start blocks on Serve, no context parameter
