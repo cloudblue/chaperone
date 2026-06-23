@@ -21,7 +21,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudblue/chaperone/internal/telemetry"
 	"github.com/cloudblue/chaperone/pkg/crypto"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // fakeCertSwapper implements CertSwapper for tests.
@@ -380,6 +382,76 @@ func TestHandler_Install_DiskWriteFailure_Returns500(t *testing.T) {
 	}
 }
 
+// TestHandler_Install_CounterLabels verifies that CertRenewalsTotal is incremented
+// with the correct label on both the success and persist-failure paths.
+func TestHandler_Install_CounterLabels(t *testing.T) {
+	telemetry.CertRenewalsTotal.Reset()
+	t.Cleanup(func() { telemetry.CertRenewalsTotal.Reset() })
+
+	// --- persist-failure path → "failure" label ---
+	{
+		swapper, ca := mustMakeSwapper(t)
+		manager := NewManager()
+		h := NewHandler(manager, swapper, "/no-such-dir/cert.pem", "/no-such-dir/key.pem", true)
+
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /_ops/renew/prepare", h.HandlePrepare)
+		mux.HandleFunc("POST /_ops/renew/install", h.HandleInstall)
+
+		rr := postJSON(t, mux, "/_ops/renew/prepare", nil)
+		var prepResp map[string]string
+		_ = json.Unmarshal(rr.Body.Bytes(), &prepResp)
+		newCertPEM := signCSR(t, ca, []byte(prepResp["csr"]))
+
+		rr = postJSON(t, mux, "/_ops/renew/install", map[string]string{
+			"renewal_id":  prepResp["renewal_id"],
+			"certificate": string(newCertPEM),
+		})
+		if rr.Code != http.StatusInternalServerError {
+			t.Fatalf("persist failure: got %d, want 500", rr.Code)
+		}
+		if got := testutil.ToFloat64(telemetry.CertRenewalsTotal.WithLabelValues("failure")); got != 1 {
+			t.Errorf("failure counter = %v, want 1", got)
+		}
+		if got := testutil.ToFloat64(telemetry.CertRenewalsTotal.WithLabelValues("success")); got != 0 {
+			t.Errorf("success counter = %v, want 0 after persist failure", got)
+		}
+	}
+
+	telemetry.CertRenewalsTotal.Reset()
+
+	// --- happy path → "success" label ---
+	{
+		swapper, ca := mustMakeSwapper(t)
+		dir := t.TempDir()
+		manager := NewManager()
+		h := NewHandler(manager, swapper, dir+"/cert.pem", dir+"/key.pem", true)
+
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /_ops/renew/prepare", h.HandlePrepare)
+		mux.HandleFunc("POST /_ops/renew/install", h.HandleInstall)
+
+		rr := postJSON(t, mux, "/_ops/renew/prepare", nil)
+		var prepResp map[string]string
+		_ = json.Unmarshal(rr.Body.Bytes(), &prepResp)
+		newCertPEM := signCSR(t, ca, []byte(prepResp["csr"]))
+
+		rr = postJSON(t, mux, "/_ops/renew/install", map[string]string{
+			"renewal_id":  prepResp["renewal_id"],
+			"certificate": string(newCertPEM),
+		})
+		if rr.Code != http.StatusAccepted {
+			t.Fatalf("happy path: got %d, want 202", rr.Code)
+		}
+		if got := testutil.ToFloat64(telemetry.CertRenewalsTotal.WithLabelValues("success")); got != 1 {
+			t.Errorf("success counter = %v, want 1", got)
+		}
+		if got := testutil.ToFloat64(telemetry.CertRenewalsTotal.WithLabelValues("failure")); got != 0 {
+			t.Errorf("failure counter = %v, want 0 after success", got)
+		}
+	}
+}
+
 // TestHandler_Install_PersistPair_KeyRenameFails exercises the rollback branch
 // inside persistPair: certPath receives the new cert (first rename commits), then
 // the key rename fails because keyPath is an existing non-empty directory. The
@@ -388,7 +460,7 @@ func TestHandler_Install_DiskWriteFailure_Returns500(t *testing.T) {
 func TestHandler_Install_PersistPair_KeyRenameFails(t *testing.T) {
 	tmpDir := t.TempDir()
 	certPath := filepath.Join(tmpDir, "cert.pem")
-	// keyPath is an existing directory — os.Rename(file, dir) fails with EISDIR.
+	// keyPath is an existing directory — os.Rename(file → dir) fails with EISDIR.
 	keyDir := filepath.Join(tmpDir, "key_dir")
 	if err := os.Mkdir(keyDir, 0o700); err != nil {
 		t.Fatalf("Mkdir: %v", err)

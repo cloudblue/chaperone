@@ -146,14 +146,17 @@ var (
 		[]string{"target", "kind"},
 	)
 
-	// CertExpirySeconds tracks seconds until the active TLS certificate expires.
-	// Negative values indicate an already-expired certificate.
+	// CertNotAfterTimestamp stores the active TLS certificate's NotAfter field as a
+	// Unix timestamp. Use PromQL subtraction to derive time-until-expiry:
+	//   chaperone_cert_not_after_timestamp_seconds - time() < 7 * 86400
+	// A plain "seconds remaining" gauge would freeze between scrapes; a timestamp
+	// stays correct even if the metric is never refreshed.
 	// Updated on startup and after each certificate hot-swap.
-	CertExpirySeconds = promauto.NewGauge(
+	CertNotAfterTimestamp = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "cert_expiry_seconds",
-			Help:      "Seconds until the active TLS certificate expires (negative = already expired)",
+			Name:      "cert_not_after_timestamp_seconds",
+			Help:      "Unix timestamp of the active TLS certificate's NotAfter field",
 		},
 	)
 

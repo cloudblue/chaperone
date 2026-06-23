@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/cloudblue/chaperone/internal/telemetry"
 )
@@ -144,17 +143,18 @@ func (h *Handler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 
 	// Hot-swap the TLS listener — in-flight connections are unaffected.
 	h.provider.Swap(newCert)
-	telemetry.CertExpirySeconds.Set(time.Until(newCert.Leaf.NotAfter).Seconds())
-	telemetry.CertRenewalsTotal.WithLabelValues("success").Inc()
+	telemetry.CertNotAfterTimestamp.Set(float64(newCert.Leaf.NotAfter.Unix()))
 
 	// Persist cert and key to disk. Both are written to temp files first;
 	// renames are committed only after both writes succeed. A failure here
 	// returns 500 so the caller knows persistence did not complete.
 	if err := persistPair(h.certFile, certPEM, h.keyFile, keyPEM); err != nil {
 		slog.Error("renewal: failed to persist cert/key", "error", err)
+		telemetry.CertRenewalsTotal.WithLabelValues("failure").Inc()
 		writeJSONError(w, http.StatusInternalServerError, "certificate installed but failed to persist to disk")
 		return
 	}
+	telemetry.CertRenewalsTotal.WithLabelValues("success").Inc()
 
 	slog.Info("renewal install completed", keyRenewalID, body.RenewalID, "cert_not_after", newCert.Leaf.NotAfter)
 	w.WriteHeader(http.StatusAccepted)

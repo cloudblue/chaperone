@@ -199,13 +199,15 @@ func TestAPILatencyBuckets(t *testing.T) {
 	}
 }
 
-func TestCertExpirySeconds_SetAndRead(t *testing.T) {
-	CertExpirySeconds.Set(3600.0)
-	t.Cleanup(func() { CertExpirySeconds.Set(0) })
+func TestCertNotAfterTimestamp_SetAndRead(t *testing.T) {
+	// Store a Unix timestamp — use a realistic future value.
+	const ts = 1_800_000_000.0 // ~2027-01-15
+	CertNotAfterTimestamp.Set(ts)
+	t.Cleanup(func() { CertNotAfterTimestamp.Set(0) })
 
-	got := testutil.ToFloat64(CertExpirySeconds)
-	if got != 3600.0 {
-		t.Errorf("CertExpirySeconds = %v, want 3600.0", got)
+	got := testutil.ToFloat64(CertNotAfterTimestamp)
+	if got != ts {
+		t.Errorf("CertNotAfterTimestamp = %v, want %v", got, ts)
 	}
 }
 
