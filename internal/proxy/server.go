@@ -93,6 +93,12 @@ type Config struct {
 	// Empty defaults to host-only, the safest behavior.
 	LogTargetAddrMode observability.TargetAddrMode
 
+	// ForwardTargets describes named forward upstreams. One ForwardProxy is
+	// built per entry at startup and cached on the Server, keyed by name.
+	// Routers reference these targets by name via sdk.RouteAction. May be
+	// nil or empty when no router is registered.
+	ForwardTargets map[string]config.ForwardTargetConfig
+
 	// Timeouts
 	ReadTimeout      time.Duration
 	WriteTimeout     time.Duration
@@ -116,6 +122,16 @@ type Server struct {
 
 	// renewalManager manages the pending state between prepare and install.
 	renewalManager *renewal.Manager
+	// forwardProxies holds one ForwardProxy per named entry in
+	// config.ForwardTargets, built once at startup and reused across requests.
+	// The map is always non-nil after NewServer (possibly empty) so callers
+	// can perform direct map lookups without a nil guard.
+	forwardProxies map[string]*ForwardProxy
+
+	// router is set if the plugin implements sdk.RequestRouter. When non-nil,
+	// it is consulted before credential injection to decide whether to route
+	// the request to a forward target instead of the main vendor flow.
+	router sdk.RequestRouter
 
 	// started guards against calling Start() more than once, which would
 	// panic on double-close of the ready channel.
@@ -156,13 +172,54 @@ func NewServer(cfg Config) (*Server, error) {
 	t.ResponseHeaderTimeout = cfg.ReadTimeout
 	t.IdleConnTimeout = cfg.IdleTimeout
 
+	forwardProxies, err := buildForwardProxies(cfg.ForwardTargets)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cross-validate forward references: if the plugin implements ForwardReferences(),
+	// ensure all referenced targets exist in the config.
+	if err := validateForwardReferences(cfg.Plugin, cfg.ForwardTargets); err != nil {
+		return nil, err
+	}
+
+	// Log warning for any forward_target entries that are never referenced
+	// (only if the plugin can report its references).
+	warnUnusedForwardTargets(cfg.Plugin, cfg.ForwardTargets)
+
+	// Detect if the plugin implements RequestRouter capability
+	var requestRouter sdk.RequestRouter
+	if cfg.Plugin != nil {
+		if r, ok := cfg.Plugin.(sdk.RequestRouter); ok {
+			requestRouter = r
+		}
+	}
+
 	return &Server{
 		config:         cfg,
 		reflector:      security.NewReflector(sensitiveHeaders),
 		transport:      t,
 		renewalManager: renewal.NewManager(),
+		forwardProxies: forwardProxies,
+		router:         requestRouter,
 		ready:          make(chan struct{}),
 	}, nil
+}
+
+// buildForwardProxies constructs one *ForwardProxy per configured forward
+// target, keyed by the target's name. The returned map is always non-nil so
+// callers can perform direct lookups without a nil guard. Any failure to
+// build a target is surfaced as an error mentioning the offending name.
+func buildForwardProxies(targets map[string]config.ForwardTargetConfig) (map[string]*ForwardProxy, error) {
+	fps := make(map[string]*ForwardProxy, len(targets))
+	for name, t := range targets {
+		fp, err := NewForwardProxy(name, t)
+		if err != nil {
+			return nil, fmt.Errorf("build forward proxy %q: %w", name, err)
+		}
+		fps[name] = fp
+	}
+	return fps, nil
 }
 
 // validateProxyConfig validates that all required proxy configuration fields
@@ -557,11 +614,51 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse the target URL once. If parsing fails, target_addr defaults to ""
-	// (consistent with FormatTargetAddr's behavior for malformed input) so
-	// the DEBUG breadcrumb still fires before the bad-request response.
+	targetURL, targetAddr, ok := s.parseAndValidateTarget(w, traceID, txCtx)
+	if !ok {
+		return
+	}
+
+	// Router branch: consult the plugin's RequestRouter (if any) BEFORE
+	// credential injection. If routeAndMaybeForward dispatches the request
+	// to a forward target (or fails), handled is true and we return.
+	if handled := s.routeAndMaybeForward(w, r, traceID, txCtx, targetAddr); handled {
+		return
+	}
+
+	// Fall-through: credential injection + vendor call. Logged at DEBUG (not
+	// INFO) because this is the hot path of a high-RPS proxy and the existing
+	// "request completed" / "upstream response" lines plus the
+	// route_decisions_total{action=credentials} metric already cover it. The
+	// forward branch logs at INFO since forwarding is the rarer, notable case.
+	slog.Debug("request routed",
+		"trace_id", traceID,
+		"vendor_id", txCtx.VendorID,
+		"marketplace_id", txCtx.MarketplaceID,
+		"action", "credentials",
+	)
+	// Use empty-string target for credentials path: there is no named forward
+	// target. Empty string is the natural "absence" value and avoids reserving
+	// a sentinel label like "vendor".
+	telemetry.RouteDecisionsTotal.WithLabelValues("credentials", "").Inc()
+
+	r, err = s.injectCredentials(r, txCtx, targetAddr)
+	if err != nil {
+		s.handlePluginError(w, traceID, txCtx, targetAddr, err)
+		return
+	}
+
+	//nolint:contextcheck // ModifyResponse uses resp.Request.Context() internally
+	s.forwardRequest(w, r, targetURL, traceID, txCtx, targetAddr)
+}
+
+// parseAndValidateTarget parses the request target URL from the transaction
+// context and validates its scheme. On any failure it writes the appropriate
+// error response and returns ok=false; callers MUST return immediately when
+// ok is false. The DEBUG "transaction context parsed" breadcrumb is emitted
+// unconditionally so the trace is observable even when validation fails.
+func (s *Server) parseAndValidateTarget(w http.ResponseWriter, traceID string, txCtx *sdk.TransactionContext) (target *url.URL, targetAddr string, ok bool) {
 	targetURL, parseErr := url.Parse(txCtx.TargetURL)
-	var targetAddr string
 	if parseErr == nil {
 		targetAddr = observability.FormatTargetAddrFromURL(targetURL, s.config.LogTargetAddrMode)
 	}
@@ -576,19 +673,18 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	if parseErr != nil {
 		s.respondBadRequest(w, traceID, "invalid target URL", parseErr)
-		return
+		return nil, "", false
 	}
 
 	// SECURITY: Validate target URL scheme (HTTPS required in production)
-	err = ValidateTargetScheme(targetURL)
-	if err != nil {
+	if err := ValidateTargetScheme(targetURL); err != nil {
 		slog.Warn("insecure target URL rejected",
 			"trace_id", traceID,
 			"target_scheme", targetURL.Scheme,
 			"target_addr", targetAddr,
 		)
 		http.Error(w, "Bad Request: "+err.Error(), http.StatusBadRequest)
-		return
+		return nil, "", false
 	}
 
 	// Warn if using HTTP in development mode
@@ -599,14 +695,49 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	r, err = s.injectCredentials(r, txCtx, targetAddr)
-	if err != nil {
-		s.handlePluginError(w, traceID, txCtx, targetAddr, err)
-		return
+	return targetURL, targetAddr, true
+}
+
+// routeAndMaybeForward consults the plugin's RequestRouter (when present) and
+// dispatches the request to a configured ForwardProxy when the router returns
+// a non-empty ForwardTo. Returns true when the response has been fully
+// written (success, router error, or unknown-target error), in which case the
+// caller MUST NOT continue with credential injection / vendor forwarding.
+// Returns false when the caller should fall through to the credential flow.
+func (s *Server) routeAndMaybeForward(w http.ResponseWriter, r *http.Request, traceID string, txCtx *sdk.TransactionContext, targetAddr string) bool {
+	if s.router == nil {
+		return false
 	}
 
-	//nolint:contextcheck // ModifyResponse uses resp.Request.Context() internally
-	s.forwardRequest(w, r, targetURL, traceID, txCtx, targetAddr)
+	action, err := s.router.RouteRequest(r.Context(), *txCtx, r)
+	if err != nil {
+		s.handlePluginError(w, traceID, txCtx, targetAddr, err)
+		return true
+	}
+	if action == nil || action.ForwardTo == "" {
+		return false
+	}
+
+	fp, ok := s.forwardProxies[action.ForwardTo]
+	if !ok {
+		slog.Error("forward_target not found",
+			"trace_id", traceID,
+			"target", action.ForwardTo,
+		)
+		respondError(w, http.StatusInternalServerError, "internal configuration error")
+		return true
+	}
+
+	slog.Info("request routed",
+		"trace_id", traceID,
+		"vendor_id", txCtx.VendorID,
+		"marketplace_id", txCtx.MarketplaceID,
+		"action", "forward",
+		"target", action.ForwardTo,
+	)
+	telemetry.RouteDecisionsTotal.WithLabelValues("forward", action.ForwardTo).Inc()
+	fp.ServeHTTP(w, r)
+	return true
 }
 
 // respondBadRequest logs and responds with a 400 Bad Request.
@@ -999,5 +1130,72 @@ func (s *Server) applyErrorNormalization(traceID string, txCtx *sdk.TransactionC
 			"error", err,
 		)
 		// Continue even if normalization fails - response will be sent as-is
+	}
+}
+
+// forwardReferences returns the forward-target names a plugin references via
+// the duck-typed { ForwardReferences() []string } contract. The bool is false
+// when the plugin is nil or does not implement the method, in which case
+// callers skip forward-reference validation (we can't know what targets it
+// uses). The contrib Mux is the only producer today; a named
+// sdk.ForwardReferencer interface is a planned follow-up.
+func forwardReferences(plugin sdk.Plugin) ([]string, bool) {
+	if plugin == nil {
+		return nil, false
+	}
+	lister, ok := plugin.(interface{ ForwardReferences() []string })
+	if !ok {
+		return nil, false
+	}
+	return lister.ForwardReferences(), true
+}
+
+// validateForwardReferences checks that all forward target references in the
+// plugin (if it exposes them) are defined in the forward targets
+// configuration. Each referenced name is verified to exist in targets; a
+// missing reference returns an error. Plugins that don't expose references
+// are skipped.
+func validateForwardReferences(plugin sdk.Plugin, targets map[string]config.ForwardTargetConfig) error {
+	refs, ok := forwardReferences(plugin)
+	if !ok {
+		return nil
+	}
+
+	for _, ref := range refs {
+		if _, ok := targets[ref]; !ok {
+			return fmt.Errorf("plugin references forward_target %q which is not defined in config", ref)
+		}
+	}
+
+	return nil
+}
+
+// warnUnusedForwardTargets logs a warning for any forward_target entry that
+// is not referenced by the plugin. Only runs if the plugin exposes its forward
+// references.
+//
+// This helps catch configuration errors where targets are defined but never
+// actually used by any route.
+func warnUnusedForwardTargets(plugin sdk.Plugin, targets map[string]config.ForwardTargetConfig) {
+	refs, ok := forwardReferences(plugin)
+	if !ok {
+		// Plugin doesn't expose forward references — can't determine which
+		// targets are unused, so skip the warning.
+		return
+	}
+
+	// Build a set of referenced targets (deduplicated)
+	referenced := make(map[string]bool)
+	for _, ref := range refs {
+		referenced[ref] = true
+	}
+
+	// Warn about any configured targets that are not referenced
+	for name := range targets {
+		if !referenced[name] {
+			slog.Warn("forward_target defined but never referenced",
+				"target", name,
+			)
+		}
 	}
 }

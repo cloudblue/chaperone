@@ -9,6 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -604,6 +606,172 @@ func TestMux_Compliance(t *testing.T) {
 	compliance.VerifyContract(t, mux)
 }
 
+// --- RouteRequest tests (RequestRouter implementation) ---
+
+func TestMux_RouteRequest_ReturnsForward_ForForwardAction(t *testing.T) {
+	m := NewMux()
+	m.HandleForward(Route{VendorID: "microsoft-*"}, "company-b")
+
+	action, err := m.RouteRequest(context.Background(),
+		sdk.TransactionContext{VendorID: "microsoft-azure"},
+		httptest.NewRequest("GET", "https://example.com/x", nil))
+	if err != nil {
+		t.Fatalf("RouteRequest: %v", err)
+	}
+	if action == nil || action.ForwardTo != "company-b" {
+		t.Errorf("action = %#v, want ForwardTo=company-b", action)
+	}
+}
+
+func TestMux_RouteRequest_ReturnsNil_ForCredentialAction(t *testing.T) {
+	m := NewMux()
+	m.Handle(Route{VendorID: "microsoft-*"}, &namedProvider{name: "test"})
+
+	action, err := m.RouteRequest(context.Background(),
+		sdk.TransactionContext{VendorID: "microsoft-azure"},
+		httptest.NewRequest("GET", "https://example.com/x", nil))
+	if err != nil {
+		t.Fatalf("RouteRequest: %v", err)
+	}
+	if action != nil {
+		t.Errorf("action = %#v, want nil for CredentialAction match", action)
+	}
+}
+
+func TestMux_RouteRequest_ReturnsNil_NoMatch(t *testing.T) {
+	m := NewMux()
+	m.Default(&namedProvider{name: "fallback"})
+
+	action, err := m.RouteRequest(context.Background(),
+		sdk.TransactionContext{VendorID: "globex"},
+		httptest.NewRequest("GET", "https://example.com/x", nil))
+	if err != nil {
+		t.Fatalf("RouteRequest: %v", err)
+	}
+	if action != nil {
+		t.Errorf("action = %#v, want nil when no forward route matches", action)
+	}
+}
+
+// --- RouteRequest mandatory test matrix ---
+
+func TestMux_RouteRequest_Matrix(t *testing.T) {
+	tests := []struct {
+		name        string
+		setup       func(*Mux)
+		tx          sdk.TransactionContext
+		wantAction  *sdk.RouteAction
+		wantErr     bool
+		description string
+	}{
+		{
+			name: "ForwardAction_MatchedWithData_ReturnsCorrectTarget",
+			setup: func(m *Mux) {
+				m.HandleForward(Route{VendorID: "acme", Data: map[string]string{"region": "us-east"}}, "acme-us-east")
+			},
+			tx:          sdk.TransactionContext{VendorID: "acme", Data: map[string]any{"region": "us-east"}},
+			wantAction:  &sdk.RouteAction{ForwardTo: "acme-us-east"},
+			description: "ForwardAction matched at specific Data dimension returns correct ForwardTo",
+		},
+		{
+			name: "HigherSpecificityForwardBeatsLowerSpecificityCredential",
+			setup: func(m *Mux) {
+				m.Handle(Route{VendorID: "acme"}, &namedProvider{name: "general"})
+				m.HandleForward(Route{VendorID: "acme", EnvironmentID: "prod"}, "acme-prod")
+			},
+			tx:          sdk.TransactionContext{VendorID: "acme", EnvironmentID: "prod"},
+			wantAction:  &sdk.RouteAction{ForwardTo: "acme-prod"},
+			description: "More specific ForwardAction wins over less specific CredentialAction",
+		},
+		{
+			name: "HigherSpecificityCredentialBeatsLowerSpecificityForward",
+			setup: func(m *Mux) {
+				m.HandleForward(Route{VendorID: "acme"}, "general-acme")
+				m.Handle(Route{VendorID: "acme", EnvironmentID: "prod"}, &namedProvider{name: "specific"})
+			},
+			tx:          sdk.TransactionContext{VendorID: "acme", EnvironmentID: "prod"},
+			wantAction:  nil,
+			description: "More specific CredentialAction wins over less specific ForwardAction (returns nil)",
+		},
+		{
+			name: "TwoForwardActionsAtSameSpecificity_FirstRegisteredWins",
+			setup: func(m *Mux) {
+				m.HandleForward(Route{VendorID: "microsoft-*"}, "target-first")
+				m.HandleForward(Route{VendorID: "microsoft-*"}, "target-second")
+			},
+			tx:          sdk.TransactionContext{VendorID: "microsoft-azure"},
+			wantAction:  &sdk.RouteAction{ForwardTo: "target-first"},
+			description: "Two ForwardActions matching at same specificity returns first registered",
+		},
+		{
+			name: "NilHTTPRequest_DoesNotPanic",
+			setup: func(m *Mux) {
+				m.HandleForward(Route{VendorID: "acme"}, "target-acme")
+			},
+			tx:          sdk.TransactionContext{VendorID: "acme"},
+			wantAction:  &sdk.RouteAction{ForwardTo: "target-acme"},
+			description: "nil http.Request argument does not panic",
+		},
+		{
+			name: "NilTXData_WithDataDimensionRoute_NoMatch",
+			setup: func(m *Mux) {
+				m.HandleForward(Route{VendorID: "acme", Data: map[string]string{"region": "us"}}, "target-us")
+			},
+			tx:          sdk.TransactionContext{VendorID: "acme", Data: nil},
+			wantAction:  nil,
+			description: "nil tx.Data with a Data-dimension route does not match",
+		},
+		{
+			name: "PreCancelledContext_StillReturnsAction",
+			setup: func(m *Mux) {
+				m.HandleForward(Route{VendorID: "acme"}, "target-acme")
+			},
+			tx:          sdk.TransactionContext{VendorID: "acme"},
+			wantAction:  &sdk.RouteAction{ForwardTo: "target-acme"},
+			description: "Pre-cancelled context still returns the same action",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewMux()
+			tt.setup(m)
+
+			ctx := context.Background()
+			// For the "pre-cancelled context" case, cancel it before calling.
+			if tt.name == "PreCancelledContext_StillReturnsAction" {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(context.Background())
+				cancel()
+			}
+
+			action, err := m.RouteRequest(ctx, tt.tx, nil) // nil req is acceptable
+			if (err != nil) != tt.wantErr {
+				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantAction == nil {
+				if action != nil {
+					t.Errorf("action = %#v, want nil (%s)", action, tt.description)
+				}
+			} else {
+				if action == nil {
+					t.Errorf("action = nil, want %#v (%s)", tt.wantAction, tt.description)
+				} else if action.ForwardTo != tt.wantAction.ForwardTo {
+					t.Errorf("action.ForwardTo = %q, want %q (%s)", action.ForwardTo, tt.wantAction.ForwardTo, tt.description)
+				}
+			}
+		})
+	}
+}
+
+// --- RouteRequest RequestRouter compliance test ---
+
+func TestMux_RouteRequest_Compliance(t *testing.T) {
+	m := NewMux()
+	m.HandleForward(Route{VendorID: "test"}, "target-test")
+	compliance.VerifyRouter(t, m)
+}
+
 func TestNewMux_NilLogger_LazyResolution(t *testing.T) {
 	m := NewMux()
 
@@ -622,5 +790,392 @@ func TestNewMux_WithLogger_UsesExplicitLogger(t *testing.T) {
 
 	if m.log() != custom {
 		t.Error("log() should return the explicitly provided logger")
+	}
+}
+
+// --- Action registration tests ---
+
+// countOverlapWarnings returns how many overlap warnings the capture saw.
+func countOverlapWarnings(entries []logEntry) int {
+	const want = "routes registered with equal specificity may overlap, first registered wins on tie"
+	n := 0
+	for _, e := range entries {
+		if e.level == slog.LevelWarn && e.message == want {
+			n++
+		}
+	}
+	return n
+}
+
+func TestMux_HandleForward_RegistersForwardAction(t *testing.T) {
+	m := NewMux()
+	m.HandleForward(Route{VendorID: "x"}, "company-b")
+
+	if len(m.entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(m.entries))
+	}
+	fa, ok := m.entries[0].action.(ForwardAction)
+	if !ok {
+		t.Fatalf("action = %T, want ForwardAction", m.entries[0].action)
+	}
+	if fa.Target != "company-b" {
+		t.Errorf("Target = %q, want %q", fa.Target, "company-b")
+	}
+	if m.entries[0].index != 0 {
+		t.Errorf("index = %d, want 0", m.entries[0].index)
+	}
+}
+
+func TestMux_HandleForward_MultipleRegistrations_PreserveOrder(t *testing.T) {
+	m := NewMux()
+	m.HandleForward(Route{VendorID: "a"}, "target-a")
+	m.HandleForward(Route{VendorID: "b"}, "target-b")
+	m.HandleForward(Route{VendorID: "c"}, "target-c")
+
+	if len(m.entries) != 3 {
+		t.Fatalf("entries = %d, want 3", len(m.entries))
+	}
+	wantTargets := []string{"target-a", "target-b", "target-c"}
+	for i, want := range wantTargets {
+		fa, ok := m.entries[i].action.(ForwardAction)
+		if !ok {
+			t.Fatalf("entry[%d].action = %T, want ForwardAction", i, m.entries[i].action)
+		}
+		if fa.Target != want {
+			t.Errorf("entry[%d].Target = %q, want %q", i, fa.Target, want)
+		}
+		if m.entries[i].index != i {
+			t.Errorf("entry[%d].index = %d, want %d", i, m.entries[i].index, i)
+		}
+	}
+}
+
+func TestMux_Handle_RegistersCredentialAction(t *testing.T) {
+	m := NewMux()
+	provider := &namedProvider{name: "acme"}
+	m.Handle(Route{VendorID: "acme"}, provider)
+
+	if len(m.entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(m.entries))
+	}
+	ca, ok := m.entries[0].action.(CredentialAction)
+	if !ok {
+		t.Fatalf("action = %T, want CredentialAction", m.entries[0].action)
+	}
+	if ca.Provider != provider {
+		t.Errorf("Provider = %v, want %v", ca.Provider, provider)
+	}
+}
+
+func TestMux_MixedHandleAndHandleForward_AllRegisteredWithCorrectTypes(t *testing.T) {
+	m := NewMux()
+	prov := &namedProvider{name: "acme"}
+	m.Handle(Route{VendorID: "acme"}, prov)
+	m.HandleForward(Route{VendorID: "globex"}, "target-globex")
+	m.Handle(Route{VendorID: "initech"}, &namedProvider{name: "initech"})
+	m.HandleForward(Route{VendorID: "umbrella"}, "target-umbrella")
+
+	if len(m.entries) != 4 {
+		t.Fatalf("entries = %d, want 4", len(m.entries))
+	}
+
+	cases := []struct {
+		idx      int
+		wantType string
+	}{
+		{0, "credential"},
+		{1, "forward"},
+		{2, "credential"},
+		{3, "forward"},
+	}
+	for _, tc := range cases {
+		switch tc.wantType {
+		case "credential":
+			if _, ok := m.entries[tc.idx].action.(CredentialAction); !ok {
+				t.Errorf("entry[%d].action = %T, want CredentialAction", tc.idx, m.entries[tc.idx].action)
+			}
+		case "forward":
+			if _, ok := m.entries[tc.idx].action.(ForwardAction); !ok {
+				t.Errorf("entry[%d].action = %T, want ForwardAction", tc.idx, m.entries[tc.idx].action)
+			}
+		}
+	}
+}
+
+// TestMux_HandleForward_EmptyTarget_Panics verifies that registering a route
+// with an empty target name is treated as a programmer error. An empty target
+// cannot reference any forward_target, so silently registering a dead route
+// would only delay the failure to dispatch time. Config-driven users hit the
+// loader's own non-empty check before ever reaching HandleForward.
+func TestMux_HandleForward_EmptyTarget_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic on empty target name")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "empty target name") {
+			t.Errorf("panic message = %v, want substring 'empty target name'", r)
+		}
+	}()
+	NewMux().HandleForward(Route{VendorID: "x"}, "")
+}
+
+// --- Overlap warning tests across action types ---
+
+func TestMux_OverlapWarning_AcrossActionTypes(t *testing.T) {
+	tests := []struct {
+		name     string
+		register func(m *Mux)
+		wantWarn int
+	}{
+		{
+			name: "two HandleForward with overlapping routes at same specificity",
+			register: func(m *Mux) {
+				m.HandleForward(Route{VendorID: "microsoft-*"}, "target-1")
+				m.HandleForward(Route{VendorID: "microsoft-azure"}, "target-2")
+			},
+			wantWarn: 1,
+		},
+		{
+			name: "Handle then HandleForward with overlapping routes at same specificity",
+			register: func(m *Mux) {
+				m.Handle(Route{VendorID: "microsoft-*"}, &namedProvider{name: "first"})
+				m.HandleForward(Route{VendorID: "microsoft-azure"}, "target-2")
+			},
+			wantWarn: 1,
+		},
+		{
+			name: "HandleForward then Handle with overlapping routes at same specificity",
+			register: func(m *Mux) {
+				m.HandleForward(Route{VendorID: "microsoft-*"}, "target-1")
+				m.Handle(Route{VendorID: "microsoft-azure"}, &namedProvider{name: "second"})
+			},
+			wantWarn: 1,
+		},
+		{
+			name: "two non-overlapping HandleForward (disjoint literals)",
+			register: func(m *Mux) {
+				m.HandleForward(Route{VendorID: "acme"}, "target-acme")
+				m.HandleForward(Route{VendorID: "globex"}, "target-globex")
+			},
+			wantWarn: 0,
+		},
+		{
+			name: "non-overlapping mixed actions (disjoint literals)",
+			register: func(m *Mux) {
+				m.Handle(Route{VendorID: "acme"}, &namedProvider{name: "acme"})
+				m.HandleForward(Route{VendorID: "globex"}, "target-globex")
+			},
+			wantWarn: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			capture := &logCapture{}
+			m := NewMux(WithLogger(slog.New(capture)))
+			tt.register(m)
+
+			if got := countOverlapWarnings(capture.getEntries()); got != tt.wantWarn {
+				t.Errorf("overlap warnings = %d, want %d", got, tt.wantWarn)
+			}
+		})
+	}
+}
+
+// --- GetCredentials fall-through tests for the new action model ---
+
+func TestMux_GetCredentials_CredentialAction_DelegatesToProvider(t *testing.T) {
+	m := NewMux()
+	m.Handle(Route{VendorID: "acme"}, &namedProvider{name: "acme"})
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{VendorID: "acme"}
+	cred, err := m.GetCredentials(ctx, tx, makeTestReq(ctx))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := cred.Headers["Authorization"]; got != "Bearer acme" {
+		t.Errorf("Authorization = %q, want %q", got, "Bearer acme")
+	}
+}
+
+func TestMux_GetCredentials_ForwardAction_ReturnsErrUnexpectedForwardAction(t *testing.T) {
+	m := NewMux()
+	m.HandleForward(Route{VendorID: "acme"}, "company-b")
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{VendorID: "acme"}
+	cred, err := m.GetCredentials(ctx, tx, makeTestReq(ctx))
+	if !errors.Is(err, ErrUnexpectedForwardAction) {
+		t.Errorf("error = %v, want ErrUnexpectedForwardAction", err)
+	}
+	if cred != nil {
+		t.Errorf("cred = %v, want nil", cred)
+	}
+}
+
+func TestMux_GetCredentials_NilProviderInCredentialAction_ReturnsErrNilCredentialProvider(t *testing.T) {
+	m := NewMux()
+	// Direct registration via Handle with nil provider.
+	m.Handle(Route{VendorID: "acme"}, nil)
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{VendorID: "acme"}
+	cred, err := m.GetCredentials(ctx, tx, makeTestReq(ctx))
+	if !errors.Is(err, ErrNilCredentialProvider) {
+		t.Errorf("error = %v, want ErrNilCredentialProvider", err)
+	}
+	if cred != nil {
+		t.Errorf("cred = %v, want nil", cred)
+	}
+}
+
+func TestMux_GetCredentials_ForwardActionMatched_DoesNotConsultFallback(t *testing.T) {
+	// A ForwardAction match must NOT silently fall through to the default
+	// provider — that would be a security regression.
+	m := NewMux()
+	m.HandleForward(Route{VendorID: "acme"}, "company-b")
+	m.Default(&namedProvider{name: "fallback"})
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{VendorID: "acme"}
+	_, err := m.GetCredentials(ctx, tx, makeTestReq(ctx))
+	if !errors.Is(err, ErrUnexpectedForwardAction) {
+		t.Errorf("error = %v, want ErrUnexpectedForwardAction (must not fall through to default)", err)
+	}
+}
+
+func TestMux_GetCredentials_NoMatch_FallbackStillWorks(t *testing.T) {
+	// Sanity: confirm fallback behavior still works after the refactor.
+	m := NewMux()
+	m.HandleForward(Route{VendorID: "acme"}, "company-b")
+	m.Default(&namedProvider{name: "fallback"})
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{VendorID: "unknown-vendor"}
+	cred, err := m.GetCredentials(ctx, tx, makeTestReq(ctx))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := cred.Headers["Authorization"]; got != "Bearer fallback" {
+		t.Errorf("Authorization = %q, want %q", got, "Bearer fallback")
+	}
+}
+
+// --- Specificity interaction with mixed action types ---
+
+func TestMux_GetCredentials_MoreSpecificForwardBeatsLessSpecificCredential(t *testing.T) {
+	// Selection is by specificity, independent of action type. A more
+	// specific ForwardAction wins over a less specific CredentialAction,
+	// and the mux returns ErrUnexpectedForwardAction.
+	m := NewMux()
+	m.Handle(Route{VendorID: "acme"}, &namedProvider{name: "general"})
+	m.HandleForward(
+		Route{VendorID: "acme", EnvironmentID: "prod"},
+		"target-acme-prod",
+	)
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{VendorID: "acme", EnvironmentID: "prod"}
+	_, err := m.GetCredentials(ctx, tx, makeTestReq(ctx))
+	if !errors.Is(err, ErrUnexpectedForwardAction) {
+		t.Errorf("error = %v, want ErrUnexpectedForwardAction", err)
+	}
+}
+
+func TestMux_GetCredentials_MoreSpecificCredentialBeatsLessSpecificForward(t *testing.T) {
+	m := NewMux()
+	m.HandleForward(Route{VendorID: "acme"}, "target-general")
+	m.Handle(
+		Route{VendorID: "acme", EnvironmentID: "prod"},
+		&namedProvider{name: "specific"},
+	)
+
+	ctx := context.Background()
+	tx := sdk.TransactionContext{VendorID: "acme", EnvironmentID: "prod"}
+	cred, err := m.GetCredentials(ctx, tx, makeTestReq(ctx))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := cred.Headers["Authorization"]; got != "Bearer specific" {
+		t.Errorf("Authorization = %q, want %q", got, "Bearer specific")
+	}
+}
+
+// --- ForwardReferences tests ---
+
+func TestMux_ForwardReferences_Empty(t *testing.T) {
+	m := NewMux()
+
+	refs := m.ForwardReferences()
+	if len(refs) != 0 {
+		t.Errorf("refs = %v, want empty", refs)
+	}
+}
+
+func TestMux_ForwardReferences_SingleForwardRoute(t *testing.T) {
+	m := NewMux()
+	m.HandleForward(Route{VendorID: "acme"}, "target-acme")
+
+	refs := m.ForwardReferences()
+	if len(refs) != 1 || refs[0] != "target-acme" {
+		t.Errorf("refs = %v, want [target-acme]", refs)
+	}
+}
+
+func TestMux_ForwardReferences_MultipleForwardRoutes(t *testing.T) {
+	m := NewMux()
+	m.HandleForward(Route{VendorID: "acme"}, "target-acme")
+	m.HandleForward(Route{VendorID: "globex"}, "target-globex")
+	m.HandleForward(Route{VendorID: "contoso"}, "target-contoso")
+
+	refs := m.ForwardReferences()
+	if len(refs) != 3 {
+		t.Errorf("refs length = %d, want 3", len(refs))
+	}
+
+	// Order should match registration order
+	expected := []string{"target-acme", "target-globex", "target-contoso"}
+	for i, exp := range expected {
+		if i >= len(refs) || refs[i] != exp {
+			t.Errorf("refs[%d] = %q, want %q", i, refs[i], exp)
+		}
+	}
+}
+
+func TestMux_ForwardReferences_MixedActions_OnlyIncludesForwards(t *testing.T) {
+	m := NewMux()
+	m.Handle(Route{VendorID: "cred-vendor"}, &namedProvider{name: "cred-provider"})
+	m.HandleForward(Route{VendorID: "forward-vendor"}, "target-forward")
+	m.Handle(Route{VendorID: "another-cred"}, &namedProvider{name: "another-provider"})
+
+	refs := m.ForwardReferences()
+	if len(refs) != 1 || refs[0] != "target-forward" {
+		t.Errorf("refs = %v, want [target-forward]", refs)
+	}
+}
+
+func TestMux_ForwardReferences_DuplicateTargets(t *testing.T) {
+	m := NewMux()
+	m.HandleForward(Route{VendorID: "vendor-a"}, "same-target")
+	m.HandleForward(Route{VendorID: "vendor-b"}, "same-target")
+	m.HandleForward(Route{VendorID: "vendor-c"}, "different-target")
+
+	refs := m.ForwardReferences()
+	if len(refs) != 3 {
+		t.Errorf("refs length = %d, want 3 (including duplicates)", len(refs))
+	}
+
+	// Verify that duplicates are preserved (not deduplicated by ForwardReferences itself)
+	count := 0
+	for _, ref := range refs {
+		if ref == "same-target" {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Errorf("same-target appears %d times, want 2", count)
 	}
 }

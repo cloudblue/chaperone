@@ -20,6 +20,7 @@ import (
 //	Route{EnvironmentID: "prod", VendorID: "microsoft-*"}   // 2-field route, higher specificity
 //	Route{TargetURL: "*.graph.microsoft.com/**"}             // matches any Graph API path
 //	Route{MarketplaceID: "MP-*", ProductID: "MICROSOFT_SAAS"} // matches by marketplace and product
+//	Route{Data: map[string]string{"ResellerId": "migrated-*"}} // matches by tx.Data entry
 type Route struct {
 	// VendorID matches against TransactionContext.VendorID.
 	// Supports glob patterns (e.g., "microsoft-*").
@@ -41,6 +42,20 @@ type Route struct {
 	// EnvironmentID matches against TransactionContext.EnvironmentID.
 	// Supports glob patterns (e.g., "prod-*").
 	EnvironmentID string
+
+	// Data matches against TransactionContext.Data entries. Each entry is
+	// <DataKey>: <glob pattern>; the route matches only if every entry's
+	// pattern matches the corresponding tx.DataString(key) value.
+	//
+	// Behavior:
+	//   - Missing keys do not match.
+	//   - Keys present but with a non-string value or an empty string
+	//     do not match (sdk.TransactionContext.DataString returns an
+	//     error for those cases, which we treat as a non-match for
+	//     routing safety — invalid data must never silently route to
+	//     a provider).
+	//   - Each entry contributes 1 to Specificity().
+	Data map[string]string
 }
 
 // Specificity returns the number of non-empty fields in the route.
@@ -63,6 +78,7 @@ func (r Route) Specificity() int {
 	if r.EnvironmentID != "" {
 		n++
 	}
+	n += len(r.Data)
 	return n
 }
 
@@ -83,6 +99,23 @@ func (r Route) Matches(tx sdk.TransactionContext) bool {
 	}
 	if r.TargetURL != "" && !matchTargetURL(r.TargetURL, tx.TargetURL) {
 		return false
+	}
+	return matchesData(r.Data, tx)
+}
+
+// matchesData reports whether every <key, pattern> entry in data matches the
+// corresponding tx.Data[key] string value. Missing keys, wrong-type values,
+// and empty strings are all treated as non-matches: a route MUST NOT silently
+// dispatch when its declared data dimension is unusable.
+func matchesData(data map[string]string, tx sdk.TransactionContext) bool {
+	for key, pattern := range data {
+		v, ok, err := tx.DataString(key)
+		if !ok || err != nil {
+			return false
+		}
+		if !GlobMatch(pattern, v, '/') {
+			return false
+		}
 	}
 	return true
 }

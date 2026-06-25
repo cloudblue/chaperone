@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1344,6 +1345,278 @@ func TestValidate_InvalidAdminAddr_ReturnsError(t *testing.T) {
 				t.Errorf("expected error for admin_addr %q, got nil", tt.adminAddr)
 			}
 		})
+	}
+}
+
+// -----------------------------------------------------------------------------
+// forward_targets tests
+// -----------------------------------------------------------------------------
+
+func TestConfig_ForwardTargets_HTTPSAndBearer_Parses(t *testing.T) {
+	t.Setenv("COMPANY_B_TOKEN", "secret-token-abc")
+
+	yaml := `
+forward_targets:
+  company-b:
+    url: "https://company-b.internal/ingress"
+    timeout: 30s
+    auth:
+      type: bearer
+      token: "${COMPANY_B_TOKEN}"
+`
+	cfg, err := LoadFromBytes([]byte(yaml))
+	if err != nil {
+		t.Fatalf("LoadFromBytes: %v", err)
+	}
+	target, ok := cfg.ForwardTargets["company-b"]
+	if !ok {
+		t.Fatal("missing forward_targets[company-b]")
+	}
+	if target.URL != "https://company-b.internal/ingress" {
+		t.Errorf("URL = %q", target.URL)
+	}
+	if target.Timeout != 30*time.Second {
+		t.Errorf("Timeout = %v, want 30s", target.Timeout)
+	}
+	if target.Auth.Type != "bearer" {
+		t.Errorf("Auth.Type = %q", target.Auth.Type)
+	}
+	if target.Auth.Token != "secret-token-abc" {
+		t.Errorf("Auth.Token = %q (expected env-interpolated value)", target.Auth.Token)
+	}
+}
+
+func TestConfig_ForwardTargets_BearerMissingToken_Fails(t *testing.T) {
+	yaml := `
+forward_targets:
+  company-b:
+    url: "https://company-b.internal/ingress"
+    auth:
+      type: bearer
+`
+	_, err := LoadFromBytes([]byte(yaml))
+	if err == nil {
+		t.Fatal("expected error for bearer auth without token, got nil")
+	}
+	if !errors.Is(err, ErrForwardTargetBearerTokenMissing) {
+		t.Errorf("error = %v, want ErrForwardTargetBearerTokenMissing", err)
+	}
+}
+
+func TestConfig_ForwardTargets_HTTPRejected_InProductionBuild(t *testing.T) {
+	// Default build behaviour: http forward targets are rejected.
+	// (allowInsecureForwardTargets defaults to "false")
+	yaml := `
+forward_targets:
+  company-b:
+    url: "http://company-b.internal/ingress"
+    auth: { type: none }
+`
+	_, err := LoadFromBytes([]byte(yaml))
+	if err == nil {
+		t.Fatal("expected error for http:// forward target in production build")
+	}
+	if !errors.Is(err, ErrForwardTargetInsecureURL) {
+		t.Errorf("error = %v, want ErrForwardTargetInsecureURL", err)
+	}
+}
+
+// TestConfig_ForwardTargets_Matrix exercises the validation matrix for both
+// the URL and the auth subsection of forward targets.
+func TestConfig_ForwardTargets_Matrix(t *testing.T) {
+	// Reserve a guaranteed-unset env var name for one of the cases.
+	const unsetVar = "CHAPERONE_TEST_DEFINITELY_UNSET_VAR_XYZ"
+	if err := os.Unsetenv(unsetVar); err != nil {
+		t.Fatalf("unsetenv: %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		yaml      string
+		wantErr   bool
+		wantErrIs error // optional: errors.Is target
+	}{
+		{
+			name: "auth_none_no_token_passes",
+			yaml: `
+forward_targets:
+  x:
+    url: "https://x.example.com"
+    auth: { type: none }
+`,
+			wantErr: false,
+		},
+		{
+			name: "auth_none_with_token_passes_token_ignored",
+			yaml: `
+forward_targets:
+  x:
+    url: "https://x.example.com"
+    auth: { type: none, token: "ignored" }
+`,
+			wantErr: false,
+		},
+		{
+			name: "auth_bearer_empty_token_fails",
+			yaml: `
+forward_targets:
+  x:
+    url: "https://x.example.com"
+    auth: { type: bearer, token: "" }
+`,
+			wantErr:   true,
+			wantErrIs: ErrForwardTargetBearerTokenMissing,
+		},
+		{
+			name: "auth_bearer_unset_env_var_resolves_to_empty_fails",
+			yaml: `
+forward_targets:
+  x:
+    url: "https://x.example.com"
+    auth: { type: bearer, token: "${` + unsetVar + `}" }
+`,
+			wantErr:   true,
+			wantErrIs: ErrForwardTargetBearerTokenMissing,
+		},
+		{
+			name: "auth_type_missing_fails",
+			yaml: `
+forward_targets:
+  x:
+    url: "https://x.example.com"
+    auth: {}
+`,
+			wantErr:   true,
+			wantErrIs: ErrForwardTargetAuthTypeMissing,
+		},
+		{
+			name: "auth_type_unsupported_fails",
+			yaml: `
+forward_targets:
+  x:
+    url: "https://x.example.com"
+    auth: { type: oauth2 }
+`,
+			wantErr:   true,
+			wantErrIs: ErrForwardTargetAuthTypeUnsupported,
+		},
+		{
+			name: "url_empty_fails",
+			yaml: `
+forward_targets:
+  x:
+    url: ""
+    auth: { type: none }
+`,
+			wantErr:   true,
+			wantErrIs: ErrForwardTargetMissingURL,
+		},
+		{
+			name: "url_not_a_url_fails",
+			yaml: `
+forward_targets:
+  x:
+    url: "not a url"
+    auth: { type: none }
+`,
+			wantErr:   true,
+			wantErrIs: ErrForwardTargetInvalidURL,
+		},
+		{
+			name: "url_ftp_scheme_fails",
+			yaml: `
+forward_targets:
+  x:
+    url: "ftp://x.example.com/path"
+    auth: { type: none }
+`,
+			wantErr:   true,
+			wantErrIs: ErrForwardTargetInsecureURL,
+		},
+		{
+			name: "url_http_in_prod_fails",
+			yaml: `
+forward_targets:
+  x:
+    url: "http://x.example.com"
+    auth: { type: none }
+`,
+			wantErr:   true,
+			wantErrIs: ErrForwardTargetInsecureURL,
+		},
+		{
+			name: "two_targets_both_parse",
+			yaml: `
+forward_targets:
+  a:
+    url: "https://a.example.com"
+    auth: { type: none }
+  b:
+    url: "https://b.example.com"
+    auth: { type: bearer, token: "tok" }
+`,
+			wantErr: false,
+		},
+		{
+			name: "two_targets_one_invalid_surfaces_name",
+			yaml: `
+forward_targets:
+  good:
+    url: "https://good.example.com"
+    auth: { type: none }
+  bad:
+    url: "https://bad.example.com"
+    auth: { type: bearer }
+`,
+			wantErr:   true,
+			wantErrIs: ErrForwardTargetBearerTokenMissing,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := LoadFromBytes([]byte(tc.yaml))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tc.wantErrIs != nil && !errors.Is(err, tc.wantErrIs) {
+					t.Errorf("error = %v, want errors.Is(%v) = true", err, tc.wantErrIs)
+				}
+				// For the "surfaces name" case, ensure the offending name appears.
+				if tc.name == "two_targets_one_invalid_surfaces_name" {
+					if !strings.Contains(err.Error(), `"bad"`) {
+						t.Errorf("expected error to mention bad target name, got %q", err.Error())
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestConfig_ForwardTargets_HTTPAllowed_InDevBuild verifies that the
+// dev-build toggle permits http forward targets. Uses
+// SetAllowInsecureForwardTargetsForTesting to simulate a dev build.
+func TestConfig_ForwardTargets_HTTPAllowed_InDevBuild(t *testing.T) {
+	cleanup := SetAllowInsecureForwardTargetsForTesting(true)
+	defer cleanup()
+
+	yaml := `
+forward_targets:
+  x:
+    url: "http://x.example.com"
+    auth: { type: none }
+`
+	cfg, err := LoadFromBytes([]byte(yaml))
+	if err != nil {
+		t.Fatalf("LoadFromBytes: %v", err)
+	}
+	if _, ok := cfg.ForwardTargets["x"]; !ok {
+		t.Fatal("missing forward_targets[x]")
 	}
 }
 

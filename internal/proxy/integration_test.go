@@ -4,7 +4,6 @@
 package proxy_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -1208,11 +1207,7 @@ func TestHandlerStack_TraceID_ConsistentAcrossLogAndBackend(t *testing.T) {
 	defer backend.Close()
 
 	// Capture log output
-	var logBuf strings.Builder
-	logger := slog.New(slog.NewJSONHandler(&logBuf, nil))
-	origLogger := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(origLogger)
+	getLogs := captureLogs(t)
 
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
@@ -1231,7 +1226,7 @@ func TestHandlerStack_TraceID_ConsistentAcrossLogAndBackend(t *testing.T) {
 		t.Errorf("backend trace_id = %q, want %q", receivedTraceID, "consistency-check-123")
 	}
 
-	logOutput := logBuf.String()
+	logOutput := getLogs()
 	if !strings.Contains(logOutput, `"trace_id":"consistency-check-123"`) {
 		t.Errorf("log output should contain trace_id, got:\n%s", logOutput)
 	}
@@ -1914,11 +1909,7 @@ func TestIntegration_NonContextHeaders_PreservedOnForwarding(t *testing.T) {
 
 func TestIntegration_FastPath_LogsCredentialInjection(t *testing.T) {
 	// Arrange - capture DEBUG log output
-	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	originalLogger := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(originalLogger)
+	getLogs := captureLogsAt(t, &slog.HandlerOptions{Level: slog.LevelDebug})
 
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -1953,7 +1944,7 @@ func TestIntegration_FastPath_LogsCredentialInjection(t *testing.T) {
 	}
 
 	// Assert - "credentials injected" DEBUG log with Fast Path fields
-	logOutput := logBuffer.String()
+	logOutput := getLogs()
 	if !strings.Contains(logOutput, `"msg":"credentials injected"`) {
 		t.Errorf("expected credentials injected log, got: %s", logOutput)
 	}
@@ -1973,11 +1964,7 @@ func TestIntegration_FastPath_LogsCredentialInjection(t *testing.T) {
 
 func TestIntegration_SlowPath_LogsCredentialInjection(t *testing.T) {
 	// Arrange - capture DEBUG log output
-	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	originalLogger := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(originalLogger)
+	getLogs := captureLogsAt(t, &slog.HandlerOptions{Level: slog.LevelDebug})
 
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -2010,7 +1997,7 @@ func TestIntegration_SlowPath_LogsCredentialInjection(t *testing.T) {
 	}
 
 	// Assert - "credentials injected" DEBUG log with Slow Path fields
-	logOutput := logBuffer.String()
+	logOutput := getLogs()
 	if !strings.Contains(logOutput, `"msg":"credentials injected"`) {
 		t.Errorf("expected credentials injected log, got: %s", logOutput)
 	}
@@ -2028,11 +2015,7 @@ func TestIntegration_SlowPath_LogsCredentialInjection(t *testing.T) {
 
 func TestProxy_ContextParsed_DebugLog_LogsHostOnly(t *testing.T) {
 	// Arrange - capture DEBUG log output
-	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	originalLogger := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(originalLogger)
+	getLogs := captureLogsAt(t, &slog.HandlerOptions{Level: slog.LevelDebug})
 
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -2054,7 +2037,7 @@ func TestProxy_ContextParsed_DebugLog_LogsHostOnly(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	// Assert - only the host appears; path, query, and userinfo must not leak
-	logOutput := logBuffer.String()
+	logOutput := getLogs()
 	if !strings.Contains(logOutput, `"msg":"transaction context parsed"`) {
 		t.Errorf("expected 'transaction context parsed' debug log, got: %s", logOutput)
 	}
@@ -2081,11 +2064,7 @@ func TestProxy_ContextParsed_DebugLog_LogsHostOnly(t *testing.T) {
 
 func TestIntegration_ClientDisconnect_LogsStatus499(t *testing.T) {
 	// Arrange - capture log output
-	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logBuffer, nil))
-	originalLogger := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(originalLogger)
+	getLogs := captureLogs(t)
 
 	plugin := &mockPlugin{
 		getCredentialsFn: func(_ context.Context, _ sdk.TransactionContext, _ *http.Request) (*sdk.Credential, error) {
@@ -2111,7 +2090,7 @@ func TestIntegration_ClientDisconnect_LogsStatus499(t *testing.T) {
 	if rec.Code != proxy.StatusClientClosedRequest {
 		t.Errorf("response status = %d, want %d", rec.Code, proxy.StatusClientClosedRequest)
 	}
-	logOutput := logBuffer.String()
+	logOutput := getLogs()
 	if !strings.Contains(logOutput, `"status":499`) {
 		t.Errorf("log should contain status 499, got: %s", logOutput)
 	}

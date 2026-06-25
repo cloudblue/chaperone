@@ -24,6 +24,34 @@ const ConfigEnvVar = "CHAPERONE_CONFIG"
 // DefaultConfigPath is the default configuration file path.
 const DefaultConfigPath = "./config.yaml"
 
+// LoadFromBytes parses a YAML configuration document from memory, applies
+// defaults, runs environment variable interpolation for credential-bearing
+// fields, and validates fields that are entirely structural (currently
+// forward_targets). Unlike Load, it does NOT enforce that the global
+// configuration is complete — it deliberately skips checks that depend
+// on the filesystem (TLS file existence) or on full deployment context
+// (allow_list, addresses). Use this helper from tests and from any caller
+// that needs to parse a config fragment without a file backing it.
+func LoadFromBytes(data []byte) (*Config, error) {
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parsing config: %w", err)
+	}
+
+	applyDefaults(&cfg)
+
+	// Env interpolation runs BEFORE validation so that an unset variable
+	// resolving to an empty string is caught by validateForwardTargets
+	// (e.g. bearer token must be non-empty).
+	interpolateForwardTargetEnv(&cfg)
+
+	if err := validateForwardTargets(&cfg, AllowInsecureForwardTargets()); err != nil {
+		return nil, fmt.Errorf("configuration validation failed: %w", err)
+	}
+
+	return &cfg, nil
+}
+
 // Load loads configuration from a YAML file with environment variable overrides.
 // If configPath is empty, it checks CHAPERONE_CONFIG env var, then falls back to DefaultConfigPath.
 // Environment variables take precedence over YAML values (12-Factor App methodology).
@@ -44,6 +72,11 @@ func Load(configPath string) (*Config, error) {
 	if err := applyEnvOverrides(cfg); err != nil {
 		return nil, fmt.Errorf("environment variable override failed: %w", err)
 	}
+
+	// Apply env interpolation for credential-bearing fields (e.g. bearer
+	// tokens in forward_targets). Done before validation so unset vars
+	// resolve to an empty string and fail the non-empty token check.
+	interpolateForwardTargetEnv(cfg)
 
 	// Validate the final configuration
 	if err := Validate(cfg); err != nil {

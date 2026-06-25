@@ -7,20 +7,22 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/cloudblue/chaperone/sdk"
 )
 
-// Compile-time check that Mux implements sdk.Plugin.
+// Compile-time checks that Mux implements its expected interfaces.
 var _ sdk.Plugin = (*Mux)(nil)
+var _ sdk.RequestRouter = (*Mux)(nil)
 
-// routeEntry binds a route pattern to its credential provider,
+// routeEntry binds a route pattern to its dispatch action,
 // preserving registration order for tie-breaking.
 type routeEntry struct {
-	route    Route
-	provider sdk.CredentialProvider
-	index    int
+	route  Route
+	action Action
+	index  int
 }
 
 // Mux is a request multiplexer that dispatches incoming requests to
@@ -86,6 +88,35 @@ func (m *Mux) log() *slog.Logger {
 // (e.g., VendorID "acme" vs "globex") are recognized as non-overlapping
 // and do not trigger a warning.
 func (m *Mux) Handle(route Route, provider sdk.CredentialProvider) {
+	m.add(route, CredentialAction{Provider: provider})
+}
+
+// HandleForward registers a route that, when matched, forwards the request
+// to the named forward_target via the Core's forwarding path. The target
+// name is opaque to the Mux beyond a non-empty check — validation that the
+// name references an existing forward_target happens at config-load /
+// cross-validation time.
+//
+// An empty target name is a programmer error (it cannot reference any
+// forward_target) and panics immediately so the misconfiguration surfaces
+// at registration rather than producing silent dead routes. Config-driven
+// users get a clean error before reaching here via the loader's own
+// non-empty check on the `forward:` field.
+//
+// Overlap warnings work the same way as for Handle: equal-specificity
+// overlaps with any other entry (CredentialAction or ForwardAction) are
+// logged.
+func (m *Mux) HandleForward(route Route, target string) {
+	if target == "" {
+		panic("contrib.Mux.HandleForward: empty target name")
+	}
+	m.add(route, ForwardAction{Target: target})
+}
+
+// add appends a routeEntry, logging an overlap warning when an equal-
+// specificity overlap with an existing entry is detected. Shared by
+// Handle and HandleForward so the warning fires regardless of action type.
+func (m *Mux) add(route Route, action Action) {
 	newSpec := route.Specificity()
 	for _, e := range m.entries {
 		if e.route.Specificity() == newSpec && routesMayOverlap(e.route, route) {
@@ -98,9 +129,9 @@ func (m *Mux) Handle(route Route, provider sdk.CredentialProvider) {
 	}
 
 	m.entries = append(m.entries, routeEntry{
-		route:    route,
-		provider: provider,
-		index:    len(m.entries),
+		route:  route,
+		action: action,
+		index:  len(m.entries),
 	})
 }
 
@@ -122,14 +153,31 @@ func (m *Mux) SetResponseModifier(modifier sdk.ResponseModifier) {
 }
 
 // GetCredentials dispatches the request to the most specific matching
-// route's provider. If no route matches, it falls back to the default
-// provider. Returns [ErrNoRouteMatch] if nothing matches and no default
-// is configured.
+// route's CredentialAction provider. If no route matches, it falls back
+// to the default provider. Returns [ErrNoRouteMatch] if nothing matches
+// and no default is configured.
+//
+// If the matched entry is a [ForwardAction], the caller should have
+// short-circuited via RouteRequest at the Core boundary; receiving a
+// ForwardAction here indicates an integration bug and returns
+// [ErrUnexpectedForwardAction] defensively rather than silently
+// returning nil credentials.
 func (m *Mux) GetCredentials(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
 	best := m.match(tx)
 
 	if best != nil {
-		return best.provider.GetCredentials(ctx, tx, req)
+		switch a := best.action.(type) {
+		case CredentialAction:
+			if a.Provider == nil {
+				return nil, ErrNilCredentialProvider
+			}
+			return a.Provider.GetCredentials(ctx, tx, req)
+		case ForwardAction:
+			return nil, ErrUnexpectedForwardAction
+		default:
+			// Sealed interface — unreachable in practice.
+			return nil, ErrUnexpectedForwardAction
+		}
 	}
 
 	if m.fallback != nil {
@@ -155,6 +203,37 @@ func (m *Mux) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, res
 		return m.modifier.ModifyResponse(ctx, tx, resp)
 	}
 	return nil, nil
+}
+
+// RouteRequest implements sdk.RequestRouter. It returns a non-nil RouteAction
+// only when the matched route is a ForwardAction. Credential matches fall
+// through (return nil) so that the normal Mux.GetCredentials path handles them.
+func (m *Mux) RouteRequest(_ context.Context, tx sdk.TransactionContext, _ *http.Request) (*sdk.RouteAction, error) {
+	best := m.match(tx)
+	if best == nil {
+		return nil, nil
+	}
+	if fa, ok := best.action.(ForwardAction); ok {
+		return &sdk.RouteAction{ForwardTo: fa.Target}, nil
+	}
+	return nil, nil
+}
+
+// ForwardReferences returns the set of forward_target names referenced by all
+// registered routes. Each entry in the returned slice corresponds to a route
+// with a ForwardAction. Deduplication is not applied — if the same target is
+// referenced by multiple routes, it may appear multiple times.
+//
+// This is used for startup validation to ensure all referenced targets are
+// defined in the configuration.
+func (m *Mux) ForwardReferences() []string {
+	var refs []string
+	for _, e := range m.entries {
+		if fa, ok := e.action.(ForwardAction); ok {
+			refs = append(refs, fa.Target)
+		}
+	}
+	return refs
 }
 
 // match finds the best matching route entry for the given transaction.
@@ -205,6 +284,14 @@ func routesMayOverlap(a, b Route) bool {
 	if a.EnvironmentID != "" && b.EnvironmentID != "" && !fieldsMayOverlap(a.EnvironmentID, b.EnvironmentID) {
 		return false
 	}
+	// For Data, only shared keys constitute shared dimensions. Keys present
+	// in only one route are wildcards in the other (same model as the
+	// top-level fields above), so they cannot prove disjointness.
+	for key, av := range a.Data {
+		if bv, ok := b.Data[key]; ok && !fieldsMayOverlap(av, bv) {
+			return false
+		}
+	}
 	return true
 }
 
@@ -246,6 +333,16 @@ func routeString(r Route) string {
 	}
 	if r.EnvironmentID != "" {
 		parts = append(parts, "EnvironmentID="+r.EnvironmentID)
+	}
+	if len(r.Data) > 0 {
+		keys := make([]string, 0, len(r.Data))
+		for k := range r.Data {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			parts = append(parts, "Data["+k+"]="+r.Data[k])
+		}
 	}
 	if len(parts) == 0 {
 		return "{}"

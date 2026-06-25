@@ -42,6 +42,7 @@ func testConfig() proxy.Config {
 		PluginTimeout:    10 * time.Second,
 		ConnectTimeout:   5 * time.Second,
 		ShutdownTimeout:  30 * time.Second,
+		ForwardTargets:   nil, // No forward targets by default
 	}
 }
 

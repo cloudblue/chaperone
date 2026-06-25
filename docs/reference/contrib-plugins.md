@@ -30,6 +30,9 @@ Sub-packages:
 [cred]: sdk.md#credential
 [cs]: sdk.md#certificatesigner
 [rm]: sdk.md#responsemodifier
+[rr]: sdk.md#requestrouter-optional
+[ra]: sdk.md#routeaction
+[ft]: configuration.md#forward-targets
 
 ---
 
@@ -39,9 +42,9 @@ Sub-packages:
 type Mux struct{ /* unexported */ }
 ```
 
-A request multiplexer that dispatches to the most specific matching [`CredentialProvider`][cp] based on transaction context fields. `Mux` implements [`Plugin`][plugin] and can be passed directly to `chaperone.Run()`.
+A request multiplexer that dispatches to the most specific matching [`CredentialProvider`][cp] based on transaction context fields. `Mux` implements [`Plugin`][plugin] and the optional [`RequestRouter`][rr], and can be passed directly to `chaperone.Run()`.
 
-Safe for concurrent use after construction. `Handle` and `Default` are not safe for concurrent calls — register all routes before serving traffic.
+Safe for concurrent use after construction. `Handle`, `HandleForward`, and `Default` are not safe for concurrent calls — register all routes before serving traffic.
 
 ### `NewMux`
 
@@ -72,6 +75,20 @@ func (m *Mux) Handle(route Route, provider sdk.CredentialProvider)
 ```
 
 Registers a route that dispatches matching requests to `provider`. Routes are evaluated by [specificity](#specificity) at dispatch time. Registration order breaks ties.
+
+Mutually exclusive with [`HandleForward`](#handleforward) for the same route: every route in the mux dispatches to either a credential provider or a forward target, never both.
+
+### `HandleForward`
+
+```go
+func (m *Mux) HandleForward(route Route, target string)
+```
+
+Registers a route that, when matched, forwards the request to the named [`forward_target`][ft] via the Core's forwarding path. Credential injection and [`ResponseModifier`][rm] are skipped for forwarded requests.
+
+`target` is the key of an entry in the proxy's `forward_targets` configuration. The Mux treats the name as opaque — cross-validation that every referenced target exists in the configuration happens at startup. Mutually exclusive with [`Handle`](#handle) for the same route.
+
+The Mux implements [`RequestRouter`][rr]: when a forward route matches, `RouteRequest` returns a [`*RouteAction`][ra] with `ForwardTo` set to `target`. When a [`Handle`](#handle) route matches (or nothing matches), `RouteRequest` returns `nil` and dispatch falls through to `GetCredentials`.
 
 ### `Default`
 
@@ -129,6 +146,105 @@ Delegates to the configured modifier. Returns a nil action and nil error if no m
 
 ---
 
+## MuxConfig
+
+YAML-friendly description of a request multiplexer. A `MuxConfig` can be unmarshalled directly from a YAML document — typically as a sub-section of the distributor's own configuration file — and passed to [`LoadMuxFromConfig`](#loadmuxfromconfig) to build a usable [`*Mux`](#mux).
+
+```go
+type MuxConfig struct {
+    Routes   []MuxRouteConfig   `yaml:"routes"`
+    Fallback *MuxFallbackConfig `yaml:"fallback,omitempty"`
+}
+
+type MuxRouteConfig struct {
+    Match       MatchConfig        `yaml:"match"`
+    Forward     string             `yaml:"forward,omitempty"`
+    Credentials *CredentialsConfig `yaml:"credentials,omitempty"`
+}
+
+type MatchConfig struct {
+    VendorID      string            `yaml:"vendor_id,omitempty"`
+    MarketplaceID string            `yaml:"marketplace_id,omitempty"`
+    ProductID     string            `yaml:"product_id,omitempty"`
+    EnvironmentID string            `yaml:"environment_id,omitempty"`
+    TargetURL     string            `yaml:"target_url,omitempty"`
+    Data          map[string]string `yaml:"data,omitempty"`
+}
+
+type CredentialsConfig struct {
+    Type string `yaml:"type"`
+}
+
+type MuxFallbackConfig struct {
+    Credentials *CredentialsConfig `yaml:"credentials,omitempty"`
+    Forward     string             `yaml:"forward,omitempty"` // rejected; see below
+}
+```
+
+Each route must set **exactly one** of `forward` or `credentials`:
+
+- `forward` names a [`forward_target`][ft]. The matched request is sent there as-is by the Core, bypassing credential injection and `ModifyResponse`.
+- `credentials.type` is a discriminator looked up in the providers map passed to [`LoadMuxFromConfig`](#loadmuxfromconfig). The distributor constructs the providers (OAuth, Microsoft SAM, etc.) and registers them in the map.
+
+`match.data` mirrors the [`Route.Data` matcher](#data-matcher) and follows the same semantics: missing keys, wrong-type values, and empty strings yield non-match.
+
+The optional `fallback` runs when no route matches. Only `fallback.credentials` is supported in v1 — a `fallback.forward` is rejected at load time. A silent fallback-forward would route every unmatched request, including misconfigured or unexpected traffic, to a customer-side service without credential injection; forward routes must be explicit per-match.
+
+### `LoadMuxFromConfig`
+
+```go
+func LoadMuxFromConfig(cfg MuxConfig, providers map[string]sdk.CredentialProvider) (*Mux, error)
+```
+
+Builds a [`*Mux`](#mux) from a `MuxConfig` and a lookup of pre-built providers. Forward routes are registered via [`HandleForward`](#handleforward); credential routes via [`Handle`](#handle); the fallback (if any) via [`Default`](#default).
+
+Validation rules — the first violation returns an error that names the offending route by index (`routes[2]`) or `fallback`:
+
+- Every route must set exactly one of `forward` or `credentials`.
+- A route's `credentials.type` must be non-empty and present in `providers`.
+- The fallback, if present, must set `credentials` (not `forward`), and `credentials.type` must be non-empty and present in `providers`.
+
+#### Example
+
+```yaml
+mux:
+  routes:
+    # Migrated tenants → customer-side handler (no credential injection).
+    - match:
+        vendor_id: "microsoft-*"
+        data:
+          ResellerId: "migrated-*"
+      forward: customer-router
+
+    # Everyone else on Microsoft → SAM provider.
+    - match:
+        vendor_id: "microsoft-*"
+      credentials:
+        type: microsoft-sam
+
+    # Acme → OAuth client credentials.
+    - match:
+        vendor_id: "acme"
+      credentials:
+        type: acme-oauth
+
+  fallback:
+    credentials:
+      type: microsoft-sam
+```
+
+```go
+providers := map[string]sdk.CredentialProvider{
+    "microsoft-sam": msSource,
+    "acme-oauth":    acmeOAuth,
+}
+mux, err := contrib.LoadMuxFromConfig(cfg.Mux, providers)
+```
+
+Pair this with the [`forward_targets`][ft] section in the proxy configuration so that every `forward:` name resolves to a real target.
+
+---
+
 ## Route
 
 ```go
@@ -138,6 +254,7 @@ type Route struct {
     ProductID     string
     TargetURL     string
     EnvironmentID string
+    Data          map[string]string
 }
 ```
 
@@ -150,6 +267,29 @@ Matching criteria for dispatching requests. Each non-empty field must match the 
 | `ProductID` | `tx.ProductID` | `"MICROSOFT_*"` |
 | `TargetURL` | `tx.TargetURL` (scheme stripped) | `"*.graph.microsoft.com/**"` |
 | `EnvironmentID` | `tx.EnvironmentID` | `"prod-*"` |
+| `Data` | `tx.Data[key]` per entry | `{"ResellerId": "migrated-*"}` |
+
+#### Data matcher
+
+`Data` is a map of `tx.Data` keys to glob patterns. The route matches only if **every** entry's pattern matches the corresponding `tx.DataString(key)` value. Each entry contributes 1 to [`Specificity()`](#specificity).
+
+Non-match cases (the route is skipped):
+
+- The key is absent from `tx.Data`.
+- The value is present but has the wrong type (not a string).
+- The value is present but is an empty string.
+
+Invalid or missing data must never silently dispatch to a provider, so these cases all yield a non-match rather than a partial match. The same semantics apply when the matcher is configured via [`MuxConfig`](#muxconfig) (the YAML `match.data` field).
+
+```go
+mux.Handle(
+    contrib.Route{
+        VendorID: "microsoft-*",
+        Data:     map[string]string{"ResellerId": "migrated-*"},
+    },
+    legacyProvider,
+)
+```
 
 ### `Matches`
 
@@ -165,7 +305,7 @@ Reports whether every non-empty field in the route matches the corresponding `tx
 func (r Route) Specificity() int
 ```
 
-Returns the number of non-empty fields (0–5). The mux prefers routes with higher specificity when multiple routes match.
+Returns the number of non-empty fields, where each `Data` entry counts as one. The mux prefers routes with higher specificity when multiple routes match.
 
 | Route | Specificity |
 |-------|-------------|
@@ -173,6 +313,7 @@ Returns the number of non-empty fields (0–5). The mux prefers routes with high
 | `Route{VendorID: "acme"}` | 1 |
 | `Route{MarketplaceID: "MP-*", ProductID: "MICROSOFT_SAAS"}` | 2 |
 | `Route{EnvironmentID: "prod", VendorID: "acme", TargetURL: "api.acme.com/**"}` | 3 |
+| `Route{VendorID: "acme", Data: map[string]string{"ResellerId": "migrated-*"}}` | 2 |
 
 ### Glob patterns
 
@@ -860,6 +1001,8 @@ import "github.com/cloudblue/chaperone/plugins/contrib"
 | `ErrTokenExpiredOnArrival` | `"token expired on arrival"` | Token `expires_in` is less than or equal to the expiry margin. Token too short-lived to cache. | No |
 | `ErrSigningNotConfigured` | `"certificate signing not configured"` | `SignCSR` called on [`AsPlugin`](#asplugin) or [`Mux`](#mux) with no signer configured. | No |
 | `ErrTokenEndpointUnavailable` | `"token endpoint unavailable"` | Network error, HTTP 5xx, or HTTP 429 from the token endpoint. | Yes |
+| `ErrUnexpectedForwardAction` | `"matched route is a forward action; GetCredentials should not have been called"` | The Core called `GetCredentials` for a route registered via [`HandleForward`](#handleforward). Indicates an integration bug — forwarding should have been handled by `RouteRequest`. | No |
+| `ErrNilCredentialProvider` | `"credential action has nil provider"` | A credential route was registered with a nil provider. Programming error caught at dispatch time. | No |
 
 ---
 

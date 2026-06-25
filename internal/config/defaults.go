@@ -9,6 +9,8 @@ package config
 import (
 	"strings"
 	"time"
+
+	"github.com/cloudblue/chaperone/internal/security"
 )
 
 // Default server configuration values.
@@ -78,15 +80,12 @@ const (
 // defaultSensitiveHeaders returns the list of headers that MUST be redacted
 // in logs. This is a security-critical default per Design Spec Section 5.3.
 // Returns a new copy each time to prevent accidental mutation.
+//
+// The list itself is owned by internal/security so that the forward proxy
+// path (which has no access to the user-merged config) and the vendor proxy
+// path share a single source of truth.
 func defaultSensitiveHeaders() []string {
-	return []string{
-		"Authorization",
-		"Proxy-Authorization",
-		"Cookie",
-		"Set-Cookie",
-		"X-API-Key",
-		"X-Auth-Token",
-	}
+	return security.DefaultSensitiveHeaders()
 }
 
 // durationPtr returns a pointer to the given duration.

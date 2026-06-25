@@ -4,9 +4,7 @@
 package proxy
 
 import (
-	"bytes"
 	"errors"
-	"log/slog"
 	"net/url"
 	"strings"
 	"testing"
@@ -80,11 +78,7 @@ func TestLogStartup_InsecureTargetsEnabled_EmitsWarning(t *testing.T) {
 	cleanup := SetAllowInsecureTargetsForTesting(true)
 	defer cleanup()
 
-	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logBuffer, nil))
-	originalLogger := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(originalLogger)
+	getLogs := captureLogs(t)
 
 	srv := &Server{
 		config: Config{
@@ -97,7 +91,7 @@ func TestLogStartup_InsecureTargetsEnabled_EmitsWarning(t *testing.T) {
 	srv.logStartup()
 
 	// Assert
-	logOutput := logBuffer.String()
+	logOutput := getLogs()
 	if !strings.Contains(logOutput, "INSECURE") {
 		t.Errorf("expected INSECURE warning in log output, got: %s", logOutput)
 	}
@@ -111,11 +105,7 @@ func TestLogStartup_InsecureTargetsDisabled_NoWarning(t *testing.T) {
 	cleanup := SetAllowInsecureTargetsForTesting(false)
 	defer cleanup()
 
-	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logBuffer, nil))
-	originalLogger := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(originalLogger)
+	getLogs := captureLogs(t)
 
 	srv := &Server{
 		config: Config{
@@ -128,7 +118,7 @@ func TestLogStartup_InsecureTargetsDisabled_NoWarning(t *testing.T) {
 	srv.logStartup()
 
 	// Assert
-	logOutput := logBuffer.String()
+	logOutput := getLogs()
 	if strings.Contains(logOutput, "INSECURE") {
 		t.Errorf("unexpected INSECURE warning in log output: %s", logOutput)
 	}

@@ -837,6 +837,21 @@ func (p *MyPlugin) GetCredentials(ctx context.Context, tx sdk.TransactionContext
 > timeout and is cancelled if the client disconnects. This prevents your
 > plugin from leaking goroutines or holding connections to slow backends.
 
+### Forwarding requests (optional)
+
+For some requests, the right answer is not to inject credentials at all but to forward the request as-is to another service — for example, a customer-side router that handles credential injection, response filtering, and policy enforcement on its own. Implement the optional [`sdk.RequestRouter`](../reference/sdk.md#requestrouter-optional) interface on your plugin to opt into this behavior. Returning a non-nil [`*sdk.RouteAction`](../reference/sdk.md#routeaction) with a `ForwardTo` that names a configured [`forward_target`](../reference/configuration.md#forward-targets) tells Chaperone to skip credential injection and `ModifyResponse` for that request; returning `nil` falls through to the normal credential-injection flow.
+
+```go
+func (p *MyPlugin) RouteRequest(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.RouteAction, error) {
+    if v, ok, _ := tx.DataString("ResellerId"); ok && strings.HasPrefix(v, "migrated-") {
+        return &sdk.RouteAction{ForwardTo: "customer-router"}, nil
+    }
+    return nil, nil
+}
+```
+
+Test routers with [`compliance.VerifyRouter`](../reference/sdk.md#verifyrouter). If you use the contrib [`Mux`](../reference/contrib-plugins.md#mux), prefer [`Mux.HandleForward`](../reference/contrib-plugins.md#handleforward) or the [`forward:`](../reference/contrib-plugins.md#muxconfig) field on a `MuxRouteConfig` — the mux implements `RequestRouter` for you.
+
 ---
 
 ## Reference Plugin Walkthrough

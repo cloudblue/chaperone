@@ -7,13 +7,11 @@ import (
 	"context"
 	"net/http"
 	"testing"
-
-	"github.com/cloudblue/chaperone/internal/config"
 )
 
 // testSensitiveHeaders returns the default sensitive headers for testing.
 func testSensitiveHeaders() []string {
-	return config.MergeSensitiveHeaders(nil)
+	return DefaultSensitiveHeaders()
 }
 
 func TestReflector_StripResponseHeaders_RemovesSensitiveHeaders(t *testing.T) {
@@ -83,6 +81,60 @@ func TestReflector_StripResponseHeaders_RemovesSensitiveHeaders(t *testing.T) {
 			// Assert - kept headers
 			for _, h := range tt.wantKept {
 				if tt.responseHeader.Get(h) == "" {
+					t.Errorf("header %q should have been kept", h)
+				}
+			}
+		})
+	}
+}
+
+func TestStripSensitiveResponseHeaders_RemovesStaticSet(t *testing.T) {
+	tests := []struct {
+		name        string
+		headers     http.Header
+		wantRemoved []string
+		wantKept    []string
+	}{
+		{
+			name: "all static sensitive headers stripped",
+			headers: http.Header{
+				"Authorization":       []string{"Bearer token"},
+				"Proxy-Authorization": []string{"Basic creds"},
+				"Cookie":              []string{"session=abc"},
+				"Set-Cookie":          []string{"token=xyz"},
+				"X-Api-Key":           []string{"key"},
+				"X-Auth-Token":        []string{"token"},
+				"Content-Type":        []string{"application/json"},
+			},
+			wantRemoved: []string{"Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie", "X-Api-Key", "X-Auth-Token"},
+			wantKept:    []string{"Content-Type"},
+		},
+		{
+			name:        "case-insensitive matching",
+			headers:     http.Header{"authorization": []string{"token"}, "COOKIE": []string{"session"}},
+			wantRemoved: []string{"Authorization", "Cookie"},
+		},
+		{
+			name:     "non-sensitive headers untouched",
+			headers:  http.Header{"X-Request-Id": []string{"123"}, "Cache-Control": []string{"no-cache"}},
+			wantKept: []string{"X-Request-Id", "Cache-Control"},
+		},
+		{
+			name:    "empty headers",
+			headers: http.Header{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			StripSensitiveResponseHeaders(tt.headers)
+			for _, h := range tt.wantRemoved {
+				if tt.headers.Get(h) != "" {
+					t.Errorf("header %q should have been removed", h)
+				}
+			}
+			for _, h := range tt.wantKept {
+				if tt.headers.Get(h) == "" {
 					t.Errorf("header %q should have been kept", h)
 				}
 			}
