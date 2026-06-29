@@ -84,7 +84,7 @@ func TestIntegration_ProxyInjectsCredentials(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -116,7 +116,7 @@ func TestIntegration_ProxyForwardsBody(t *testing.T) {
 	handler := srv.Handler()
 
 	requestBody := `{"action": "create", "data": {"name": "test"}}`
-	req := httptest.NewRequest(http.MethodPost, "/proxy", strings.NewReader(requestBody))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", strings.NewReader(requestBody))
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	req.Header.Set("Content-Type", "application/json")
@@ -152,7 +152,7 @@ func TestIntegration_PluginError_Returns500(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -191,7 +191,7 @@ func TestIntegration_PluginTimeout_Returns504(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -227,7 +227,7 @@ func TestIntegration_PluginReturnsNil_ForwardsWithoutInjection(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -264,7 +264,7 @@ func TestIntegration_TransactionContextPassedToPlugin(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "vendor-123")
 	req.Header.Set("X-Connect-Marketplace-ID", "marketplace-456")
@@ -304,7 +304,7 @@ func TestIntegration_BackendError_Returns502(t *testing.T) {
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -345,7 +345,7 @@ func TestIntegration_MultipleCredentialHeaders(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -386,7 +386,7 @@ func TestIntegration_PluginContextCancellation(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -412,7 +412,7 @@ func TestIntegration_BackendUnreachable_Returns502(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	// Use a URL that will definitely fail to connect
 	req.Header.Set("X-Connect-Target-URL", "http://127.0.0.1:1") // Port 1 is never open
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
@@ -440,7 +440,7 @@ func TestIntegration_PluginContextCanceled_Returns499(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "http://example.com")
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -470,7 +470,7 @@ func TestIntegration_AllowList_ValidRequest_Passes(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 
 	// Create request to allowed host
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/v1/data")
 
 	rec := httptest.NewRecorder()
@@ -497,7 +497,7 @@ func TestIntegration_AllowList_BlockedHost_Returns403(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 
 	// Create request to blocked host
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://evil.com/steal/data")
 
 	rec := httptest.NewRecorder()
@@ -531,7 +531,7 @@ func TestIntegration_AllowList_BlockedPath_Returns403(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 
 	// Create request to blocked path
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/admin/users")
 
 	rec := httptest.NewRecorder()
@@ -593,7 +593,7 @@ func TestIntegration_AllowList_GlobPatternMatches(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 			req.Header.Set("X-Connect-Target-URL", backend.URL+tt.path)
 
 			rec := httptest.NewRecorder()
@@ -614,7 +614,7 @@ func TestIntegration_AllowList_EmptyList_DeniesAll(t *testing.T) {
 	cfg.AllowList = map[string][]string{} // Empty - deny all
 	srv := mustNewServer(t, cfg)
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://any.host.com/any/path")
 
 	rec := httptest.NewRecorder()
@@ -672,7 +672,7 @@ func TestIntegration_UpstreamError_NormalizedResponse(t *testing.T) {
 
 			srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 
-			req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 			req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 
 			rec := httptest.NewRecorder()
@@ -724,7 +724,7 @@ func TestIntegration_SuccessResponse_NotNormalized(t *testing.T) {
 
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 
 	rec := httptest.NewRecorder()
@@ -773,7 +773,7 @@ func TestIntegration_PluginModifyResponse_RunsBeforeNormalization(t *testing.T) 
 	cfg.Plugin = plugin
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 
 	rec := httptest.NewRecorder()
@@ -821,7 +821,7 @@ func TestIntegration_ResponseSanitization_StripsSensitiveHeaders(t *testing.T) {
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 	rec := httptest.NewRecorder()
 
@@ -875,7 +875,7 @@ func TestIntegration_ResponseSanitization_CustomHeaders(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 	rec := httptest.NewRecorder()
 
@@ -939,7 +939,7 @@ func TestIntegration_ResponseSanitization_StripsInjectedHeaders(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -994,7 +994,7 @@ func TestIntegration_ResponseSanitization_InjectedAndStaticCombined(t *testing.T
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -1041,7 +1041,7 @@ func TestIntegration_ResponseSanitization_SlowPath_NoInjectedHeaders(t *testing.
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -1097,7 +1097,7 @@ func TestIntegration_ResponseSanitization_SlowPath_AutoDetectsInjectedHeaders(t 
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -1145,7 +1145,7 @@ func TestHandlerStack_TraceID_PropagatedToBackend(t *testing.T) {
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	req.Header.Set("Connect-Request-ID", "upstream-trace-abc")
@@ -1174,7 +1174,7 @@ func TestHandlerStack_TraceID_GeneratedAndPropagated(t *testing.T) {
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	// No Connect-Request-ID header — should be generated
@@ -1212,7 +1212,7 @@ func TestHandlerStack_TraceID_ConsistentAcrossLogAndBackend(t *testing.T) {
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	req.Header.Set("Connect-Request-ID", "consistency-check-123")
@@ -1249,7 +1249,7 @@ func TestHandlerStack_PanicRecovery_StillWorks(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://api.example.com/v1")
 	req.Header.Set("Connect-Request-ID", "panic-test-456")
 	rec := httptest.NewRecorder()
@@ -1278,7 +1278,7 @@ func TestIntegration_ServerTiming_PresentOnSuccess(t *testing.T) {
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -1318,7 +1318,7 @@ func TestIntegration_ServerTiming_PresentOnError(t *testing.T) {
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -1355,7 +1355,7 @@ func TestIntegration_ServerTiming_ReflectsPluginDuration(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -1396,7 +1396,7 @@ func TestIntegration_ServerTiming_ReflectsUpstreamDuration(t *testing.T) {
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -1436,7 +1436,7 @@ func TestIntegration_ServerTiming_NoPluginShowsZeroDuration(t *testing.T) {
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -1471,7 +1471,7 @@ func TestIntegration_ServerTiming_PresentOnPluginError(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -1518,7 +1518,7 @@ func TestIntegration_ServerTiming_PresentOnPluginTimeout(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -1552,7 +1552,7 @@ func TestIntegration_ServerTiming_PresentOnAllowListRejection(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://evil.com/steal/data")
 	rec := httptest.NewRecorder()
 
@@ -1586,7 +1586,7 @@ func TestIntegration_ServerTiming_PresentOnBadRequest(t *testing.T) {
 	handler := srv.Handler()
 
 	// Missing X-Connect-Target-URL → 400
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -1617,7 +1617,7 @@ func TestIntegration_ServerTiming_BadGatewayIncludesHeader(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	// Port 1 is never open - will cause 502 Bad Gateway
 	req.Header.Set("X-Connect-Target-URL", "http://127.0.0.1:1/api")
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
@@ -1653,7 +1653,7 @@ func TestIntegration_ServerTiming_SurvivesPanic(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://api.example.com/v1")
 	req.Header.Set("Connect-Request-ID", "panic-timing-test")
 	rec := httptest.NewRecorder()
@@ -1696,7 +1696,7 @@ func TestIntegration_OpsEndpoints_NoServerTimingHeader(t *testing.T) {
 	handler := srv.Handler()
 
 	for _, path := range []string{"/_ops/health", "/_ops/version"} {
-		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 
@@ -1723,7 +1723,7 @@ func TestIntegration_GlobalPanicRecovery_ProtectsAllRoutes(t *testing.T) {
 	})
 	handler := srv.WithMiddlewareForTesting(panicking)
 
-	req := httptest.NewRequest(http.MethodGet, "/_ops/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_ops/health", nil)
 	rec := httptest.NewRecorder()
 
 	// Act — must NOT crash the process
@@ -1762,7 +1762,7 @@ func TestIntegration_ContextHeaders_StrippedBeforeForwarding(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/v1/resource")
 	req.Header.Set("X-Connect-Vendor-ID", "vendor-123")
 	req.Header.Set("X-Connect-Marketplace-ID", "MP-12345")
@@ -1805,7 +1805,7 @@ func TestIntegration_TraceHeader_PreservedOnForwarding(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/v1/resource")
 	req.Header.Set("Connect-Request-ID", "trace-abc-123")
 	rec := httptest.NewRecorder()
@@ -1841,7 +1841,7 @@ func TestIntegration_CustomPrefix_ContextHeadersStripped(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-MyPlatform-Target-URL", backend.URL+"/v1/resource")
 	req.Header.Set("X-MyPlatform-Vendor-ID", "vendor-custom")
 	req.Header.Set("X-MyPlatform-Marketplace-ID", "MP-CUSTOM")
@@ -1882,7 +1882,7 @@ func TestIntegration_NonContextHeaders_PreservedOnForwarding(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", strings.NewReader(`{"key":"value"}`))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", strings.NewReader(`{"key":"value"}`))
 	req.Header.Set("X-Connect-Target-URL", backend.URL+"/v1/resource")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -1930,7 +1930,7 @@ func TestIntegration_FastPath_LogsCredentialInjection(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "VA-test")
 	req.Header.Set("X-Connect-Marketplace-ID", "MP-test")
@@ -1984,7 +1984,7 @@ func TestIntegration_SlowPath_LogsCredentialInjection(t *testing.T) {
 	srv := mustNewServerForTarget(t, cfg, backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "VA-slow")
 	rec := httptest.NewRecorder()
@@ -2028,7 +2028,7 @@ func TestProxy_ContextParsed_DebugLog_LogsHostOnly(t *testing.T) {
 	// URL with a sensitive path segment and query params — only the host should appear in logs
 	targetURL := backend.URL + "/v1/users/alice@example.com?api_key=supersecret&token=abc123"
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", targetURL)
 	req.Header.Set("X-Connect-Vendor-ID", "VA-test")
 	rec := httptest.NewRecorder()
@@ -2077,7 +2077,7 @@ func TestIntegration_ClientDisconnect_LogsStatus499(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "http://example.com")
 	req.Header.Set("X-Connect-Vendor-ID", "VA-disconnect")
 	req.Header.Set("Connect-Request-ID", "trace-499-test")

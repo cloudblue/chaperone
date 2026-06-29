@@ -4,6 +4,7 @@
 package telemetry
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +22,7 @@ func TestNewAdminServer_CustomAddr(t *testing.T) {
 func TestAdminServer_HealthEndpoint(t *testing.T) {
 	srv := NewAdminServer(":9090", "1.0.0")
 
-	req := httptest.NewRequest(http.MethodGet, "/_ops/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_ops/health", nil)
 	w := httptest.NewRecorder()
 
 	srv.Mux().ServeHTTP(w, req)
@@ -43,7 +44,7 @@ func TestAdminServer_HealthEndpoint(t *testing.T) {
 func TestAdminServer_VersionEndpoint(t *testing.T) {
 	srv := NewAdminServer(":9090", "2.3.4")
 
-	req := httptest.NewRequest(http.MethodGet, "/_ops/version", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_ops/version", nil)
 	w := httptest.NewRecorder()
 
 	srv.Mux().ServeHTTP(w, req)
@@ -82,7 +83,7 @@ func TestAdminServer_Mux(t *testing.T) {
 	})
 
 	// Verify custom handler works
-	req := httptest.NewRequest(http.MethodGet, "/custom", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/custom", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -112,7 +113,7 @@ func TestAdminServer_Shutdown_NotStarted(t *testing.T) {
 func TestAdminServer_MetricsEndpoint(t *testing.T) {
 	srv := NewAdminServer("", "1.0.0")
 
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 
 	srv.Mux().ServeHTTP(w, req)
@@ -131,7 +132,7 @@ func TestAdminServer_MetricsEndpoint(t *testing.T) {
 func TestAdminServer_MetricsContentType(t *testing.T) {
 	srv := NewAdminServer("", "1.0.0")
 
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 
 	srv.Mux().ServeHTTP(w, req)

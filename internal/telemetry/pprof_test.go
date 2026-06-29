@@ -4,6 +4,7 @@
 package telemetry
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -110,7 +111,7 @@ func TestRegisterPprofHandlers_Endpoints(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(tc.method, tc.path, nil)
+			req := httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, nil)
 			w := httptest.NewRecorder()
 
 			mux.ServeHTTP(w, req)
@@ -130,7 +131,7 @@ func TestRegisterPprofHandlers_IndexContent(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterPprofHandlers(mux, true)
 
-	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/debug/pprof/", nil)
 	w := httptest.NewRecorder()
 
 	mux.ServeHTTP(w, req)
@@ -152,7 +153,7 @@ func TestRegisterPprofHandlers_PprofNotRegistered_Returns404(t *testing.T) {
 	mux := http.NewServeMux()
 	// Note: NOT calling RegisterPprofHandlers
 
-	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/debug/pprof/", nil)
 	w := httptest.NewRecorder()
 
 	mux.ServeHTTP(w, req)

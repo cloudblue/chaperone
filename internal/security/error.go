@@ -84,12 +84,20 @@ func isErrorResponse(resp *http.Response) bool {
 	return resp.StatusCode >= 400 && resp.StatusCode < 600
 }
 
+// msgUpstreamError and msgRejectedByUpstream are the two generic error messages
+// returned to clients. Kept as constants to satisfy goconst and provide a
+// single source of truth for test assertions.
+const (
+	msgUpstreamError      = "Upstream service error"
+	msgRejectedByUpstream = "Request rejected by upstream service"
+)
+
 // getErrorMessage returns the appropriate generic error message based on status code.
 func getErrorMessage(statusCode int) string {
 	if statusCode >= 500 {
-		return "Upstream service error"
+		return msgUpstreamError
 	}
-	return "Request rejected by upstream service"
+	return msgRejectedByUpstream
 }
 
 // maxReadBodySize is the maximum number of bytes to read from an upstream

@@ -4,6 +4,7 @@
 package telemetry
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -22,7 +23,7 @@ func TestMetricsMiddleware_RecordsRequestTotal(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	w := httptest.NewRecorder()
 
@@ -41,7 +42,7 @@ func TestMetricsMiddleware_RecordsDuration(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Vendor-ID", "duration-test")
 	w := httptest.NewRecorder()
 
@@ -70,7 +71,7 @@ func TestMetricsMiddleware_TracksActiveConnections(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	w := httptest.NewRecorder()
 
 	go func() {
@@ -113,7 +114,7 @@ func TestMetricsMiddleware_ConcurrentRequests(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)
 		}()
@@ -134,7 +135,7 @@ func TestMetricsMiddleware_DefaultVendorID(t *testing.T) {
 	}))
 
 	// Request without vendor ID header
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -153,7 +154,7 @@ func TestMetricsMiddleware_CapturesErrorStatus(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Vendor-ID", "error-test")
 	w := httptest.NewRecorder()
 
@@ -173,7 +174,7 @@ func TestMetricsMiddleware_ImplicitWriteHeader(t *testing.T) {
 		_, _ = w.Write([]byte("hello"))
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Vendor-ID", "implicit-test")
 	w := httptest.NewRecorder()
 

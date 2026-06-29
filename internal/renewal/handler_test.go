@@ -21,6 +21,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
+	"github.com/cloudblue/chaperone/internal/telemetry"
 	"github.com/cloudblue/chaperone/pkg/crypto"
 )
 
@@ -380,6 +383,100 @@ func TestHandler_Install_DiskWriteFailure_Returns500(t *testing.T) {
 	}
 }
 
+// TestHandler_Install_CounterLabels verifies that CertRenewalsTotal is incremented
+// with the correct label on both the success and persist-failure paths.
+func TestHandler_Install_CounterLabels(t *testing.T) {
+	telemetry.CertRenewalsTotal.Reset()
+	t.Cleanup(func() { telemetry.CertRenewalsTotal.Reset() })
+
+	// --- persist-failure path → "failure" label ---
+	{
+		swapper, ca := mustMakeSwapper(t)
+		manager := NewManager()
+		h := NewHandler(manager, swapper, "/no-such-dir/cert.pem", "/no-such-dir/key.pem", true)
+
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /_ops/renew/prepare", h.HandlePrepare)
+		mux.HandleFunc("POST /_ops/renew/install", h.HandleInstall)
+
+		rr := postJSON(t, mux, "/_ops/renew/prepare", nil)
+		var prepResp map[string]string
+		_ = json.Unmarshal(rr.Body.Bytes(), &prepResp)
+		newCertPEM := signCSR(t, ca, []byte(prepResp["csr"]))
+
+		rr = postJSON(t, mux, "/_ops/renew/install", map[string]string{
+			"renewal_id":  prepResp["renewal_id"],
+			"certificate": string(newCertPEM),
+		})
+		if rr.Code != http.StatusInternalServerError {
+			t.Fatalf("persist failure: got %d, want 500", rr.Code)
+		}
+		if got := testutil.ToFloat64(telemetry.CertRenewalsTotal.WithLabelValues("failure")); got != 1 {
+			t.Errorf("failure counter = %v, want 1", got)
+		}
+		if got := testutil.ToFloat64(telemetry.CertRenewalsTotal.WithLabelValues("success")); got != 0 {
+			t.Errorf("success counter = %v, want 0 after persist failure", got)
+		}
+	}
+
+	telemetry.CertRenewalsTotal.Reset()
+
+	// --- happy path → "success" label ---
+	{
+		swapper, ca := mustMakeSwapper(t)
+		dir := t.TempDir()
+		manager := NewManager()
+		h := NewHandler(manager, swapper, dir+"/cert.pem", dir+"/key.pem", true)
+
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /_ops/renew/prepare", h.HandlePrepare)
+		mux.HandleFunc("POST /_ops/renew/install", h.HandleInstall)
+
+		rr := postJSON(t, mux, "/_ops/renew/prepare", nil)
+		var prepResp map[string]string
+		_ = json.Unmarshal(rr.Body.Bytes(), &prepResp)
+		newCertPEM := signCSR(t, ca, []byte(prepResp["csr"]))
+
+		rr = postJSON(t, mux, "/_ops/renew/install", map[string]string{
+			"renewal_id":  prepResp["renewal_id"],
+			"certificate": string(newCertPEM),
+		})
+		if rr.Code != http.StatusAccepted {
+			t.Fatalf("happy path: got %d, want 202", rr.Code)
+		}
+		if got := testutil.ToFloat64(telemetry.CertRenewalsTotal.WithLabelValues("success")); got != 1 {
+			t.Errorf("success counter = %v, want 1", got)
+		}
+		if got := testutil.ToFloat64(telemetry.CertRenewalsTotal.WithLabelValues("failure")); got != 0 {
+			t.Errorf("failure counter = %v, want 0 after success", got)
+		}
+	}
+}
+
+// TestHandler_Install_PersistPair_KeyRenameFails exercises the rollback branch
+// inside persistPair: certPath receives the new cert (first rename commits), then
+// the key rename fails because keyPath is an existing non-empty directory. The
+// best-effort rollback removes certPath so the disk is left without a cert file
+// rather than with a new-cert + old-key mismatch.
+func TestHandler_Install_PersistPair_KeyRenameFails(t *testing.T) {
+	tmpDir := t.TempDir()
+	certPath := filepath.Join(tmpDir, "cert.pem")
+	// keyPath is an existing directory — os.Rename(file → dir) fails with EISDIR.
+	keyDir := filepath.Join(tmpDir, "key_dir")
+	if err := os.Mkdir(keyDir, 0o700); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+
+	err := persistPair(certPath, []byte("CERT"), keyDir, []byte("KEY"))
+	if err == nil {
+		t.Fatal("expected error from persistPair, got nil")
+	}
+	// Best-effort rollback: cert file must not exist (avoids new-cert + old-key pair).
+	if _, statErr := os.Stat(certPath); !os.IsNotExist(statErr) {
+		t.Error("cert file should have been removed after key rename failure")
+	}
+}
+
 func TestHandler_ConcurrentInstall_OnlyOneSucceeds(t *testing.T) {
 	swapper, ca := mustMakeSwapper(t)
 	dir := t.TempDir()
@@ -495,9 +592,9 @@ func TestHandler_GetCertificate_ReturnsNewCertAfterInstall(t *testing.T) {
 // test: it runs the full prepare→install handshake against a real mTLS listener
 // and verifies that GetCertificate returns the new certificate after the swap.
 //
-// The no-inconsistency invariant (cert and key are never left mismatched on disk)
-// is enforced by persistPair: a failed second rename triggers rollback of the first.
-// Disk-write failure paths are covered by TestHandler_Install_DiskWriteFailure_Returns500.
+// persistPair's best-effort rollback (removing the new cert when the key rename fails)
+// is covered by TestHandler_Install_PersistPair_KeyRenameFails; other disk-write failure
+// paths are covered by TestHandler_Install_DiskWriteFailure_Returns500.
 func TestHandler_MtLS_PrepareInstallCycle(t *testing.T) {
 	// Generate CA, initial server cert, and client cert.
 	ca, err := crypto.GenerateCA(time.Hour)

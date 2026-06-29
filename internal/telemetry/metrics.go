@@ -35,46 +35,65 @@ var APILatencyBuckets = []float64{
 //	This simplifies the code and matches the expected operational pattern
 //	where a single process serves metrics. For test isolation, use Reset()
 //	on metric vectors with t.Cleanup().
+const namespace = "chaperone"
+
+// Label name constants used across multiple metric registrations.
+const (
+	labelVendorID    = "vendor_id"
+	labelStatusClass = "status_class"
+	labelMethod      = "method"
+)
+
+// StatusClass return values — kept as constants to satisfy goconst and as a
+// single source of truth for downstream PromQL / alerting rules.
+const (
+	statusClass2xx   = "2xx"
+	statusClass3xx   = "3xx"
+	statusClass4xx   = "4xx"
+	statusClass5xx   = "5xx"
+	statusClassOther = "other"
+)
+
 var (
 	// RequestsTotal counts total requests processed.
 	// Labels: vendor_id, status_class, method
 	RequestsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "chaperone",
+			Namespace: namespace,
 			Name:      "requests_total",
 			Help:      "Total number of requests processed",
 		},
-		[]string{"vendor_id", "status_class", "method"},
+		[]string{labelVendorID, labelStatusClass, labelMethod},
 	)
 
 	// RequestDuration measures total request duration (including plugin and upstream).
 	// Labels: vendor_id
 	RequestDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "chaperone",
+			Namespace: namespace,
 			Name:      "request_duration_seconds",
 			Help:      "Total request duration including plugin and upstream",
 			Buckets:   APILatencyBuckets,
 		},
-		[]string{"vendor_id"},
+		[]string{labelVendorID},
 	)
 
 	// UpstreamDuration measures time spent waiting for upstream response.
 	// Labels: vendor_id
 	UpstreamDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "chaperone",
+			Namespace: namespace,
 			Name:      "upstream_duration_seconds",
 			Help:      "Time spent waiting for upstream response",
 			Buckets:   APILatencyBuckets,
 		},
-		[]string{"vendor_id"},
+		[]string{labelVendorID},
 	)
 
 	// ActiveConnections tracks number of active connections (in-flight requests).
 	ActiveConnections = promauto.NewGauge(
 		prometheus.GaugeOpts{
-			Namespace: "chaperone",
+			Namespace: namespace,
 			Name:      "active_connections",
 			Help:      "Number of active connections",
 		},
@@ -84,7 +103,7 @@ var (
 	// Exposes the panic count from WithPanicRecovery middleware as a Prometheus metric.
 	PanicsTotal = promauto.NewCounter(
 		prometheus.CounterOpts{
-			Namespace: "chaperone",
+			Namespace: namespace,
 			Name:      "panics_total",
 			Help:      "Total number of recovered panics",
 		},
@@ -102,7 +121,7 @@ var (
 	//     introducing a reserved label value.
 	RouteDecisionsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "chaperone",
+			Namespace: namespace,
 			Name:      "route_decisions_total",
 			Help:      "Per-request routing decisions made by the RequestRouter (or default).",
 		},
@@ -116,7 +135,7 @@ var (
 	// Labels: target (forward target name)
 	ForwardTargetDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "chaperone",
+			Namespace: namespace,
 			Name:      "forward_target_duration_seconds",
 			Help:      "End-to-end duration of requests forwarded to a named target.",
 			Buckets:   APILatencyBuckets,
@@ -137,11 +156,36 @@ var (
 	//       - "other"      — any other transport-level error
 	ForwardTargetErrors = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "chaperone",
+			Namespace: namespace,
 			Name:      "forward_target_errors_total",
 			Help:      "Errors encountered while forwarding to a named target.",
 		},
 		[]string{"target", "kind"},
+	)
+
+	// CertNotAfterTimestamp stores the active TLS certificate's NotAfter field as a
+	// Unix timestamp. Use PromQL subtraction to derive time-until-expiry:
+	//   chaperone_cert_not_after_timestamp_seconds - time() < 7 * 86400
+	// A plain "seconds remaining" gauge would freeze between scrapes; a timestamp
+	// stays correct even if the metric is never refreshed.
+	// Updated on startup and after each certificate hot-swap.
+	CertNotAfterTimestamp = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "cert_not_after_timestamp_seconds",
+			Help:      "Unix timestamp of the active TLS certificate's NotAfter field",
+		},
+	)
+
+	// CertRenewalsTotal counts certificate renewal attempts by outcome.
+	// Labels: status (success|failure)
+	CertRenewalsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "cert_renewals_total",
+			Help:      "Total certificate renewal attempts",
+		},
+		[]string{"status"},
 	)
 )
 
@@ -168,15 +212,15 @@ var statusStrings = map[int]string{
 func StatusClass(code int) string {
 	switch {
 	case code >= 200 && code < 300:
-		return "2xx"
+		return statusClass2xx
 	case code >= 300 && code < 400:
-		return "3xx"
+		return statusClass3xx
 	case code >= 400 && code < 500:
-		return "4xx"
+		return statusClass4xx
 	case code >= 500 && code < 600:
-		return "5xx"
+		return statusClass5xx
 	default:
-		return "other"
+		return statusClassOther
 	}
 }
 

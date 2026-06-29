@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"github.com/cloudblue/chaperone/internal/telemetry"
 )
 
 const keyRenewalID = "renewal_id"
@@ -127,6 +129,7 @@ func (h *Handler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Warn("renewal install rejected", keyRenewalID, body.RenewalID, "error", err)
+		telemetry.CertRenewalsTotal.WithLabelValues("failure").Inc()
 		switch {
 		case errors.Is(err, ErrNoPending), errors.Is(err, ErrRenewalIDMismatch), errors.Is(err, ErrExpired):
 			writeJSONError(w, http.StatusConflict, err.Error())
@@ -140,15 +143,18 @@ func (h *Handler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 
 	// Hot-swap the TLS listener — in-flight connections are unaffected.
 	h.provider.Swap(newCert)
+	telemetry.CertNotAfterTimestamp.Set(float64(newCert.Leaf.NotAfter.Unix()))
 
 	// Persist cert and key to disk. Both are written to temp files first;
 	// renames are committed only after both writes succeed. A failure here
 	// returns 500 so the caller knows persistence did not complete.
 	if err := persistPair(h.certFile, certPEM, h.keyFile, keyPEM); err != nil {
 		slog.Error("renewal: failed to persist cert/key", "error", err)
+		telemetry.CertRenewalsTotal.WithLabelValues("failure").Inc()
 		writeJSONError(w, http.StatusInternalServerError, "certificate installed but failed to persist to disk")
 		return
 	}
+	telemetry.CertRenewalsTotal.WithLabelValues("success").Inc()
 
 	slog.Info("renewal install completed", keyRenewalID, body.RenewalID, "cert_not_after", newCert.Leaf.NotAfter)
 	w.WriteHeader(http.StatusAccepted)
@@ -163,8 +169,9 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 
 // persistPair writes certPEM and keyPEM to temp files in their respective
 // directories, then renames both. If the key rename fails after the cert rename
-// succeeds, the new cert file is removed so the pair is never left mismatched on
-// disk. The caller receives an error and should treat the cert as in-memory only.
+// has committed, the new cert file is removed (best-effort rollback) to avoid a
+// new-cert + old-key mismatch; the cert file may be absent until re-provisioned.
+// The caller receives an error and should treat the cert as in-memory only.
 func persistPair(certPath string, certPEM []byte, keyPath string, keyPEM []byte) error {
 	certTmp, err := writePEMToTemp(certPath, certPEM)
 	if err != nil {

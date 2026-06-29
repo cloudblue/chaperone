@@ -26,7 +26,7 @@ func TestHealth_ReturnsAlive(t *testing.T) {
 	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/_ops/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_ops/health", nil)
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -54,7 +54,7 @@ func TestVersion_ReturnsVersionInfo(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/_ops/version", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_ops/version", nil)
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -80,7 +80,7 @@ func TestProxy_MissingTargetURL_Returns400(t *testing.T) {
 	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	// Missing X-Connect-Target-URL header
 	rec := httptest.NewRecorder()
 
@@ -101,7 +101,7 @@ func TestPanicRecovery_CatchesPanic_Returns500(t *testing.T) {
 
 	handler := proxy.PanicRecoveryMiddleware(panicHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 
 	// Act - should not panic
@@ -136,7 +136,7 @@ func TestHealth_ContentType_JSON(t *testing.T) {
 	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/_ops/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_ops/health", nil)
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -154,7 +154,7 @@ func TestUnknownRoute_Returns404(t *testing.T) {
 	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "/unknown/route", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/unknown/route", nil)
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -178,7 +178,7 @@ func TestProxy_TraceID_GeneratedWhenMissing(t *testing.T) {
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -202,7 +202,7 @@ func TestProxy_TraceID_PreservedFromRequest(t *testing.T) {
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	req.Header.Set("Connect-Request-ID", "my-trace-123")
@@ -230,7 +230,7 @@ func TestProxy_ResponseSanitizer_StripsAuthHeaders(t *testing.T) {
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -263,7 +263,7 @@ func TestNewServer_NilPlugin_UsesNoopPlugin(t *testing.T) {
 	srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", backend.URL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -291,7 +291,7 @@ func TestProxy_TargetURLWithPath_PreservesPath(t *testing.T) {
 
 	// Target URL with a specific path
 	targetURL := backend.URL + "/api/v1/resource"
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", targetURL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()
@@ -339,7 +339,7 @@ func TestProxy_MethodPassthrough_ForwardsOriginalMethod(t *testing.T) {
 			srv := mustNewServerForTarget(t, testConfig(), backend.URL)
 			handler := srv.Handler()
 
-			req := httptest.NewRequest(tt.method, "/proxy", nil)
+			req := httptest.NewRequestWithContext(context.Background(), tt.method, "/proxy", nil)
 			req.Header.Set("X-Connect-Target-URL", backend.URL)
 			req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 			rec := httptest.NewRecorder()
@@ -377,7 +377,7 @@ func TestMiddlewareStack_PanicLogsCorrectStatus(t *testing.T) {
 	handler = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect", observability.TargetAddrModeHost, handler)
 	handler = observability.TraceIDMiddleware("Connect-Request-ID", handler)
 
-	req := httptest.NewRequest(http.MethodPost, "/test/panic", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/test/panic", nil)
 	req.Header.Set("Connect-Request-ID", "panic-trace-123")
 	rec := httptest.NewRecorder()
 
@@ -418,7 +418,7 @@ func TestMiddlewareStack_NormalRequestLogsCorrectStatus(t *testing.T) {
 	wrapped = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect", observability.TargetAddrModeHost, wrapped)
 	wrapped = observability.TraceIDMiddleware("Connect-Request-ID", wrapped)
 
-	req := httptest.NewRequest(http.MethodPost, "/resource", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/resource", nil)
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -450,7 +450,7 @@ func TestPanicRecovery_LogsTraceID(t *testing.T) {
 	handler := proxy.PanicRecoveryMiddleware(panicHandler)
 	handler = observability.TraceIDMiddleware("Connect-Request-ID", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/panic-trace", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/panic-trace", nil)
 	req.Header.Set("Connect-Request-ID", "panic-with-trace-789")
 	rec := httptest.NewRecorder()
 
@@ -760,7 +760,7 @@ func TestProxy_InvalidTargetURL_Returns400(t *testing.T) {
 	srv := mustNewServer(t, testConfig())
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	// Set a malformed URL that will fail url.Parse
 	req.Header.Set("X-Connect-Target-URL", "://invalid-url")
 	rec := httptest.NewRecorder()

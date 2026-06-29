@@ -5,6 +5,7 @@ package observability
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -44,7 +45,7 @@ func parseLogEntry(t *testing.T, data []byte) logEntry {
 // --- ClientIP Tests ---
 
 func TestClientIP_XForwardedFor_ReturnsFirst(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	r.Header.Set("X-Forwarded-For", "203.0.113.1, 10.0.0.1")
 
 	got := ClientIP(r)
@@ -55,7 +56,7 @@ func TestClientIP_XForwardedFor_ReturnsFirst(t *testing.T) {
 }
 
 func TestClientIP_XRealIP_ReturnsValue(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	r.Header.Set("X-Real-IP", "198.51.100.5")
 
 	got := ClientIP(r)
@@ -66,7 +67,7 @@ func TestClientIP_XRealIP_ReturnsValue(t *testing.T) {
 }
 
 func TestClientIP_NoProxyHeaders_ReturnsEmpty(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	r.RemoteAddr = "192.168.1.1:12345"
 
 	got := ClientIP(r)
@@ -77,7 +78,7 @@ func TestClientIP_NoProxyHeaders_ReturnsEmpty(t *testing.T) {
 }
 
 func TestClientIP_XForwardedFor_TrimsPrecedence(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	r.Header.Set("X-Forwarded-For", " 203.0.113.1 , 10.0.0.1")
 	r.Header.Set("X-Real-IP", "198.51.100.5")
 
@@ -135,7 +136,7 @@ func TestRequestLoggerMiddleware_LogsRequestFields(t *testing.T) {
 	})
 
 	handler := RequestLoggerMiddleware(logger, "X-Connect", TargetAddrModeHost, inner)
-	r := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	r = r.WithContext(WithTraceID(r.Context(), "test-trace-123"))
 	r.Header.Set("X-Connect-Vendor-ID", "microsoft")
 	r.Header.Set("X-Connect-Marketplace-ID", "MP-US")
@@ -194,7 +195,7 @@ func TestRequestLoggerMiddleware_CapturesErrorStatus(t *testing.T) {
 	})
 
 	handler := RequestLoggerMiddleware(logger, "X-Connect", TargetAddrModeHost, inner)
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	r = r.WithContext(WithTraceID(r.Context(), "err-trace"))
 	w := httptest.NewRecorder()
 
@@ -215,7 +216,7 @@ func TestRequestLoggerMiddleware_NoTraceID_LogsEmpty(t *testing.T) {
 	})
 
 	handler := RequestLoggerMiddleware(logger, "X-Connect", TargetAddrModeHost, inner)
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	// Deliberately no trace ID in context
 	w := httptest.NewRecorder()
 
@@ -237,7 +238,7 @@ func TestRequestLoggerMiddleware_LogsOnPanic(t *testing.T) {
 
 	// Wrap with panic recovery INSIDE request logger, so logger still fires
 	handler := RequestLoggerMiddleware(logger, "X-Connect", TargetAddrModeHost, panicRecoveryForTest(panicky))
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	r = r.WithContext(WithTraceID(r.Context(), "panic-trace"))
 	w := httptest.NewRecorder()
 
@@ -261,7 +262,7 @@ func TestRequestLoggerMiddleware_ClientIPFromXForwardedFor(t *testing.T) {
 	})
 
 	handler := RequestLoggerMiddleware(logger, "X-Connect", TargetAddrModeHost, inner)
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	r.Header.Set("X-Forwarded-For", "203.0.113.50")
 	w := httptest.NewRecorder()
 
@@ -288,7 +289,7 @@ func TestRequestLoggerMiddleware_TraceIDFromOuterMiddleware(t *testing.T) {
 	handler := RequestLoggerMiddleware(logger, "X-Connect", TargetAddrModeHost, inner)
 	handler = TraceIDMiddleware("X-Trace-ID", handler)
 
-	r := httptest.NewRequest(http.MethodGet, "/test", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
 	r.Header.Set("X-Trace-ID", "from-upstream-abc")
 	w := httptest.NewRecorder()
 
@@ -314,7 +315,7 @@ func TestRequestLoggerMiddleware_TraceIDGenerated(t *testing.T) {
 	handler := RequestLoggerMiddleware(logger, "X-Connect", TargetAddrModeHost, inner)
 	handler = TraceIDMiddleware("X-Trace-ID", handler)
 
-	r := httptest.NewRequest(http.MethodGet, "/test", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
 	// No X-Trace-ID header — should generate UUIDv4
 	w := httptest.NewRecorder()
 
@@ -338,7 +339,7 @@ func TestRequestLoggerMiddleware_HostMode_StripsPathAndQuery(t *testing.T) {
 	})
 
 	handler := RequestLoggerMiddleware(logger, "X-Connect", TargetAddrModeHost, inner)
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	// URL with query string and path — only the host should appear in the log
 	r.Header.Set("X-Connect-Target-URL", "https://api.vendor.com/v1/users?api_key=secret&token=abc")
 	w := httptest.NewRecorder()
@@ -367,7 +368,7 @@ func TestRequestLoggerMiddleware_PathMode_KeepsPathStripsQuery(t *testing.T) {
 	})
 
 	handler := RequestLoggerMiddleware(logger, "X-Connect", TargetAddrModePath, inner)
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	r.Header.Set("X-Connect-Target-URL", "https://api.vendor.com/v1/users?api_key=secret")
 	w := httptest.NewRecorder()
 
@@ -394,7 +395,7 @@ func TestRequestLoggerMiddleware_FullMode_KeepsQueryStripsUserinfo(t *testing.T)
 	})
 
 	handler := RequestLoggerMiddleware(logger, "X-Connect", TargetAddrModeFull, inner)
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	r.Header.Set("X-Connect-Target-URL", "https://user:pass@api.vendor.com/v1?key=val")
 	w := httptest.NewRecorder()
 

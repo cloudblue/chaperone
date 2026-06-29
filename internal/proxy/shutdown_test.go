@@ -303,7 +303,7 @@ func TestServer_ConnectTimeout_AppliedToTransport(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "http://"+addr+"/api/test")
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	rec := httptest.NewRecorder()

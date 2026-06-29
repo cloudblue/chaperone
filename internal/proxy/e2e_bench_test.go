@@ -79,7 +79,7 @@ func BenchmarkFullRequestCycle_FastPath(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("POST", "/proxy", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/proxy", nil)
 		req.Header.Set("X-Connect-Target-URL", upstream.URL+"/api/resource")
 		req.Header.Set("X-Connect-Vendor-ID", "benchmark-vendor")
 		req.Header.Set("X-Connect-Marketplace-ID", "US")
@@ -124,7 +124,7 @@ func BenchmarkFullRequestCycle_SlowPath(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("POST", "/proxy", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/proxy", nil)
 		req.Header.Set("X-Connect-Target-URL", upstream.URL+"/api/resource")
 		req.Header.Set("X-Connect-Vendor-ID", "benchmark-vendor")
 		req.Header.Set("Connect-Request-ID", "bench-trace-123")
@@ -162,7 +162,7 @@ func BenchmarkFullRequestCycle_NoPlugin(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("POST", "/proxy", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/proxy", nil)
 		req.Header.Set("X-Connect-Target-URL", upstream.URL+"/api/resource")
 		req.Header.Set("X-Connect-Vendor-ID", "benchmark-vendor")
 		req.Header.Set("Connect-Request-ID", "bench-trace-123")
@@ -208,7 +208,7 @@ func BenchmarkFullRequestCycle_Parallel(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			req := httptest.NewRequest("POST", "/proxy", nil)
+			req := httptest.NewRequestWithContext(context.Background(), "POST", "/proxy", nil)
 			req.Header.Set("X-Connect-Target-URL", upstream.URL+"/api/resource")
 			req.Header.Set("X-Connect-Vendor-ID", "benchmark-vendor")
 			req.Header.Set("X-Connect-Context-Data", contextData)

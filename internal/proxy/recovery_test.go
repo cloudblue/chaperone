@@ -4,6 +4,7 @@
 package proxy_test
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -26,7 +27,7 @@ func TestPanicRecovery_CatchesPanic_ReturnsJSON500(t *testing.T) {
 
 	handler := proxy.PanicRecoveryMiddleware(panicHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -71,7 +72,7 @@ func TestPanicRecovery_LogsStackTrace(t *testing.T) {
 
 	handler := proxy.PanicRecoveryMiddleware(panicHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -107,7 +108,7 @@ func TestPanicRecovery_ServerContinuesAfterPanic(t *testing.T) {
 	recovered := proxy.PanicRecoveryMiddleware(handler)
 
 	// Act - first request panics
-	req1 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req1 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	rec1 := httptest.NewRecorder()
 	recovered.ServeHTTP(rec1, req1)
 
@@ -117,7 +118,7 @@ func TestPanicRecovery_ServerContinuesAfterPanic(t *testing.T) {
 	}
 
 	// Act - second request should succeed (server still running)
-	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	rec2 := httptest.NewRecorder()
 	recovered.ServeHTTP(rec2, req2)
 
@@ -153,7 +154,7 @@ func TestPanicRecovery_ConcurrentPanics(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 			results[idx] = rec.Code
@@ -181,7 +182,7 @@ func TestPanicRecovery_NoPanic_NormalResponse(t *testing.T) {
 
 	handler := proxy.PanicRecoveryMiddleware(normalHandler)
 
-	req := httptest.NewRequest(http.MethodPost, "/resource", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/resource", nil)
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -206,7 +207,7 @@ func TestPanicRecovery_ErrorTypePanic(t *testing.T) {
 
 	handler := proxy.PanicRecoveryMiddleware(panicHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 
 	// Act

@@ -63,10 +63,18 @@ const (
 	DefaultPluginTimeout = 10 * time.Second
 )
 
+// Log level constants used across validation and default config.
+const (
+	logLevelDebug = "debug"
+	logLevelInfo  = "info"
+	logLevelWarn  = "warn"
+	logLevelError = "error"
+)
+
 // Default observability configuration values.
 const (
 	// DefaultLogLevel is the default logging level.
-	DefaultLogLevel = "info"
+	DefaultLogLevel = logLevelInfo
 	// DefaultEnableProfiling is the secure default for profiling (disabled).
 	DefaultEnableProfiling = false
 	// DefaultEnableTracing is the secure default for tracing (disabled).
@@ -123,4 +131,4 @@ func MergeSensitiveHeaders(extra []string) []string {
 }
 
 // ValidLogLevels is the list of accepted log level values.
-var ValidLogLevels = []string{"debug", "info", "warn", "error"}
+var ValidLogLevels = []string{logLevelDebug, logLevelInfo, logLevelWarn, logLevelError}

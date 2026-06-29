@@ -4,6 +4,7 @@
 package context
 
 import (
+	"context"
 	"encoding/base64"
 	"net/http/httptest"
 	"runtime"
@@ -16,7 +17,7 @@ var benchCtxSink any
 // BenchmarkParseContext_MinimalHeaders benchmarks parsing with only required headers.
 // Target: < 1us, 0 allocs
 func BenchmarkParseContext_MinimalHeaders(b *testing.B) {
-	req := httptest.NewRequest("POST", "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://api.vendor.com/v1/customers")
 
 	b.ReportAllocs()
@@ -35,7 +36,7 @@ func BenchmarkParseContext_MinimalHeaders(b *testing.B) {
 // Target: < 1us, minimal allocs (Context-Data decoding requires allocations)
 func BenchmarkParseContext_AllHeaders(b *testing.B) {
 	contextData := base64.StdEncoding.EncodeToString([]byte(`{"key":"value","nested":{"a":"b"}}`))
-	req := httptest.NewRequest("POST", "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://api.vendor.com/v1/customers")
 	req.Header.Set("X-Connect-Environment-ID", "production")
 	req.Header.Set("X-Connect-Marketplace-ID", "US")
@@ -66,7 +67,7 @@ func BenchmarkParseContext_Parallel(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			req := httptest.NewRequest("POST", "/proxy", nil)
+			req := httptest.NewRequestWithContext(context.Background(), "POST", "/proxy", nil)
 			req.Header.Set("X-Connect-Target-URL", "https://api.vendor.com/v1/customers")
 			req.Header.Set("X-Connect-Vendor-ID", "microsoft")
 			req.Header.Set("X-Connect-Context-Data", contextData)

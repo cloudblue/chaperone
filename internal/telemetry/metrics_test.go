@@ -198,3 +198,47 @@ func TestAPILatencyBuckets(t *testing.T) {
 		t.Error("expected APILatencyBuckets to have 0.15 (150ms) bucket for granularity")
 	}
 }
+
+func TestCertNotAfterTimestamp_SetAndRead(t *testing.T) {
+	// Store a Unix timestamp — use a realistic future value.
+	const ts = 1_800_000_000.0 // ~2027-01-15
+	CertNotAfterTimestamp.Set(ts)
+	t.Cleanup(func() { CertNotAfterTimestamp.Set(0) })
+
+	got := testutil.ToFloat64(CertNotAfterTimestamp)
+	if got != ts {
+		t.Errorf("CertNotAfterTimestamp = %v, want %v", got, ts)
+	}
+}
+
+func TestCertRenewalsTotal_SuccessAndFailure(t *testing.T) {
+	CertRenewalsTotal.Reset()
+	t.Cleanup(func() { CertRenewalsTotal.Reset() })
+
+	CertRenewalsTotal.WithLabelValues("success").Inc()
+	CertRenewalsTotal.WithLabelValues("success").Inc()
+	CertRenewalsTotal.WithLabelValues("failure").Inc()
+
+	if got := testutil.ToFloat64(CertRenewalsTotal.WithLabelValues("success")); got != 2 {
+		t.Errorf("success count = %v, want 2", got)
+	}
+	if got := testutil.ToFloat64(CertRenewalsTotal.WithLabelValues("failure")); got != 1 {
+		t.Errorf("failure count = %v, want 1", got)
+	}
+}
+
+func TestCertRenewalsTotal_IncrementsBothLabels(t *testing.T) {
+	CertRenewalsTotal.Reset()
+	t.Cleanup(func() { CertRenewalsTotal.Reset() })
+
+	CertRenewalsTotal.WithLabelValues("success").Inc()
+	CertRenewalsTotal.WithLabelValues("failure").Inc()
+	CertRenewalsTotal.WithLabelValues("failure").Inc()
+
+	if got := testutil.ToFloat64(CertRenewalsTotal.WithLabelValues("success")); got != 1 {
+		t.Errorf("success = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(CertRenewalsTotal.WithLabelValues("failure")); got != 2 {
+		t.Errorf("failure = %v, want 2", got)
+	}
+}

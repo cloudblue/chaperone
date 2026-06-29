@@ -4,6 +4,7 @@
 package timing
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,7 +20,7 @@ func TestTimingMiddleware_AddsServerTimingHeader(t *testing.T) {
 
 	wrapped := TimingMiddleware(handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(rec, req)
@@ -52,7 +53,7 @@ func TestTimingMiddleware_RecorderInContext(t *testing.T) {
 
 	wrapped := TimingMiddleware(handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(rec, req)
@@ -75,7 +76,7 @@ func TestTimingMiddleware_RecordedDurationsReflectedInHeader(t *testing.T) {
 
 	wrapped := TimingMiddleware(handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(rec, req)
@@ -98,7 +99,7 @@ func TestTimingMiddleware_HeaderAddedOnError(t *testing.T) {
 
 	wrapped := TimingMiddleware(handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(rec, req)
@@ -128,7 +129,7 @@ func TestTimingMiddleware_SupportsStreaming(t *testing.T) {
 
 	wrapped := TimingMiddleware(handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(rec, req)
@@ -154,7 +155,7 @@ func TestTimingMiddleware_WriteWithoutExplicitWriteHeader(t *testing.T) {
 
 	wrapped := TimingMiddleware(handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(rec, req)

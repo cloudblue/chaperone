@@ -49,7 +49,7 @@ func TestWithTraceID_OverwritesPrevious(t *testing.T) {
 // --- ExtractOrGenerateTraceID Tests ---
 
 func TestExtractOrGenerateTraceID_HeaderPresent_ReturnsHeaderValue(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	r.Header.Set("Connect-Request-ID", "upstream-trace-abc")
 
 	got := ExtractOrGenerateTraceID(r, "Connect-Request-ID")
@@ -60,7 +60,7 @@ func TestExtractOrGenerateTraceID_HeaderPresent_ReturnsHeaderValue(t *testing.T)
 }
 
 func TestExtractOrGenerateTraceID_HeaderMissing_GeneratesUUID(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 
 	got := ExtractOrGenerateTraceID(r, "Connect-Request-ID")
 
@@ -74,7 +74,7 @@ func TestExtractOrGenerateTraceID_HeaderMissing_GeneratesUUID(t *testing.T) {
 }
 
 func TestExtractOrGenerateTraceID_EmptyHeaderValue_GeneratesUUID(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	r.Header.Set("Connect-Request-ID", "")
 
 	got := ExtractOrGenerateTraceID(r, "Connect-Request-ID")
@@ -88,7 +88,7 @@ func TestExtractOrGenerateTraceID_EmptyHeaderValue_GeneratesUUID(t *testing.T) {
 }
 
 func TestExtractOrGenerateTraceID_CustomHeaderName(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	r.Header.Set("X-Custom-Trace", "custom-trace-id")
 
 	got := ExtractOrGenerateTraceID(r, "X-Custom-Trace")
@@ -99,8 +99,8 @@ func TestExtractOrGenerateTraceID_CustomHeaderName(t *testing.T) {
 }
 
 func TestExtractOrGenerateTraceID_GeneratedIDsAreUnique(t *testing.T) {
-	r1 := httptest.NewRequest(http.MethodGet, "/proxy", nil)
-	r2 := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r1 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
+	r2 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 
 	id1 := ExtractOrGenerateTraceID(r1, "Connect-Request-ID")
 	id2 := ExtractOrGenerateTraceID(r2, "Connect-Request-ID")
@@ -113,7 +113,7 @@ func TestExtractOrGenerateTraceID_GeneratedIDsAreUnique(t *testing.T) {
 // --- Trace ID Validation Tests (defense-in-depth) ---
 
 func TestExtractOrGenerateTraceID_TooLong_GeneratesNew(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	// 257 chars exceeds maxTraceIDLen (256)
 	r.Header.Set("Connect-Request-ID", strings.Repeat("a", maxTraceIDLen+1))
 
@@ -126,7 +126,7 @@ func TestExtractOrGenerateTraceID_TooLong_GeneratesNew(t *testing.T) {
 }
 
 func TestExtractOrGenerateTraceID_MaxLength_Accepted(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	maxID := strings.Repeat("a", maxTraceIDLen)
 	r.Header.Set("Connect-Request-ID", maxID)
 
@@ -152,7 +152,7 @@ func TestExtractOrGenerateTraceID_InvalidChars_GeneratesNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+			r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 			r.Header.Set("Connect-Request-ID", tt.traceID)
 
 			got := ExtractOrGenerateTraceID(r, "Connect-Request-ID")
@@ -183,7 +183,7 @@ func TestExtractOrGenerateTraceID_ValidFormats_Accepted(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+			r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 			r.Header.Set("Connect-Request-ID", tt.traceID)
 
 			got := ExtractOrGenerateTraceID(r, "Connect-Request-ID")
@@ -204,7 +204,7 @@ func TestTraceIDMiddleware_ExtractsFromHeader(t *testing.T) {
 	})
 
 	handler := TraceIDMiddleware("Connect-Request-ID", inner)
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	r.Header.Set("Connect-Request-ID", "from-upstream-abc")
 	w := httptest.NewRecorder()
 
@@ -222,7 +222,7 @@ func TestTraceIDMiddleware_GeneratesWhenMissing(t *testing.T) {
 	})
 
 	handler := TraceIDMiddleware("Connect-Request-ID", inner)
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, r)
@@ -242,7 +242,7 @@ func TestTraceIDMiddleware_SetsHeaderOnRequest(t *testing.T) {
 	})
 
 	handler := TraceIDMiddleware("Connect-Request-ID", inner)
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	// No trace header set — middleware should generate and set it
 	w := httptest.NewRecorder()
 
@@ -264,7 +264,7 @@ func TestTraceIDMiddleware_PropagatesExistingHeader(t *testing.T) {
 	})
 
 	handler := TraceIDMiddleware("Connect-Request-ID", inner)
-	r := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	r.Header.Set("Connect-Request-ID", "upstream-id-xyz")
 	w := httptest.NewRecorder()
 

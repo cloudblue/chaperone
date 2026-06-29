@@ -4,6 +4,7 @@
 package proxy
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -19,7 +20,7 @@ func BenchmarkPanicRecoveryMiddleware(b *testing.B) {
 		w.WriteHeader(http.StatusOK)
 	})
 	handler := PanicRecoveryMiddleware(inner)
-	req := httptest.NewRequest("GET", "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/proxy", nil)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -39,7 +40,7 @@ func BenchmarkRequestLoggingMiddleware(b *testing.B) {
 		w.WriteHeader(http.StatusOK)
 	})
 	handler := observability.RequestLoggerMiddleware(slog.Default(), "X-Connect", observability.TargetAddrModeHost, inner)
-	req := httptest.NewRequest("GET", "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/proxy", nil)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -63,7 +64,7 @@ func BenchmarkMiddlewareStack(b *testing.B) {
 	handler := PanicRecoveryMiddleware(inner)
 	handler = observability.RequestLoggerMiddleware(slog.Default(), "X-Connect", observability.TargetAddrModeHost, handler)
 	handler = observability.TraceIDMiddleware("Connect-Request-ID", handler)
-	req := httptest.NewRequest("GET", "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/proxy", nil)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -90,7 +91,7 @@ func BenchmarkMiddlewareStack_Parallel(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			req := httptest.NewRequest("GET", "/proxy", nil)
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "/proxy", nil)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 		}
