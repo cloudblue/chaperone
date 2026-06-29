@@ -2,7 +2,7 @@ module github.com/cloudblue/chaperone
 
 go 1.26.4
 
-require github.com/cloudblue/chaperone/sdk v0.1.0
+require github.com/cloudblue/chaperone/sdk v0.3.0
 
 require (
 	github.com/prometheus/client_golang v1.23.2
