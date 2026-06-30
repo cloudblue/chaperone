@@ -17,6 +17,7 @@ concurrency:
 
 permissions:
   contents: write
+  pull-requests: read # release-notes.sh reads changed files via the PRs API
 
 env:
   GOVULNCHECK_VERSION: 'v1.1.4'
@@ -127,12 +128,18 @@ jobs:
           cd dist
           sha256sum * > checksums.txt
 
+      - name: Generate release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/release-notes.sh "${{ github.ref_name }}" 'v*' core > release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
+          generate_release_notes: false
+          body_path: release-notes.md
           files: |
             dist/chaperone-*
             dist/checksums.txt
@@ -145,6 +152,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -166,21 +175,30 @@ jobs:
         id: version
         run: echo "sdk_version=${GITHUB_REF_NAME#sdk/}" >> $GITHUB_OUTPUT
 
+      - name: Generate release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "## SDK Release ${{ github.ref_name }}"
+            echo
+            echo "This is a release of the Chaperone SDK module."
+            echo
+            echo "### Installation"
+            echo '```bash'
+            echo "go get github.com/cloudblue/chaperone/sdk@${{ steps.version.outputs.sdk_version }}"
+            echo '```'
+            echo
+            bash .github/scripts/release-notes.sh "${{ github.ref_name }}" 'sdk/v*' sdk
+          } > release-notes.md
+
       - name: Create GitHub Release for SDK
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-          body: |
-            ## SDK Release ${{ github.ref_name }}
-
-            This is a release of the Chaperone SDK module.
-
-            ### Installation
-            ```bash
-            go get github.com/cloudblue/chaperone/sdk@${{ steps.version.outputs.sdk_version }}
-            ```
+          generate_release_notes: false
+          body_path: release-notes.md
 
   # Notify on Contrib releases (no binaries to build)
   contrib-release:
@@ -190,6 +208,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -212,21 +232,30 @@ jobs:
         id: version
         run: echo "contrib_version=${GITHUB_REF_NAME#plugins/contrib/}" >> $GITHUB_OUTPUT
 
+      - name: Generate release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "## Contrib Release ${{ github.ref_name }}"
+            echo
+            echo "This is a release of the Chaperone Contrib Plugins module."
+            echo
+            echo "### Installation"
+            echo '```bash'
+            echo "go get github.com/cloudblue/chaperone/plugins/contrib@${{ steps.version.outputs.contrib_version }}"
+            echo '```'
+            echo
+            bash .github/scripts/release-notes.sh "${{ github.ref_name }}" 'plugins/contrib/v*' contrib
+          } > release-notes.md
+
       - name: Create GitHub Release for Contrib
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-          body: |
-            ## Contrib Release ${{ github.ref_name }}
-
-            This is a release of the Chaperone Contrib Plugins module.
-
-            ### Installation
-            ```bash
-            go get github.com/cloudblue/chaperone/plugins/contrib@${{ steps.version.outputs.contrib_version }}
-            ```
+          generate_release_notes: false
+          body_path: release-notes.md
 
   # Build admin portal binaries (UI embedded into chaperone-admin)
   admin-release:
@@ -317,17 +346,26 @@ jobs:
           cd dist
           sha256sum * > checksums.txt
 
+      - name: Generate release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "## Admin Portal Release ${{ steps.version.outputs.admin_version }}"
+            echo
+            echo "Ships the \`chaperone-admin\` binary with the Vue UI embedded."
+            echo "Use \`chaperone-admin create-user\` to seed the initial admin user."
+            echo
+            bash .github/scripts/release-notes.sh "${{ github.ref_name }}" 'admin/v*' admin
+          } > release-notes.md
+
       - name: Create GitHub Release for Admin
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
+          generate_release_notes: false
+          body_path: release-notes.md
           files: |
             dist/chaperone-admin-*
             dist/checksums.txt
-          body: |
-            ## Admin Portal Release ${{ steps.version.outputs.admin_version }}
-
-            Ships the `chaperone-admin` binary with the Vue UI embedded.
-            Use `chaperone-admin create-user` to seed the initial admin user.
