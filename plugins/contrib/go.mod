@@ -1,6 +1,6 @@
 module github.com/cloudblue/chaperone/plugins/contrib
 
-go 1.26.5
+go 1.26.6
 
 require github.com/cloudblue/chaperone/sdk v0.3.0
 
