@@ -4,6 +4,7 @@
 package admin
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,7 +16,7 @@ func TestHandleHealth_ReturnsOK_WithJSON(t *testing.T) {
 
 	// Arrange
 	s := &Server{}
-	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/health", nil)
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -41,7 +42,7 @@ func TestSPAHandler_Root_ServesIndexHTML(t *testing.T) {
 		"index.html": &fstest.MapFile{Data: []byte("<html>app</html>")},
 	}
 	handler := spaHandler(assets)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -64,7 +65,7 @@ func TestSPAHandler_UnknownRoute_FallsBackToIndex(t *testing.T) {
 		"index.html": &fstest.MapFile{Data: []byte("<html>spa</html>")},
 	}
 	handler := spaHandler(assets)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/some-page", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/dashboard/some-page", nil)
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -87,7 +88,7 @@ func TestSecurityHeaders_SetOnAllResponses(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 	handler := securityHeaders(inner)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -119,7 +120,7 @@ func TestSPAHandler_UnmatchedAPIRoute_Returns404(t *testing.T) {
 		"index.html": &fstest.MapFile{Data: []byte("<html>spa</html>")},
 	}
 	handler := spaHandler(assets)
-	req := httptest.NewRequest(http.MethodGet, "/api/nonexistent", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/nonexistent", nil)
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -140,7 +141,7 @@ func TestSPAHandler_ExistingFile_ServesFile(t *testing.T) {
 		"assets/style.css": &fstest.MapFile{Data: []byte("body{}")},
 	}
 	handler := spaHandler(assets)
-	req := httptest.NewRequest(http.MethodGet, "/assets/style.css", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/assets/style.css", nil)
 	rec := httptest.NewRecorder()
 
 	// Act

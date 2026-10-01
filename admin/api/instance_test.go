@@ -40,7 +40,7 @@ func TestListInstances_Empty_ReturnsEmptyArray(t *testing.T) {
 	t.Parallel()
 	mux := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -57,7 +57,7 @@ func TestCreateInstance_Success_Returns201(t *testing.T) {
 	mux := newTestHandler(t)
 
 	body := `{"name":"proxy-1","address":"10.0.0.1:9090"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -82,7 +82,7 @@ func TestCreateInstance_DuplicateAddress_Returns409(t *testing.T) {
 	mux := newTestHandler(t)
 
 	body := `{"name":"proxy-1","address":"10.0.0.1:9090"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -91,7 +91,7 @@ func TestCreateInstance_DuplicateAddress_Returns409(t *testing.T) {
 	}
 
 	// Second create with same address.
-	req = httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", strings.NewReader(body))
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -106,7 +106,7 @@ func TestCreateInstance_MissingName_Returns400(t *testing.T) {
 	mux := newTestHandler(t)
 
 	body := `{"name":"","address":"10.0.0.1:9090"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -121,7 +121,7 @@ func TestCreateInstance_MissingAddress_Returns400(t *testing.T) {
 	mux := newTestHandler(t)
 
 	body := `{"name":"proxy-1","address":""}`
-	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -134,7 +134,7 @@ func TestCreateInstance_InvalidJSON_Returns400(t *testing.T) {
 	t.Parallel()
 	mux := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader("not json"))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", strings.NewReader("not json"))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -149,7 +149,7 @@ func TestGetInstance_Exists_Returns200(t *testing.T) {
 
 	// Create first.
 	body := `{"name":"proxy-1","address":"10.0.0.1:9090"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -157,7 +157,7 @@ func TestGetInstance_Exists_Returns200(t *testing.T) {
 	json.NewDecoder(rec.Body).Decode(&created)
 
 	// Get by ID.
-	req = httptest.NewRequest(http.MethodGet, "/api/instances/1", nil)
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances/1", nil)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -170,7 +170,7 @@ func TestGetInstance_NotFound_Returns404(t *testing.T) {
 	t.Parallel()
 	mux := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/instances/999", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances/999", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -184,7 +184,7 @@ func TestGetInstance_InvalidID_Returns400(t *testing.T) {
 	t.Parallel()
 	mux := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/instances/abc", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances/abc", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -199,13 +199,13 @@ func TestUpdateInstance_Success_Returns200(t *testing.T) {
 
 	// Create.
 	create := `{"name":"proxy-1","address":"10.0.0.1:9090"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(create))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", strings.NewReader(create))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
 	// Update.
 	update := `{"name":"proxy-1-updated","address":"10.0.0.2:9090"}`
-	req = httptest.NewRequest(http.MethodPut, "/api/instances/1", strings.NewReader(update))
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/instances/1", strings.NewReader(update))
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -226,12 +226,12 @@ func TestDeleteInstance_Success_Returns204(t *testing.T) {
 
 	// Create.
 	create := `{"name":"proxy-1","address":"10.0.0.1:9090"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(create))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", strings.NewReader(create))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
 	// Delete.
-	req = httptest.NewRequest(http.MethodDelete, "/api/instances/1", nil)
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/instances/1", nil)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -240,7 +240,7 @@ func TestDeleteInstance_Success_Returns204(t *testing.T) {
 	}
 
 	// Verify gone.
-	req = httptest.NewRequest(http.MethodGet, "/api/instances/1", nil)
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances/1", nil)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -253,7 +253,7 @@ func TestDeleteInstance_NotFound_Returns404(t *testing.T) {
 	t.Parallel()
 	mux := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/instances/999", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/instances/999", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -283,7 +283,7 @@ func TestTestConnection_Success(t *testing.T) {
 	addr := strings.TrimPrefix(proxy.URL, "http://")
 	body := `{"address":"` + addr + `"}`
 
-	req := httptest.NewRequest(http.MethodPost, "/api/instances/test", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances/test", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -310,7 +310,7 @@ func TestTestConnection_Unreachable(t *testing.T) {
 	mux := newTestHandler(t)
 
 	body := `{"address":"127.0.0.1:1"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/instances/test", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances/test", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -337,7 +337,7 @@ func TestTestConnection_EmptyAddress_Returns400(t *testing.T) {
 	mux := newTestHandler(t)
 
 	body := `{"address":""}`
-	req := httptest.NewRequest(http.MethodPost, "/api/instances/test", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances/test", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -363,7 +363,7 @@ func TestCreateInstance_InvalidAddress_Returns400(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			body := `{"name":"proxy-1","address":"` + tt.address + `"}`
-			req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", strings.NewReader(body))
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, req)
 
@@ -389,7 +389,7 @@ func TestTestConnection_InvalidAddress_Returns400(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			body := `{"address":"` + tt.address + `"}`
-			req := httptest.NewRequest(http.MethodPost, "/api/instances/test", strings.NewReader(body))
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances/test", strings.NewReader(body))
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, req)
 
@@ -405,7 +405,7 @@ func TestCreateInstance_WhitespaceTrimmed(t *testing.T) {
 	mux := newTestHandler(t)
 
 	body := `{"name":"  proxy-1  ","address":"  10.0.0.1:9090  "}`
-	req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -432,7 +432,7 @@ func TestListInstances_AfterCreate_ReturnsInstances(t *testing.T) {
 	// Create two instances.
 	for _, name := range []string{"alpha", "bravo"} {
 		body := `{"name":"` + name + `","address":"` + name + `:9090"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/instances", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", strings.NewReader(body))
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 		if rec.Code != http.StatusCreated {
@@ -441,7 +441,7 @@ func TestListInstances_AfterCreate_ReturnsInstances(t *testing.T) {
 	}
 
 	// List.
-	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

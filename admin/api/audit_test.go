@@ -56,7 +56,7 @@ func TestAuditList_Empty_ReturnsEmptyPage(t *testing.T) {
 	t.Parallel()
 	mux, _ := newAuditTestMux(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/audit", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/audit", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -81,7 +81,7 @@ func TestAuditList_ReturnsEntries(t *testing.T) {
 	mux, st := newAuditTestMux(t)
 	seedAuditData(t, st)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/audit", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/audit", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -106,7 +106,7 @@ func TestAuditList_FilterByAction(t *testing.T) {
 	mux, st := newAuditTestMux(t)
 	seedAuditData(t, st)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/audit?action=user.login", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/audit?action=user.login", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -128,7 +128,7 @@ func TestAuditList_FilterByUser(t *testing.T) {
 	mux, st := newAuditTestMux(t)
 	userID := seedAuditData(t, st)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/audit?user="+itoa(userID), nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/audit?user="+itoa(userID), nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -146,7 +146,7 @@ func TestAuditList_FullTextSearch(t *testing.T) {
 	mux, st := newAuditTestMux(t)
 	seedAuditData(t, st)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/audit?q=proxy-1", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/audit?q=proxy-1", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -165,7 +165,7 @@ func TestAuditList_Pagination(t *testing.T) {
 	mux, st := newAuditTestMux(t)
 	seedAuditData(t, st)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/audit?page=1&per_page=2", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/audit?page=1&per_page=2", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -188,7 +188,7 @@ func TestAuditList_InvalidPage_Returns400(t *testing.T) {
 	t.Parallel()
 	mux, _ := newAuditTestMux(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/audit?page=abc", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/audit?page=abc", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -201,7 +201,7 @@ func TestAuditList_InvalidPerPage_Returns400(t *testing.T) {
 	t.Parallel()
 	mux, _ := newAuditTestMux(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/audit?per_page=999", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/audit?per_page=999", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -214,7 +214,7 @@ func TestAuditList_InvalidUserID_Returns400(t *testing.T) {
 	t.Parallel()
 	mux, _ := newAuditTestMux(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/audit?user=notanumber", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/audit?user=notanumber", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -227,7 +227,7 @@ func TestAuditList_InvalidFromDate_Returns400(t *testing.T) {
 	t.Parallel()
 	mux, _ := newAuditTestMux(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/audit?from=not-a-date", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/audit?from=not-a-date", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

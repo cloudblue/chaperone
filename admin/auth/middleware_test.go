@@ -4,6 +4,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -35,7 +36,7 @@ func TestRequireAuth_ProtectedRoute_Unauthenticated_Returns401(t *testing.T) {
 	t.Parallel()
 
 	handler := RequireAuth(&mockAuthenticator{err: ErrUnauthenticated}, echoUserHandler())
-	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -57,7 +58,7 @@ func TestRequireAuth_ProtectedRoute_Authenticated_PassesThrough(t *testing.T) {
 
 	user := &User{ID: 1, Username: "admin"}
 	handler := RequireAuth(&mockAuthenticator{user: user}, echoUserHandler())
-	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -73,7 +74,7 @@ func TestRequireAuth_LoginRoute_SkipsAuth(t *testing.T) {
 	t.Parallel()
 
 	handler := RequireAuth(&mockAuthenticator{err: ErrUnauthenticated}, echoUserHandler())
-	req := httptest.NewRequest(http.MethodPost, "/api/login", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/login", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -86,7 +87,7 @@ func TestRequireAuth_HealthRoute_SkipsAuth(t *testing.T) {
 	t.Parallel()
 
 	handler := RequireAuth(&mockAuthenticator{err: ErrUnauthenticated}, echoUserHandler())
-	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/health", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -99,7 +100,7 @@ func TestRequireAuth_SPARoute_SkipsAuth(t *testing.T) {
 	t.Parallel()
 
 	handler := RequireAuth(&mockAuthenticator{err: ErrUnauthenticated}, echoUserHandler())
-	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/dashboard", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -114,7 +115,7 @@ func TestCSRF_SafeMethod_SkipsCheck(t *testing.T) {
 	t.Parallel()
 
 	handler := CSRFProtection(echoUserHandler())
-	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -127,7 +128,7 @@ func TestCSRF_LoginRoute_SkipsCheck(t *testing.T) {
 	t.Parallel()
 
 	handler := CSRFProtection(echoUserHandler())
-	req := httptest.NewRequest(http.MethodPost, "/api/login", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/login", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -140,7 +141,7 @@ func TestCSRF_WriteRequest_MissingCookie_Returns403(t *testing.T) {
 	t.Parallel()
 
 	handler := CSRFProtection(echoUserHandler())
-	req := httptest.NewRequest(http.MethodPost, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -153,7 +154,7 @@ func TestCSRF_WriteRequest_MissingHeader_Returns403(t *testing.T) {
 	t.Parallel()
 
 	handler := CSRFProtection(echoUserHandler())
-	req := httptest.NewRequest(http.MethodPost, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", nil)
 	req.AddCookie(&http.Cookie{Name: CSRFCookieName, Value: "token123"})
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -167,7 +168,7 @@ func TestCSRF_WriteRequest_MismatchedToken_Returns403(t *testing.T) {
 	t.Parallel()
 
 	handler := CSRFProtection(echoUserHandler())
-	req := httptest.NewRequest(http.MethodPost, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", nil)
 	req.AddCookie(&http.Cookie{Name: CSRFCookieName, Value: "token123"})
 	req.Header.Set(CSRFHeaderName, "different-token")
 	rec := httptest.NewRecorder()
@@ -182,7 +183,7 @@ func TestCSRF_WriteRequest_ValidToken_PassesThrough(t *testing.T) {
 	t.Parallel()
 
 	handler := CSRFProtection(echoUserHandler())
-	req := httptest.NewRequest(http.MethodPost, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/instances", nil)
 	req.AddCookie(&http.Cookie{Name: CSRFCookieName, Value: "token123"})
 	req.Header.Set(CSRFHeaderName, "token123")
 	rec := httptest.NewRecorder()
@@ -197,7 +198,7 @@ func TestCSRF_DeleteRequest_RequiresToken(t *testing.T) {
 	t.Parallel()
 
 	handler := CSRFProtection(echoUserHandler())
-	req := httptest.NewRequest(http.MethodDelete, "/api/instances/1", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/instances/1", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -210,7 +211,7 @@ func TestCSRF_PutRequest_ValidToken_PassesThrough(t *testing.T) {
 	t.Parallel()
 
 	handler := CSRFProtection(echoUserHandler())
-	req := httptest.NewRequest(http.MethodPut, "/api/user/password", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/user/password", nil)
 	req.AddCookie(&http.Cookie{Name: CSRFCookieName, Value: "csrf-val"})
 	req.Header.Set(CSRFHeaderName, "csrf-val")
 	rec := httptest.NewRecorder()
@@ -225,7 +226,7 @@ func TestCSRF_NonAPIRoute_SkipsCheck(t *testing.T) {
 	t.Parallel()
 
 	handler := CSRFProtection(echoUserHandler())
-	req := httptest.NewRequest(http.MethodPost, "/some/form", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/some/form", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

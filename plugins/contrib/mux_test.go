@@ -614,7 +614,7 @@ func TestMux_RouteRequest_ReturnsForward_ForForwardAction(t *testing.T) {
 
 	action, err := m.RouteRequest(context.Background(),
 		sdk.TransactionContext{VendorID: "microsoft-azure"},
-		httptest.NewRequest("GET", "https://example.com/x", nil))
+		httptest.NewRequestWithContext(context.Background(), "GET", "https://example.com/x", nil))
 	if err != nil {
 		t.Fatalf("RouteRequest: %v", err)
 	}
@@ -629,7 +629,7 @@ func TestMux_RouteRequest_ReturnsNil_ForCredentialAction(t *testing.T) {
 
 	action, err := m.RouteRequest(context.Background(),
 		sdk.TransactionContext{VendorID: "microsoft-azure"},
-		httptest.NewRequest("GET", "https://example.com/x", nil))
+		httptest.NewRequestWithContext(context.Background(), "GET", "https://example.com/x", nil))
 	if err != nil {
 		t.Fatalf("RouteRequest: %v", err)
 	}
@@ -644,7 +644,7 @@ func TestMux_RouteRequest_ReturnsNil_NoMatch(t *testing.T) {
 
 	action, err := m.RouteRequest(context.Background(),
 		sdk.TransactionContext{VendorID: "globex"},
-		httptest.NewRequest("GET", "https://example.com/x", nil))
+		httptest.NewRequestWithContext(context.Background(), "GET", "https://example.com/x", nil))
 	if err != nil {
 		t.Fatalf("RouteRequest: %v", err)
 	}

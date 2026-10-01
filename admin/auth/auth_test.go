@@ -216,7 +216,7 @@ func TestAuthenticate_ValidSession_ReturnsUser(t *testing.T) {
 	createTestUser(t, svc)
 	token := loginTestUser(t, svc)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances", nil)
 	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: token})
 
 	user, err := svc.Authenticate(req)
@@ -232,7 +232,7 @@ func TestAuthenticate_NoCookie_ReturnsError(t *testing.T) {
 	t.Parallel()
 	svc := newTestService(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances", nil)
 
 	_, err := svc.Authenticate(req)
 	if !errors.Is(err, ErrUnauthenticated) {
@@ -244,7 +244,7 @@ func TestAuthenticate_InvalidToken_ReturnsError(t *testing.T) {
 	t.Parallel()
 	svc := newTestService(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances", nil)
 	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "bad-token"})
 
 	_, err := svc.Authenticate(req)
@@ -263,7 +263,7 @@ func TestAuthenticate_ExpiredSession_ReturnsError(t *testing.T) {
 
 	time.Sleep(5 * time.Millisecond)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances", nil)
 	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: token})
 
 	_, err := svc.Authenticate(req)
@@ -282,7 +282,7 @@ func TestAuthenticate_IdleSession_ReturnsError(t *testing.T) {
 
 	time.Sleep(5 * time.Millisecond)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances", nil)
 	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: token})
 
 	_, err := svc.Authenticate(req)
@@ -303,7 +303,7 @@ func TestLogout_DeletesSession(t *testing.T) {
 		t.Fatalf("Logout() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances", nil)
 	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: token})
 
 	_, err := svc.Authenticate(req)
@@ -356,14 +356,14 @@ func TestChangePassword_InvalidatesOtherSessions(t *testing.T) {
 	}
 
 	// Session 1 (caller) should still work.
-	req1 := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req1 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances", nil)
 	req1.AddCookie(&http.Cookie{Name: SessionCookieName, Value: result1.SessionToken})
 	if _, err := svc.Authenticate(req1); err != nil {
 		t.Errorf("caller session should remain valid: %v", err)
 	}
 
 	// Session 2 (other) should be invalidated.
-	req2 := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances", nil)
 	req2.AddCookie(&http.Cookie{Name: SessionCookieName, Value: result2.SessionToken})
 	_, err := svc.Authenticate(req2)
 	if !errors.Is(err, ErrUnauthenticated) {
@@ -425,7 +425,7 @@ func TestResetPassword_Success_InvalidatesSessions(t *testing.T) {
 	}
 
 	// Old session should be invalid.
-	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/instances", nil)
 	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: token})
 	_, err := svc.Authenticate(req)
 	if !errors.Is(err, ErrUnauthenticated) {

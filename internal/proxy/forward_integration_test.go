@@ -111,7 +111,7 @@ func makeProxyRequest(body string) *http.Request {
 	if body != "" {
 		bodyReader = strings.NewReader(body)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/proxy", bodyReader)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", bodyReader)
 	req.Header.Set("X-Connect-Target-URL", "https://api.vendor.com/v1/foo")
 	req.Header.Set("X-Connect-Vendor-ID", "vendor-a")
 	req.Header.Set("X-Connect-Marketplace-ID", "marketplace-1")
