@@ -83,6 +83,43 @@ func TestForwardProxy_StripsInboundAuthorization_AddsBearer(t *testing.T) {
 	}
 }
 
+// A caller must not be able to strip the injected credential by naming it as
+// a hop-by-hop header in Connection.
+func TestForwardProxy_ConnectionHeaderNamesAuthorization_KeepsInjectedBearer(t *testing.T) {
+	tests := []struct {
+		name       string
+		connection string
+	}{
+		{"exact name", "Authorization"},
+		{"lowercase", "authorization"},
+		{"among other tokens", "keep-alive, Authorization"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var seen http.Header
+			target := newTestTarget(t, func(_ http.ResponseWriter, r *http.Request) { seen = r.Header.Clone() })
+			defer target.Close()
+
+			h, err := NewForwardProxy("company-b", config.ForwardTargetConfig{
+				URL:  target.URL,
+				Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthBearer, Token: "secret-xyz"},
+			})
+			if err != nil {
+				t.Fatalf("NewForwardProxy: %v", err)
+			}
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
+			req.Header.Set("Authorization", "Bearer connect-original")
+			req.Header.Set("Connection", tt.connection)
+			h.ServeHTTP(httptest.NewRecorder(), req)
+
+			if got := seen.Get("Authorization"); got != "Bearer secret-xyz" {
+				t.Errorf("forwarded Authorization = %q, want %q", got, "Bearer secret-xyz")
+			}
+		})
+	}
+}
+
 func TestForwardProxy_StripsInboundSensitiveHeaders(t *testing.T) {
 	var seen http.Header
 	target := newTestTarget(t, func(_ http.ResponseWriter, r *http.Request) { seen = r.Header.Clone() })
