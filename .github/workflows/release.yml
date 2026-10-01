@@ -20,7 +20,7 @@ permissions:
   pull-requests: read # release-notes.sh reads changed files via the PRs API
 
 env:
-  GOVULNCHECK_VERSION: 'v1.1.4'
+  GOVULNCHECK_VERSION: 'v1.8.0'
   PNPM_VERSION: '10.28.2'
 
 jobs:

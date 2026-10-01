@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 env:
-  GOVULNCHECK_VERSION: 'v1.1.4'
+  GOVULNCHECK_VERSION: 'v1.8.0'
   GOSEC_VERSION: 'v2.29.0'
 
 jobs:
