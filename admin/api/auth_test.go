@@ -42,7 +42,7 @@ func TestLogin_Success_Returns200WithCookies(t *testing.T) {
 	createTestUser(t, svc)
 
 	body := `{"username":"admin","password":"` + testPassword + `"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/login", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -93,7 +93,7 @@ func TestLogin_WrongPassword_Returns401(t *testing.T) {
 	createTestUser(t, svc)
 
 	body := `{"username":"admin","password":"wrongpassword1"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/login", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -107,7 +107,7 @@ func TestLogin_MissingFields_Returns400(t *testing.T) {
 	mux, _ := newTestAuthMux(t)
 
 	body := `{"username":"admin"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/login", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -123,14 +123,14 @@ func TestLogin_RateLimited_Returns429(t *testing.T) {
 
 	for range 5 {
 		body := `{"username":"admin","password":"badpassword00"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/login", strings.NewReader(body))
 		req.RemoteAddr = "10.0.0.1:12345"
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 	}
 
 	body := `{"username":"admin","password":"` + testPassword + `"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/login", strings.NewReader(body))
 	req.RemoteAddr = "10.0.0.1:12345"
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -152,7 +152,7 @@ func TestLogout_Returns204_ClearsCookies(t *testing.T) {
 
 	result, _ := svc.Login(context.Background(), "127.0.0.1", "admin", testPassword)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/logout", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/logout", nil)
 	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: result.SessionToken})
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -180,7 +180,7 @@ func TestChangePassword_Success_Returns204(t *testing.T) {
 	result, _ := svc.Login(context.Background(), "127.0.0.1", "admin", testPassword)
 
 	body := `{"current_password":"` + testPassword + `","new_password":"newpassword1234"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/user/password", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/user/password", strings.NewReader(body))
 	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: result.SessionToken})
 	req = req.WithContext(auth.WithUser(req.Context(), &auth.User{
 		ID:       result.User.ID,
@@ -201,7 +201,7 @@ func TestChangePassword_WrongCurrent_Returns403(t *testing.T) {
 	result, _ := svc.Login(context.Background(), "127.0.0.1", "admin", testPassword)
 
 	body := `{"current_password":"wrongcurrent1","new_password":"newpassword1234"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/user/password", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/user/password", strings.NewReader(body))
 	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: result.SessionToken})
 	req = req.WithContext(auth.WithUser(req.Context(), &auth.User{
 		ID:       result.User.ID,
@@ -222,7 +222,7 @@ func TestChangePassword_TooShort_Returns400(t *testing.T) {
 	result, _ := svc.Login(context.Background(), "127.0.0.1", "admin", testPassword)
 
 	body := `{"current_password":"` + testPassword + `","new_password":"short"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/user/password", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/user/password", strings.NewReader(body))
 	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: result.SessionToken})
 	req = req.WithContext(auth.WithUser(req.Context(), &auth.User{
 		ID:       result.User.ID,
@@ -241,7 +241,7 @@ func TestChangePassword_NoUser_Returns401(t *testing.T) {
 	mux, _ := newTestAuthMux(t)
 
 	body := `{"current_password":"old","new_password":"newpassword1234"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/user/password", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/user/password", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -258,7 +258,7 @@ func TestMe_Authenticated_Returns200(t *testing.T) {
 	createTestUser(t, svc)
 	result, _ := svc.Login(context.Background(), "127.0.0.1", "admin", testPassword)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/me", nil)
 	req = req.WithContext(auth.WithUser(req.Context(), &auth.User{
 		ID:       result.User.ID,
 		Username: result.User.Username,
@@ -283,7 +283,7 @@ func TestMe_Unauthenticated_Returns401(t *testing.T) {
 	t.Parallel()
 	mux, _ := newTestAuthMux(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/me", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

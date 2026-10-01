@@ -6,7 +6,7 @@ How to build, configure, and run the Chaperone Admin Portal (`chaperone-admin`) 
 
 | Requirement | Version | Purpose |
 |-------------|---------|---------|
-| **Go** | 1.26+ | Building the binary |
+| **Go** | 1.27+ | Building the binary |
 | **Node.js** | 24 (CI-tested) | Building the Vue SPA |
 | **pnpm** | 10 (CI-tested) | Frontend package manager |
 
