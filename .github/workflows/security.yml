@@ -22,7 +22,7 @@ permissions:
 
 env:
   GOVULNCHECK_VERSION: 'v1.1.4'
-  GOSEC_VERSION: 'v2.23.0'
+  GOSEC_VERSION: 'v2.29.0'
 
 jobs:
   changes:
