@@ -114,7 +114,7 @@ func migrationGlobMatch(pattern, input string) bool {
 // ResellerId.
 func migrationProxyRequest(t *testing.T, vendorTargetURL, resellerID string, emptyData bool) *http.Request {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", vendorTargetURL)
 	req.Header.Set("X-Connect-Vendor-ID", "vendor-a")
 	req.Header.Set("X-Connect-Marketplace-ID", "marketplace-1")

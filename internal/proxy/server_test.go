@@ -1015,7 +1015,7 @@ func TestServer_RouterIsAccessible_WhenImplemented(t *testing.T) {
 	}
 
 	// Create a test request to verify the router is callable
-	req := httptest.NewRequest(http.MethodPost, "https://vendor.example/api", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "https://vendor.example/api", nil)
 	ctx := req.Context()
 
 	// Act - call RouteRequest on the retrieved router
@@ -1039,7 +1039,7 @@ func TestServer_RouterIsAccessible_WhenImplemented(t *testing.T) {
 // needed for handleProxy to reach the router branch.
 func newProxyRequest(t *testing.T, targetURL string) *http.Request {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", targetURL)
 	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
 	req.Header.Set("X-Connect-Marketplace-ID", "test-marketplace")

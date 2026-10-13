@@ -44,7 +44,7 @@ func TestForwardProxy_PassesXConnectHeaders(t *testing.T) {
 		t.Fatalf("NewForwardProxy: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("X-Connect-Target-URL", "https://api.vendor.com/v1/foo")
 	req.Header.Set("X-Connect-Vendor-ID", "vendor-a")
 	h.ServeHTTP(httptest.NewRecorder(), req)
@@ -70,7 +70,7 @@ func TestForwardProxy_StripsInboundAuthorization_AddsBearer(t *testing.T) {
 		t.Fatalf("NewForwardProxy: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("Authorization", "Bearer connect-original")
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
@@ -80,6 +80,43 @@ func TestForwardProxy_StripsInboundAuthorization_AddsBearer(t *testing.T) {
 	}
 	if strings.Contains(auth, "connect-original") {
 		t.Errorf("inbound Authorization leaked: %q", auth)
+	}
+}
+
+// A caller must not be able to strip the injected credential by naming it as
+// a hop-by-hop header in Connection.
+func TestForwardProxy_ConnectionHeaderNamesAuthorization_KeepsInjectedBearer(t *testing.T) {
+	tests := []struct {
+		name       string
+		connection string
+	}{
+		{"exact name", "Authorization"},
+		{"lowercase", "authorization"},
+		{"among other tokens", "keep-alive, Authorization"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var seen http.Header
+			target := newTestTarget(t, func(_ http.ResponseWriter, r *http.Request) { seen = r.Header.Clone() })
+			defer target.Close()
+
+			h, err := NewForwardProxy("company-b", config.ForwardTargetConfig{
+				URL:  target.URL,
+				Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthBearer, Token: "secret-xyz"},
+			})
+			if err != nil {
+				t.Fatalf("NewForwardProxy: %v", err)
+			}
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
+			req.Header.Set("Authorization", "Bearer connect-original")
+			req.Header.Set("Connection", tt.connection)
+			h.ServeHTTP(httptest.NewRecorder(), req)
+
+			if got := seen.Get("Authorization"); got != "Bearer secret-xyz" {
+				t.Errorf("forwarded Authorization = %q, want %q", got, "Bearer secret-xyz")
+			}
+		})
 	}
 }
 
@@ -96,7 +133,7 @@ func TestForwardProxy_StripsInboundSensitiveHeaders(t *testing.T) {
 		t.Fatalf("NewForwardProxy: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("Cookie", "session=connect-secret")
 	req.Header.Set("Proxy-Authorization", "Basic connect-creds")
 	req.Header.Set("X-Api-Key", "connect-key")
@@ -129,7 +166,7 @@ func TestForwardProxy_SanitizesReflectedSensitiveResponseHeaders(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy", nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil))
 
 	if rec.Result().Header.Get("Authorization") != "" {
 		t.Errorf("reflected Authorization not stripped")
@@ -151,7 +188,7 @@ func TestForwardProxy_BearerToken_NotInLogOutput(t *testing.T) {
 		URL:  target.URL,
 		Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthBearer, Token: "secret-not-in-logs"},
 	})
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/proxy", nil))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil))
 
 	if out := getLogs(); strings.Contains(out, "secret-not-in-logs") {
 		t.Errorf("bearer token leaked into log output: %s", out)
@@ -175,7 +212,7 @@ func TestForwardProxy_HonorsTimeout(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy", nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil))
 
 	if rec.Code == http.StatusOK {
 		t.Errorf("expected non-200 due to timeout, got 200")
@@ -197,7 +234,7 @@ func TestForwardProxy_PreservesAllXConnectHeaders(t *testing.T) {
 		Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	headers := map[string]string{
 		"X-Connect-Target-URL":      "https://api.vendor.com/v1/foo",
 		"X-Connect-Vendor-ID":       "vendor-a",
@@ -234,7 +271,7 @@ func TestForwardProxy_AuthNoneStripsInboundAuthorization(t *testing.T) {
 		Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	req.Header.Set("Authorization", "Bearer connect-original")
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
@@ -257,7 +294,7 @@ func TestForwardProxy_AuthNoneNoAuthorizationAdded(t *testing.T) {
 		Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
 	if got := seen.Get("Authorization"); got != "" {
@@ -281,7 +318,7 @@ func TestForwardProxy_BearerTokenWithWhitespace(t *testing.T) {
 		Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthBearer, Token: token},
 	})
 
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/proxy", nil))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil))
 
 	want := "Bearer " + token
 	if got := seen.Get("Authorization"); got != want {
@@ -324,7 +361,7 @@ func TestForwardProxy_UsesTargetPathDroppingInbound(t *testing.T) {
 				t.Fatalf("NewForwardProxy: %v", err)
 			}
 
-			h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, tt.inboundPath, nil))
+			h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(context.Background(), http.MethodGet, tt.inboundPath, nil))
 
 			if seenPath != tt.wantPath {
 				t.Errorf("forwarded path = %q, want %q", seenPath, tt.wantPath)
@@ -353,7 +390,7 @@ func TestForwardProxy_Passes500Status(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy", nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
@@ -378,7 +415,7 @@ func TestForwardProxy_TargetUnreachable_Returns502(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy", nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil))
 
 	if rec.Code != http.StatusBadGateway {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadGateway)
@@ -409,7 +446,7 @@ func TestMetrics_ForwardTarget_DurationHistogram_Records(t *testing.T) {
 		t.Fatalf("NewForwardProxy: %v", err)
 	}
 
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/proxy", nil))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil))
 
 	// SampleCount: total observations under the {target=company-b} histogram.
 	if got := testutil.CollectAndCount(telemetry.ForwardTargetDuration); got == 0 {
@@ -435,7 +472,7 @@ func TestMetrics_ForwardTarget_Errors_IncrementsByKind_Connection(t *testing.T) 
 	})
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy", nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil))
 
 	if rec.Code != http.StatusBadGateway {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadGateway)
@@ -472,7 +509,7 @@ func TestMetrics_ForwardTarget_Errors_IncrementsByKind_Timeout(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy", nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil))
 
 	if rec.Code != http.StatusBadGateway {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadGateway)
@@ -502,7 +539,7 @@ func TestMetrics_ForwardTarget_500Response_NoErrorCounter(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/proxy", nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
@@ -542,9 +579,9 @@ func TestMetrics_ForwardTarget_MultipleTargets(t *testing.T) {
 		Auth: config.ForwardTargetAuthConfig{Type: config.ForwardAuthNone},
 	})
 
-	hA.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/proxy", nil))
-	hB.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/proxy", nil))
-	hB.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/proxy", nil))
+	hA.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil))
+	hB.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil))
+	hB.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil))
 
 	// Each named target should have its own histogram cell.
 	// CollectAndCount counts the number of distinct label sets — two here.

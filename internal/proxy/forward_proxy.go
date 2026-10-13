@@ -64,7 +64,7 @@ func NewForwardProxy(name string, cfg config.ForwardTargetConfig) (*ForwardProxy
 
 	fp := &ForwardProxy{name: name, target: u, auth: cfg.Auth}
 	fp.proxy = &httputil.ReverseProxy{
-		Director:       fp.director,
+		Rewrite:        fp.rewrite,
 		ModifyResponse: fp.modifyResponse,
 		ErrorHandler:   fp.errorHandler,
 		Transport:      newForwardTransport(cfg.Timeout),
@@ -92,13 +92,18 @@ func (fp *ForwardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fp.proxy.ServeHTTP(w, r) // #nosec G704 -- target URL is fixed at startup from forward_targets config; the inbound request cannot influence the destination
 }
 
-// director rewrites the outbound request: target host/scheme/path/query,
+// rewrite sets up the outbound request: target host/scheme/path/query,
 // inbound sensitive-header stripping, and (optional) bearer-token injection.
 //
 // SECURITY: The bearer token must not be logged anywhere in this function.
 // The static sensitive_headers redaction in the request logger already
 // covers Authorization; do not emit log lines that include req.Header here.
-func (fp *ForwardProxy) director(req *http.Request) {
+//
+// Rewrite (not the deprecated Director) runs after ReverseProxy removes
+// hop-by-hop headers, so a caller cannot strip the injected Authorization by
+// listing it in Connection.
+func (fp *ForwardProxy) rewrite(pr *httputil.ProxyRequest) {
+	req := pr.Out
 	req.URL.Scheme = fp.target.Scheme
 	req.URL.Host = fp.target.Host
 	// The inbound request line is always "/proxy" (the only handler the Core

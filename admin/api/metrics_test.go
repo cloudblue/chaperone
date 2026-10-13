@@ -55,7 +55,7 @@ func TestMetricsHandler_Fleet_ReturnsAggregated(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/metrics/fleet", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/metrics/fleet", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -94,7 +94,7 @@ func TestMetricsHandler_Instance_ReturnsMetrics(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/metrics/1", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/metrics/1", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -123,7 +123,7 @@ func TestMetricsHandler_Instance_NoData_Returns404(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/metrics/99", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/metrics/99", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -141,7 +141,7 @@ func TestMetricsHandler_Instance_InvalidID_Returns400(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/metrics/abc", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/metrics/abc", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -159,7 +159,7 @@ func TestMetricsHandler_Fleet_EmptyFleet_ReturnsEmptyInstances(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/metrics/fleet", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/metrics/fleet", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

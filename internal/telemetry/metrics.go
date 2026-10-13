@@ -42,6 +42,7 @@ const (
 	labelVendorID    = "vendor_id"
 	labelStatusClass = "status_class"
 	labelMethod      = "method"
+	labelTarget      = "target"
 )
 
 // StatusClass return values — kept as constants to satisfy goconst and as a
@@ -125,7 +126,7 @@ var (
 			Name:      "route_decisions_total",
 			Help:      "Per-request routing decisions made by the RequestRouter (or default).",
 		},
-		[]string{"action", "target"},
+		[]string{"action", labelTarget},
 	)
 
 	// ForwardTargetDuration measures end-to-end duration of requests forwarded
@@ -140,7 +141,7 @@ var (
 			Help:      "End-to-end duration of requests forwarded to a named target.",
 			Buckets:   APILatencyBuckets,
 		},
-		[]string{"target"},
+		[]string{labelTarget},
 	)
 
 	// ForwardTargetErrors counts infrastructure errors encountered while
@@ -160,7 +161,7 @@ var (
 			Name:      "forward_target_errors_total",
 			Help:      "Errors encountered while forwarding to a named target.",
 		},
-		[]string{"target", "kind"},
+		[]string{labelTarget, "kind"},
 	)
 
 	// CertNotAfterTimestamp stores the active TLS certificate's NotAfter field as a

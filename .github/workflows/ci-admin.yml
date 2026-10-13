@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 env:
-  GOLANGCI_LINT_VERSION: 'v2.8.0'
+  GOLANGCI_LINT_VERSION: 'v2.14.0'
   PNPM_VERSION: '10.28.2'
 
 jobs:

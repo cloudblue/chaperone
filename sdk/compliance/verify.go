@@ -24,6 +24,9 @@ import (
 	"github.com/cloudblue/chaperone/sdk"
 )
 
+// testVendorID is the vendor ID used in the synthetic transactions below.
+const testVendorID = "test-vendor"
+
 // VerifyContract runs a comprehensive test suite against a Plugin implementation.
 //
 // It verifies that the plugin:
@@ -79,7 +82,7 @@ func testCredentialProvider(t *testing.T, p sdk.CredentialProvider) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 
-		tx := sdk.TransactionContext{VendorID: "test-vendor"}
+		tx := sdk.TransactionContext{VendorID: testVendorID}
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com", http.NoBody)
 
 		// Should not panic - expected to return error or handle gracefully
@@ -89,7 +92,7 @@ func testCredentialProvider(t *testing.T, p sdk.CredentialProvider) {
 	t.Run("credential expiry is valid", func(t *testing.T) {
 		ctx := context.Background()
 		tx := sdk.TransactionContext{
-			VendorID:  "test-vendor",
+			VendorID:  testVendorID,
 			ProductID: "test-product",
 		}
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com", http.NoBody)
@@ -169,7 +172,7 @@ func testResponseModifier(t *testing.T, p sdk.ResponseModifier) {
 		}()
 
 		ctx := context.Background()
-		tx := sdk.TransactionContext{VendorID: "test-vendor"}
+		tx := sdk.TransactionContext{VendorID: testVendorID}
 		resp := &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     make(http.Header),

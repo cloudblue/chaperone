@@ -183,7 +183,7 @@ func (h *AuthHandler) changePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) setSessionCookie(w http.ResponseWriter, token string) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure follows server.secure_cookies (false only for local HTTP)
 		Name:     auth.SessionCookieName,
 		Value:    token,
 		Path:     "/",
@@ -200,7 +200,7 @@ func (h *AuthHandler) setCSRFCookie(w http.ResponseWriter) {
 		slog.Error("generating CSRF token", "error", err)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure follows server.secure_cookies; HttpOnly=false so the SPA can read the CSRF token
 		Name:     auth.CSRFCookieName,
 		Value:    token,
 		Path:     "/",
@@ -212,7 +212,7 @@ func (h *AuthHandler) setCSRFCookie(w http.ResponseWriter) {
 }
 
 func (h *AuthHandler) clearCookies(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure follows server.secure_cookies (false only for local HTTP)
 		Name:     auth.SessionCookieName,
 		Value:    "",
 		Path:     "/",
@@ -221,7 +221,7 @@ func (h *AuthHandler) clearCookies(w http.ResponseWriter) {
 		Secure:   h.secureCookies,
 		SameSite: http.SameSiteLaxMode,
 	})
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure follows server.secure_cookies; HttpOnly=false so the SPA can read the CSRF token
 		Name:     auth.CSRFCookieName,
 		Value:    "",
 		Path:     "/",

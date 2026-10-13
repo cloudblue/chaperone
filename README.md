@@ -1,7 +1,7 @@
 <div align="center">
   <img width="1920" height="829" alt="chaperone_banner" src="https://github.com/user-attachments/assets/a4fbfb21-5776-4a03-a5b2-91586fa0b0c4" />
   <p align="center">
-    <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat&logo=go"></a>
+    <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.27+-00ADD8?style=flat&logo=go"></a>
     <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg">
     <img src="https://github.com/cloudblue/chaperone/actions/workflows/ci.yml/badge.svg?branch=master">
   </div>
