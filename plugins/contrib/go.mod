@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/cloudblue/chaperone/sdk v0.3.0
-	golang.org/x/sync v0.22.0
+	golang.org/x/sync v0.23.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
