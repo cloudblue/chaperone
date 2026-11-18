@@ -1063,6 +1063,21 @@ import "github.com/cloudblue/chaperone/plugins/contrib"
 | `ErrUnexpectedForwardAction` | `"matched route is a forward action; GetCredentials should not have been called"` | The Core called `GetCredentials` for a route registered via [`HandleForward`](#handleforward). Indicates an integration bug — forwarding should have been handled by `RouteRequest`. | No |
 | `ErrNilCredentialProvider` | `"credential action has nil provider"` | A credential route was registered with a nil provider. Programming error caught at dispatch time. | No |
 
+### Token endpoint errors in the log
+
+When the token endpoint answers a token request with a non-2xx status, the OAuth2 building blocks log one entry at warn level and return an error that carries the same information:
+
+| Attribute | Description |
+|-----------|-------------|
+| `token_url` | The token endpoint. For Microsoft it contains the tenant. |
+| `status` | HTTP status of the response. |
+| `oauth_error` | The OAuth2 `error` code ([RFC 6749 §5.2](https://datatracker.ietf.org/doc/html/rfc6749#section-5.2)), e.g. `invalid_grant`. Omitted unless it is a short identifier (letters, digits, `_`, `.`, `-`; at most 64 characters). |
+| `oauth_error_code` | The Microsoft Entra ID code found in `error_description`, e.g. `AADSTS50076`. Omitted when there is none. |
+
+The message is `token endpoint rejected the token request` (4xx), `token endpoint rejected the client credentials` (401) or `token endpoint unavailable` (429, 5xx).
+
+The response body is never logged. `error_description` is free text chosen by the identity provider, so it is only logged at debug level (`oauth_error_description`).
+
 ---
 
 ## Adapter
