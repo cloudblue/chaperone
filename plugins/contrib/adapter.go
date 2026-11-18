@@ -15,10 +15,12 @@ var _ sdk.Plugin = (*pluginAdapter)(nil)
 
 // AsPlugin wraps a CredentialProvider into a full sdk.Plugin.
 //
-// This adapter provides no-op implementations for SignCSR and ModifyResponse,
+// This adapter provides minimal implementations for SignCSR and ModifyResponse,
 // matching the reference plugin's behavior:
 //   - SignCSR returns an error (signing requires explicit configuration)
-//   - ModifyResponse returns nil (safe default, lets Core handle normalization)
+//   - ModifyResponse returns nil (safe default, lets Core handle normalization).
+//     It leaves the response untouched; on a 401 from the target it notifies
+//     a provider that implements [RejectedCredentialHandler].
 //
 // Use this to pass a building block (e.g., oauth.ClientCredentials) to the
 // SDK compliance test kit:
@@ -41,6 +43,7 @@ func (a *pluginAdapter) SignCSR(_ context.Context, _ []byte) ([]byte, error) {
 	return nil, ErrSigningNotConfigured
 }
 
-func (a *pluginAdapter) ModifyResponse(_ context.Context, _ sdk.TransactionContext, _ *http.Response) (*sdk.ResponseAction, error) {
+func (a *pluginAdapter) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) (*sdk.ResponseAction, error) {
+	notifyCredentialRejected(ctx, a.provider, tx, resp)
 	return nil, nil
 }

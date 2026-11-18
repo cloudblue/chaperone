@@ -205,7 +205,7 @@ The proxy handles the full auth lifecycle:
 - Reads the seeded refresh token from the file store.
 - Exchanges it for an access token at Microsoft's token endpoint.
 - Injects `Authorization: Bearer <token>` into the outgoing request.
-- Caches the access token until it expires.
+- Caches the access token until it expires or the target rejects it with a `401`.
 - Persists any rotated refresh tokens back to disk.
 
 ## Going further

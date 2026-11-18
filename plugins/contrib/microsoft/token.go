@@ -111,8 +111,9 @@ type Config struct {
 	OnSaveError func(ctx context.Context, tenantID, resource string, err error)
 }
 
-// Compile-time check that RefreshTokenSource implements CredentialProvider.
+// Compile-time checks that RefreshTokenSource implements its interfaces.
 var _ sdk.CredentialProvider = (*RefreshTokenSource)(nil)
+var _ contrib.RejectedCredentialHandler = (*RefreshTokenSource)(nil)
 
 // RefreshTokenSource implements [sdk.CredentialProvider] for the Microsoft
 // Secure Application Model (delegated refresh token grant).
@@ -144,6 +145,9 @@ type RefreshTokenSource struct {
 	mu   sync.Mutex
 	pool map[string]*list.Element // keyed by tenantID
 	lru  *list.List
+
+	// now returns the current time. It is time.Now except in tests.
+	now func() time.Time
 }
 
 // tenantEntry holds per-tenant state: a singleflight group for exchange
@@ -154,6 +158,10 @@ type tenantEntry struct {
 
 	mu     sync.RWMutex
 	tokens map[string]*cachedToken // resource -> cached access token
+	// discardedAt records, per resource, when a cached token was last
+	// discarded because the target rejected it. Entries older than
+	// oauthutil.RejectionCooldown are purged on each discard.
+	discardedAt map[string]time.Time
 }
 
 // cachedToken holds a fetched access token and its computed expiration.
@@ -197,6 +205,7 @@ func NewRefreshTokenSource(cfg Config) *RefreshTokenSource {
 		onSaveError:   cfg.OnSaveError,
 		pool:          make(map[string]*list.Element),
 		lru:           list.New(),
+		now:           time.Now,
 	}
 }
 
@@ -252,6 +261,73 @@ func (s *RefreshTokenSource) GetCredentials(
 		Headers:   map[string]string{"Authorization": "Bearer " + token},
 		ExpiresAt: expiresAt,
 	}, nil
+}
+
+// CredentialRejected implements [contrib.RejectedCredentialHandler]. When the
+// target answered 401 Unauthorized to a request sent with the access token
+// cached for this tenant and resource, the token is discarded so the next
+// GetCredentials call exchanges the refresh token for a new one.
+//
+// A 401 for any other token is ignored: it belongs to a request that was
+// already in flight when the cache was refreshed. Discards are limited to one
+// per tenant and resource per minute, so a target that keeps answering 401 to
+// fresh tokens (missing permission, wrong audience) cannot force a token
+// exchange per proxied request.
+func (s *RefreshTokenSource) CredentialRejected(
+	ctx context.Context,
+	tx sdk.TransactionContext,
+	resp *http.Response,
+) {
+	rejected, ok := oauthutil.RejectedBearerToken(resp)
+	if !ok {
+		return
+	}
+
+	// GetCredentials succeeded for this transaction, so both keys resolve.
+	// If they do not, there is no cache entry to discard.
+	tenantID, err := contrib.ResolveCredentialKey(ctx, tx, "TenantID", s.keyResolver)
+	if err != nil {
+		return
+	}
+	resource, ok, err := tx.DataString("Resource")
+	if err != nil || !ok {
+		return
+	}
+
+	entry := s.lookup(tenantID)
+	if entry == nil {
+		return
+	}
+
+	now := s.now()
+
+	entry.mu.Lock()
+	ct, cached := entry.tokens[resource]
+	if !cached || !oauthutil.SameToken(ct.accessToken, rejected) {
+		entry.mu.Unlock()
+		return
+	}
+	if oauthutil.InCooldown(entry.discardedAt[resource], now) {
+		entry.mu.Unlock()
+		s.log().LogAttrs(ctx, slog.LevelDebug, "target rejected the cached access token again; keeping it until the cooldown ends",
+			slog.String("tenant_id", tenantID),
+			slog.String("resource", resource),
+			slog.Duration("cooldown", oauthutil.RejectionCooldown))
+		return
+	}
+	delete(entry.tokens, resource)
+	for r, at := range entry.discardedAt {
+		if !oauthutil.InCooldown(at, now) {
+			delete(entry.discardedAt, r)
+		}
+	}
+	entry.discardedAt[resource] = now
+	entry.mu.Unlock()
+
+	s.log().LogAttrs(ctx, slog.LevelWarn, "target rejected the cached access token; discarded, the next request exchanges a new one",
+		slog.String("tenant_id", tenantID),
+		slog.String("resource", resource),
+		slog.Int("status", resp.StatusCode))
 }
 
 // getAccessToken returns a valid access token for the given resource,
@@ -372,8 +448,9 @@ func (s *RefreshTokenSource) getOrCreate(ctx context.Context, tenantID string) *
 	}
 
 	entry := &tenantEntry{
-		tenantID: tenantID,
-		tokens:   make(map[string]*cachedToken),
+		tenantID:    tenantID,
+		tokens:      make(map[string]*cachedToken),
+		discardedAt: make(map[string]time.Time),
 	}
 
 	// Evict LRU if at capacity.
@@ -384,6 +461,20 @@ func (s *RefreshTokenSource) getOrCreate(ctx context.Context, tenantID string) *
 	elem := s.lru.PushFront(entry)
 	s.pool[tenantID] = elem
 
+	return entry
+}
+
+// lookup returns the per-tenant entry if the pool has one, without creating
+// it or changing its position in the LRU order.
+func (s *RefreshTokenSource) lookup(tenantID string) *tenantEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	elem, ok := s.pool[tenantID]
+	if !ok {
+		return nil
+	}
+	entry, _ := elem.Value.(*tenantEntry)
 	return entry
 }
 
