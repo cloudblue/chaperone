@@ -52,7 +52,10 @@ type TokenResponse struct {
 
 // TokenResult is the parsed and validated output of a token endpoint exchange.
 type TokenResult struct {
-	AccessToken  string // #nosec G117 -- internal struct carrying parsed token data
+	AccessToken string // #nosec G117 -- internal struct carrying parsed token data
+	// ExpiresAt is a wall-clock instant: it carries no monotonic clock
+	// reading, so comparing it with time.Now() uses the wall clock. See
+	// ParseTokenResponse.
 	ExpiresAt    time.Time
 	RefreshToken string // #nosec G117 -- internal struct carrying parsed token data
 }
@@ -261,7 +264,13 @@ func (tf *TokenFetcher) ParseTokenResponse(body []byte) (*TokenResult, error) {
 			expiresIn, tf.ExpiryMargin, contrib.ErrTokenExpiredOnArrival)
 	}
 
-	expiresAt := time.Now().Add(expiresInDuration - tf.ExpiryMargin)
+	// Round(0) strips the monotonic clock reading, so that every later
+	// time.Now().Before(expiresAt) compares wall-clock time. A token expires
+	// at a wall-clock instant, but the monotonic clock stops while the host
+	// is suspended (laptop sleep, paused or frozen VM): with a monotonic
+	// reading the token would be served past its real expiry for as long as
+	// the suspension lasted.
+	expiresAt := time.Now().Add(expiresInDuration - tf.ExpiryMargin).Round(0)
 
 	return &TokenResult{
 		AccessToken:  tokenResp.AccessToken,

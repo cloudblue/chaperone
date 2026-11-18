@@ -1476,3 +1476,53 @@ func TestNewRefreshTokenSource_ExplicitLogger_UsesExplicitLogger(t *testing.T) {
 		t.Error("log() should return the explicitly provided logger")
 	}
 }
+
+// hasMonotonicReading reports whether t carries a monotonic clock reading,
+// which time.Time.String prints as a trailing "m=±..." field.
+func hasMonotonicReading(t time.Time) bool {
+	return strings.Contains(t.String(), " m=")
+}
+
+// The monotonic clock does not advance while the host is suspended, so an
+// expiry that carries a monotonic reading outlives the token by the length of
+// the suspension. Both the returned credential and the cached entry must hold
+// a wall-clock-only instant.
+func TestGetCredentials_ExpiresAt_IsWallClockOnly(t *testing.T) {
+	srv := httptest.NewServer(tokenHandler(""))
+	defer srv.Close()
+
+	store := newMemoryTokenStore()
+	store.set("contoso", "refresh-tok")
+
+	src := NewRefreshTokenSource(Config{
+		TokenEndpoint: srv.URL,
+		ClientID:      "id",
+		ClientSecret:  "secret",
+		Store:         store,
+	})
+
+	ctx := context.Background()
+	const resource = "https://graph.microsoft.com"
+
+	// First call exchanges, second call is served from the cache.
+	for _, call := range []string{"exchange", "cache hit"} {
+		cred, err := src.GetCredentials(ctx, makeTx("contoso", resource), makeReq(ctx))
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", call, err)
+		}
+		if hasMonotonicReading(cred.ExpiresAt) {
+			t.Errorf("%s: credential ExpiresAt = %v carries a monotonic clock reading", call, cred.ExpiresAt)
+		}
+	}
+
+	entry := src.getOrCreate(ctx, "contoso")
+	entry.mu.RLock()
+	cached := entry.tokens[resource]
+	entry.mu.RUnlock()
+	if cached == nil {
+		t.Fatal("expected a cached token")
+	}
+	if hasMonotonicReading(cached.expiresAt) {
+		t.Errorf("cached expiresAt = %v carries a monotonic clock reading", cached.expiresAt)
+	}
+}

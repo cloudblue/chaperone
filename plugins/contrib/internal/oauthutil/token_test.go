@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 )
@@ -177,6 +178,37 @@ func TestParseTokenResponse_Valid(t *testing.T) {
 	}
 	if time.Until(result.ExpiresAt) < 58*time.Minute || time.Until(result.ExpiresAt) > 60*time.Minute {
 		t.Errorf("ExpiresAt should be ~59 minutes from now, got %v", time.Until(result.ExpiresAt))
+	}
+}
+
+// A time.Time with a monotonic clock reading prints it as a trailing "m=±..."
+// field (documented in time.Time.String).
+func hasMonotonicReading(t time.Time) bool {
+	return strings.Contains(t.String(), " m=")
+}
+
+func TestParseTokenResponse_ExpiresAt_IsWallClockOnly(t *testing.T) {
+	f := NewTokenFetcher(TokenFetcher{
+		TokenURL:     "https://example.com/token",
+		ExpiryMargin: 1 * time.Minute,
+	})
+
+	result, err := f.ParseTokenResponse([]byte(`{"access_token":"at","expires_in":3600}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// If ExpiresAt kept the monotonic reading of time.Now(), comparisons
+	// against time.Now() would ignore the time a host spends suspended and
+	// the token would be used after its real expiry.
+	if hasMonotonicReading(result.ExpiresAt) {
+		t.Errorf("ExpiresAt = %v carries a monotonic clock reading; expiry must be a wall-clock instant",
+			result.ExpiresAt)
+	}
+
+	// Sanity check of the helper: time.Now() does carry one.
+	if !hasMonotonicReading(time.Now()) {
+		t.Fatal("test helper cannot detect monotonic readings on this platform")
 	}
 }
 
