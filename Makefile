@@ -438,7 +438,7 @@ license-fix: ## Add missing copyright headers to source files
 
 # Tool versions to install (keep in sync with CI workflows)
 GOLANGCI_LINT_VERSION := v2.14.0
-GOSEC_VERSION := v2.29.0
+GOSEC_VERSION := v2.30.0
 GOVULNCHECK_VERSION := v1.8.0
 
 .PHONY: tools
