@@ -797,6 +797,70 @@ func TestIntegration_PluginModifyResponse_RunsBeforeNormalization(t *testing.T) 
 	}
 }
 
+// TestIntegration_PluginModifyResponse_SeesInjectedCredentialOn401 pins the
+// contract that credential providers rely on to discard a cached credential
+// the target rejected: on a 401, resp.Request passed to Plugin.ModifyResponse
+// is the request as it was sent to the target, so it carries the Fast Path
+// headers that were injected, and the transaction context is the same one
+// GetCredentials received.
+func TestIntegration_PluginModifyResponse_SeesInjectedCredentialOn401(t *testing.T) {
+	cleanup := proxy.SetAllowInsecureTargetsForTesting(true)
+	defer cleanup()
+
+	const injected = "Bearer cached-access-token"
+
+	var (
+		sawStatus   int
+		sawAuth     string
+		sawVendorID string
+	)
+
+	plugin := &mockPlugin{
+		getCredentialsFn: func(ctx context.Context, tx sdk.TransactionContext, req *http.Request) (*sdk.Credential, error) {
+			return &sdk.Credential{
+				Headers:   map[string]string{"Authorization": injected},
+				ExpiresAt: time.Now().Add(time.Hour),
+			}, nil
+		},
+		modifyResponseFn: func(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) (*sdk.ResponseAction, error) {
+			sawStatus = resp.StatusCode
+			sawAuth = resp.Request.Header.Get("Authorization")
+			sawVendorID = tx.VendorID
+			return nil, nil
+		},
+	}
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer backend.Close()
+
+	cfg := testConfig()
+	cfg.Plugin = plugin
+	srv := mustNewServerForTarget(t, cfg, backend.URL)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/proxy", nil)
+	req.Header.Set("X-Connect-Target-URL", backend.URL+"/api")
+	req.Header.Set("X-Connect-Vendor-ID", "test-vendor")
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	if sawStatus != http.StatusUnauthorized {
+		t.Errorf("ModifyResponse saw status %d, want %d", sawStatus, http.StatusUnauthorized)
+	}
+	if sawAuth != injected {
+		t.Errorf("ModifyResponse saw request Authorization %q, want the injected %q", sawAuth, injected)
+	}
+	if sawVendorID != "test-vendor" {
+		t.Errorf("ModifyResponse saw VendorID %q, want %q", sawVendorID, "test-vendor")
+	}
+}
+
 // TestIntegration_ResponseSanitization_StripsSensitiveHeaders verifies that
 // the Reflector strips sensitive headers from responses per Design Spec Section 5.3.
 func TestIntegration_ResponseSanitization_StripsSensitiveHeaders(t *testing.T) {

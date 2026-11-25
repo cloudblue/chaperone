@@ -198,7 +198,15 @@ func (m *Mux) SignCSR(ctx context.Context, csrPEM []byte) ([]byte, error) {
 
 // ModifyResponse delegates to the configured response modifier, or
 // returns (nil, nil) if none has been set via [Mux.SetResponseModifier].
+//
+// Before delegating, when the target answered 401 Unauthorized, it notifies
+// the provider that serves this request if that provider implements
+// [RejectedCredentialHandler], so a cached credential the target no longer
+// accepts is discarded.
 func (m *Mux) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, resp *http.Response) (*sdk.ResponseAction, error) {
+	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+		notifyCredentialRejected(ctx, m.providerFor(tx), tx, resp)
+	}
 	if m.modifier != nil {
 		return m.modifier.ModifyResponse(ctx, tx, resp)
 	}
@@ -234,6 +242,20 @@ func (m *Mux) ForwardReferences() []string {
 		}
 	}
 	return refs
+}
+
+// providerFor returns the credential provider that GetCredentials dispatches
+// to for the given transaction, or nil if there is none (no match and no
+// default, or the matched route is a ForwardAction).
+func (m *Mux) providerFor(tx sdk.TransactionContext) sdk.CredentialProvider {
+	best := m.match(tx)
+	if best == nil {
+		return m.fallback
+	}
+	if a, ok := best.action.(CredentialAction); ok {
+		return a.Provider
+	}
+	return nil
 }
 
 // match finds the best matching route entry for the given transaction.

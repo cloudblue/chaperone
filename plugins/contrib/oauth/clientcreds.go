@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cloudblue/chaperone/plugins/contrib"
 	"github.com/cloudblue/chaperone/plugins/contrib/internal/oauthutil"
 	"github.com/cloudblue/chaperone/sdk"
 )
@@ -80,6 +81,7 @@ type ClientCredentialsConfig struct {
 
 // Compile-time check that ClientCredentials implements CredentialProvider.
 var _ sdk.CredentialProvider = (*ClientCredentials)(nil)
+var _ contrib.RejectedCredentialHandler = (*ClientCredentials)(nil)
 
 // ClientCredentials implements [sdk.CredentialProvider] using the OAuth2
 // client credentials grant (RFC 6749 Section 4.4).
@@ -141,4 +143,12 @@ func (cc *ClientCredentials) GetCredentials(ctx context.Context, _ sdk.Transacti
 		Headers:   map[string]string{"Authorization": "Bearer " + token},
 		ExpiresAt: expiresAt,
 	}, nil
+}
+
+// CredentialRejected implements [contrib.RejectedCredentialHandler]. When the
+// target answered 401 Unauthorized to a request sent with the cached access
+// token, the token is discarded so the next GetCredentials call fetches a new
+// one. Discards are limited to one per minute.
+func (cc *ClientCredentials) CredentialRejected(ctx context.Context, _ sdk.TransactionContext, resp *http.Response) {
+	cc.tm.discardRejected(ctx, resp)
 }

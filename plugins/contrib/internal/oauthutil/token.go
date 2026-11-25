@@ -11,11 +11,13 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -52,7 +54,10 @@ type TokenResponse struct {
 
 // TokenResult is the parsed and validated output of a token endpoint exchange.
 type TokenResult struct {
-	AccessToken  string // #nosec G117 -- internal struct carrying parsed token data
+	AccessToken string // #nosec G117 -- internal struct carrying parsed token data
+	// ExpiresAt is a wall-clock instant: it carries no monotonic clock
+	// reading, so comparing it with time.Now() uses the wall clock. See
+	// ParseTokenResponse.
 	ExpiresAt    time.Time
 	RefreshToken string // #nosec G117 -- internal struct carrying parsed token data
 }
@@ -196,20 +201,53 @@ func (tf *TokenFetcher) doRequest(ctx context.Context, req *http.Request) (statu
 	return resp.StatusCode, resp.Header, body, nil
 }
 
+// safeErrorCode matches an OAuth2 error code that is safe to log and to put
+// in an error message: the registered codes (invalid_grant, invalid_client,
+// interaction_required, ...) are short identifiers. Anything else — free
+// text, something long enough to be a credential — is not reported.
+var safeErrorCode = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+
+// providerErrorCode matches the error code Microsoft Entra ID puts at the
+// start of error_description (e.g. "AADSTS50076: Due to a configuration
+// change ..."). It identifies the cause far more precisely than the OAuth2
+// error code, and carries no request or tenant data.
+var providerErrorCode = regexp.MustCompile(`\bAADSTS\d{3,10}\b`)
+
+// rejectionReason returns the parts of an OAuth2 error response that are
+// safe to report at normal log levels: the standard error code and, when
+// present, the identity provider's own error code. Either may be empty.
+//
+// error_description is deliberately left out: it is free text chosen by the
+// identity provider and may echo request parameters or identify users and
+// applications. It is only logged at debug level.
+func rejectionReason(oauthErr OAuthErrorResponse) (code, providerCode string) {
+	if safeErrorCode.MatchString(oauthErr.Error) {
+		code = oauthErr.Error
+	}
+	return code, providerErrorCode.FindString(oauthErr.Description)
+}
+
 // handleErrorResponse processes non-2xx responses from the token endpoint.
+//
+// The reason the endpoint gave is reported at warn level and in the returned
+// error, reduced to what rejectionReason considers safe. The response body
+// itself is never logged.
 func (tf *TokenFetcher) handleErrorResponse(ctx context.Context, statusCode int, header http.Header, body []byte) error {
 	contentType := header.Get("Content-Type")
+
+	// Parse only the standard OAuth2 error fields (RFC 6749 §5.2).
+	// Never log the raw body — it may contain echoed credentials.
+	var oauthErr OAuthErrorResponse
+	if json.Unmarshal(body, &oauthErr) != nil {
+		oauthErr = OAuthErrorResponse{}
+	}
 
 	if tf.log().Enabled(ctx, slog.LevelDebug) {
 		attrs := []slog.Attr{
 			slog.Int("status", statusCode),
 			slog.String("content_type", contentType),
 		}
-
-		// Parse only the standard OAuth2 error fields (RFC 6749 §5.2).
-		// Never log the raw body — it may contain echoed credentials.
-		var oauthErr OAuthErrorResponse
-		if json.Unmarshal(body, &oauthErr) == nil && oauthErr.Error != "" {
+		if oauthErr.Error != "" {
 			attrs = append(attrs, slog.String("oauth_error", oauthErr.Error))
 			if oauthErr.Description != "" {
 				attrs = append(attrs, slog.String("oauth_error_description", oauthErr.Description))
@@ -219,21 +257,36 @@ func (tf *TokenFetcher) handleErrorResponse(ctx context.Context, statusCode int,
 		tf.log().LogAttrs(ctx, slog.LevelDebug, "token endpoint error response", attrs...)
 	}
 
-	if statusCode == http.StatusUnauthorized {
-		return fmt.Errorf("token endpoint returned %d (content-type: %s): %w",
-			statusCode, contentType, contrib.ErrInvalidCredentials)
-	}
+	code, providerCode := rejectionReason(oauthErr)
 
-	if statusCode == http.StatusTooManyRequests || statusCode >= http.StatusInternalServerError {
-		tf.log().LogAttrs(ctx, slog.LevelWarn, "token endpoint unavailable",
-			slog.String("token_url", tf.TokenURL),
-			slog.Int("status", statusCode))
-		return fmt.Errorf("token endpoint returned %d (content-type: %s): %w",
-			statusCode, contentType, contrib.ErrTokenEndpointUnavailable)
+	attrs := []slog.Attr{
+		slog.String("token_url", tf.TokenURL),
+		slog.Int("status", statusCode),
 	}
+	detail := fmt.Sprintf("token endpoint returned %d (content-type: %s", statusCode, contentType)
+	if code != "" {
+		attrs = append(attrs, slog.String("oauth_error", code))
+		detail += ", oauth_error: " + code
+	}
+	if providerCode != "" {
+		attrs = append(attrs, slog.String("oauth_error_code", providerCode))
+		detail += ", oauth_error_code: " + providerCode
+	}
+	detail += ")"
 
-	return fmt.Errorf("token endpoint returned %d (content-type: %s)",
-		statusCode, contentType)
+	switch {
+	case statusCode == http.StatusUnauthorized:
+		tf.log().LogAttrs(ctx, slog.LevelWarn, "token endpoint rejected the client credentials", attrs...)
+		return fmt.Errorf("%s: %w", detail, contrib.ErrInvalidCredentials)
+
+	case statusCode == http.StatusTooManyRequests || statusCode >= http.StatusInternalServerError:
+		tf.log().LogAttrs(ctx, slog.LevelWarn, "token endpoint unavailable", attrs...)
+		return fmt.Errorf("%s: %w", detail, contrib.ErrTokenEndpointUnavailable)
+
+	default:
+		tf.log().LogAttrs(ctx, slog.LevelWarn, "token endpoint rejected the token request", attrs...)
+		return errors.New(detail)
+	}
 }
 
 // ParseTokenResponse unmarshals and validates the token endpoint response.
@@ -261,7 +314,13 @@ func (tf *TokenFetcher) ParseTokenResponse(body []byte) (*TokenResult, error) {
 			expiresIn, tf.ExpiryMargin, contrib.ErrTokenExpiredOnArrival)
 	}
 
-	expiresAt := time.Now().Add(expiresInDuration - tf.ExpiryMargin)
+	// Round(0) strips the monotonic clock reading, so that every later
+	// time.Now().Before(expiresAt) compares wall-clock time. A token expires
+	// at a wall-clock instant, but the monotonic clock stops while the host
+	// is suspended (laptop sleep, paused or frozen VM): with a monotonic
+	// reading the token would be served past its real expiry for as long as
+	// the suspension lasted.
+	expiresAt := time.Now().Add(expiresInDuration - tf.ExpiryMargin).Round(0)
 
 	return &TokenResult{
 		AccessToken:  tokenResp.AccessToken,

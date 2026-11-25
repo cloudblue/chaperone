@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cloudblue/chaperone/plugins/contrib"
 	"github.com/cloudblue/chaperone/plugins/contrib/internal/oauthutil"
 	"github.com/cloudblue/chaperone/sdk"
 )
@@ -63,6 +64,7 @@ type RefreshTokenConfig struct {
 
 // Compile-time check that RefreshToken implements CredentialProvider.
 var _ sdk.CredentialProvider = (*RefreshToken)(nil)
+var _ contrib.RejectedCredentialHandler = (*RefreshToken)(nil)
 
 // RefreshToken implements [sdk.CredentialProvider] using the OAuth2 refresh
 // token grant (RFC 6749 Section 6).
@@ -175,4 +177,12 @@ func (rt *RefreshToken) fetch(ctx context.Context) (*cachedToken, error) {
 		accessToken: result.AccessToken,
 		expiresAt:   result.ExpiresAt,
 	}, nil
+}
+
+// CredentialRejected implements [contrib.RejectedCredentialHandler]. When the
+// target answered 401 Unauthorized to a request sent with the cached access
+// token, the token is discarded so the next GetCredentials call fetches a new
+// one. Discards are limited to one per minute.
+func (rt *RefreshToken) CredentialRejected(ctx context.Context, _ sdk.TransactionContext, resp *http.Response) {
+	rt.tm.discardRejected(ctx, resp)
 }

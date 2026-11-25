@@ -144,6 +144,8 @@ func (m *Mux) ModifyResponse(ctx context.Context, tx sdk.TransactionContext, res
 
 Delegates to the configured modifier. Returns a nil action and nil error if no modifier has been set.
 
+Before delegating, when the target answered `401 Unauthorized`, the Mux calls `CredentialRejected` on the provider that serves the request (the best matching route's provider, or the default provider) if it implements [`RejectedCredentialHandler`](#rejectedcredentialhandler). The response itself is not changed.
+
 ---
 
 ## MuxConfig
@@ -549,7 +551,15 @@ Fetches an OAuth2 bearer token and returns a cacheable [`Credential`][cred] (Fas
 - Returns a cached token if one exists and has not expired.
 - On cache miss, fetches a new token from the token endpoint.
 - Concurrent requests are deduplicated via singleflight — only one HTTP call is made regardless of how many goroutines call `GetCredentials` at the same time.
-- `ExpiresAt` on the returned credential is `expires_in` minus the configured expiry margin.
+- `ExpiresAt` on the returned credential is `expires_in` minus the configured expiry margin. It is a wall-clock instant: time the host spends suspended counts towards expiry.
+
+#### `CredentialRejected`
+
+```go
+func (cc *ClientCredentials) CredentialRejected(ctx context.Context, _ sdk.TransactionContext, resp *http.Response)
+```
+
+Implements [`RejectedCredentialHandler`](#rejectedcredentialhandler). Discards the cached token when the target answered `401` to a request sent with it, at most once per minute.
 
 ---
 
@@ -626,6 +636,16 @@ Fetches an OAuth2 bearer token using the refresh token grant and returns a cache
 3. Exchanges the refresh token at the token endpoint for a new access token.
 4. If the response contains a rotated refresh token, saves it back to the store. A `Save` failure is logged at error level but does not fail the request — the access token is still valid for its TTL.
 5. Concurrent requests are deduplicated via singleflight.
+
+`ExpiresAt` on the returned credential is a wall-clock instant: time the host spends suspended counts towards expiry.
+
+#### `CredentialRejected`
+
+```go
+func (rt *RefreshToken) CredentialRejected(ctx context.Context, _ sdk.TransactionContext, resp *http.Response)
+```
+
+Implements [`RejectedCredentialHandler`](#rejectedcredentialhandler). Discards the cached access token when the target answered `401` to a request sent with it, at most once per minute.
 
 <a id="tokenstoreoauth"></a>
 
@@ -787,6 +807,16 @@ Each unique `TenantID` gets a per-tenant entry with a per-resource access token 
 - On access, the entry moves to the front.
 - When the pool reaches `MaxPoolSize`, the least recently used entry is evicted. The refresh token remains safe in the `TokenStore` — only the in-memory access token caches are lost.
 - Concurrent requests for the same (tenant, resource) are deduplicated via singleflight. Concurrent requests for different resources on the same tenant run in parallel.
+
+`ExpiresAt` on the returned credential is a wall-clock instant: time the host spends suspended counts towards expiry.
+
+#### `CredentialRejected`
+
+```go
+func (s *RefreshTokenSource) CredentialRejected(ctx context.Context, tx sdk.TransactionContext, resp *http.Response)
+```
+
+Implements [`RejectedCredentialHandler`](#rejectedcredentialhandler). Resolves `TenantID` and `Resource` the same way as `GetCredentials` and discards the access token cached for that pair when the target answered `401` to a request sent with it. Discards are limited to one per (tenant, resource) per minute; other tenants and resources are not affected.
 
 <a id="tokenstoremicrosoft"></a>
 
@@ -982,6 +1012,35 @@ See the [Azure Key Vault section](../guides/onboarding-refresh-tokens.md#azure-k
 
 ---
 
+## RejectedCredentialHandler
+
+```go
+type RejectedCredentialHandler interface {
+    CredentialRejected(ctx context.Context, tx sdk.TransactionContext, resp *http.Response)
+}
+```
+
+Optional interface for credential providers that keep credentials in memory. All three building blocks implement it.
+
+An access token can stop working before its expiry time: the identity provider revoked it (password change, session revocation, a policy change), or the local clock is wrong. The only signal is the target answering `401 Unauthorized`. Without this interface the building block would keep returning the rejected token until `ExpiresAt`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `ctx` | [`context.Context`][ctx] | Context of the `ModifyResponse` call. |
+| `tx` | [`TransactionContext`][tx] | Transaction context of the request, the same one `GetCredentials` received. |
+| `resp` | [`*http.Response`][resp] | The target's response. `resp.Request` is the request as it was sent to the target, including the injected credential headers. |
+
+**Who calls it:** [`Mux.ModifyResponse`](#modifyresponse) and the [`AsPlugin`](#asplugin) adapter, when the response status is `401`. A Distributor plugin that wraps a building block in its own [`Plugin`][plugin] must forward the call from its own `ModifyResponse` (a plugin that embeds `*contrib.Mux` and does not override `ModifyResponse` already does).
+
+**What the building blocks do:**
+
+- The cached token is discarded only if it is the one the rejected request was sent with (the `Authorization: Bearer` value of `resp.Request`). A `401` for an older token — a request that was in flight when the cache was refreshed — is ignored.
+- Discards are limited to one per cache key per minute (per provider for the OAuth2 blocks, per tenant and resource for Microsoft). A target that answers `401` for a reason a new token does not fix (missing permission, wrong audience) therefore causes at most one extra token request per minute, not one per proxied request.
+- The discard is logged at warn level with the cache key, never the token.
+- The rejected request is **not retried**. The `401` reaches the caller, and the next request obtains a new token. The proxy streams request bodies to the target and cannot tell whether repeating a request is safe.
+
+---
+
 ## Sentinel errors
 
 All errors are defined in the `contrib` package and can be checked with [`errors.Is`](https://pkg.go.dev/errors#Is).
@@ -1004,6 +1063,21 @@ import "github.com/cloudblue/chaperone/plugins/contrib"
 | `ErrUnexpectedForwardAction` | `"matched route is a forward action; GetCredentials should not have been called"` | The Core called `GetCredentials` for a route registered via [`HandleForward`](#handleforward). Indicates an integration bug — forwarding should have been handled by `RouteRequest`. | No |
 | `ErrNilCredentialProvider` | `"credential action has nil provider"` | A credential route was registered with a nil provider. Programming error caught at dispatch time. | No |
 
+### Token endpoint errors in the log
+
+When the token endpoint answers a token request with a non-2xx status, the OAuth2 building blocks log one entry at warn level and return an error that carries the same information:
+
+| Attribute | Description |
+|-----------|-------------|
+| `token_url` | The token endpoint. For Microsoft it contains the tenant. |
+| `status` | HTTP status of the response. |
+| `oauth_error` | The OAuth2 `error` code ([RFC 6749 §5.2](https://datatracker.ietf.org/doc/html/rfc6749#section-5.2)), e.g. `invalid_grant`. Omitted unless it is a short identifier (letters, digits, `_`, `.`, `-`; at most 64 characters). |
+| `oauth_error_code` | The Microsoft Entra ID code found in `error_description`, e.g. `AADSTS50076`. Omitted when there is none. |
+
+The message is `token endpoint rejected the token request` (4xx), `token endpoint rejected the client credentials` (401) or `token endpoint unavailable` (429, 5xx).
+
+The response body is never logged. `error_description` is free text chosen by the identity provider, so it is only logged at debug level (`oauth_error_description`).
+
 ---
 
 ## Adapter
@@ -1018,7 +1092,7 @@ Wraps a [`CredentialProvider`][cp] into a full [`Plugin`][plugin] with stub impl
 
 - `GetCredentials` delegates to the wrapped provider.
 - `SignCSR` returns an error (`"certificate signing not configured"`).
-- `ModifyResponse` returns a nil action and nil error (no-op).
+- `ModifyResponse` returns a nil action and nil error and leaves the response unchanged. When the target answered `401 Unauthorized`, it first calls `CredentialRejected` on the wrapped provider if it implements [`RejectedCredentialHandler`](#rejectedcredentialhandler).
 
 Use this to pass a building block to the [compliance test kit](sdk.md#compliance-test-kit):
 
