@@ -2,8 +2,8 @@ go 1.27.4
 
 use (
 	.
+	./admin
 	./plugins/contrib
 	./plugins/contrib/microsoft/keyvault
 	./sdk
-  ./admin
 )
