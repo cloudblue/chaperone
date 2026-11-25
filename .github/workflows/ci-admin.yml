@@ -197,7 +197,7 @@ jobs:
         # E2E step produced no results.json (e.g. an earlier step failed) — the
         # summary action errors on a missing report file.
         if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('admin/ui/e2e/results.json') != '' }}
-        uses: daun/playwright-report-summary@31ed947ec7a623d18a66cfd20ef546dc66ef8063 # v4.1.0
+        uses: daun/playwright-report-summary@5359ae22f265fd2dfdb7744a0cc6614c5c3abde6 # v4.1.1
         with:
           report-file: admin/ui/e2e/results.json
 
